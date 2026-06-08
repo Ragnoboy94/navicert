@@ -245,3 +245,9 @@ details > summary {
   touch-action: manipulation;
   user-select: none;
 }
+
+@layer utilities {
+  .object-cover {
+    object-fit: fill;
+  }
+}
