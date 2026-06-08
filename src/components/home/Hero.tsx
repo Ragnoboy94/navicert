@@ -53,7 +53,8 @@ export function Hero({ site }: { site: SiteConfig }) {
               alt="Документы сертификации продукции"
               width={640}
               height={480}
-              className="aspect-[4/3] w-full object-cover"
+              quality={92}
+              className="aspect-[4/3] w-full object-cover contrast-[1.03] saturate-[1.04]"
               priority
               sizes="(max-width: 1024px) 100vw, 50vw"
             />

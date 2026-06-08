@@ -43,8 +43,9 @@ export function ServicesSection({ services }: { services: Service[] }) {
                     src={service.image}
                     alt={service.title}
                     fill
-                    className="object-cover transition duration-500 group-hover:scale-105"
+                    className="object-cover contrast-[1.02] saturate-[1.03] transition duration-500 group-hover:scale-105"
                     sizes="(max-width: 768px) 100vw, 33vw"
+                    quality={90}
                     loading="lazy"
                   />
                 </div>

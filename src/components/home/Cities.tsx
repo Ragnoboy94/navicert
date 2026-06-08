@@ -10,7 +10,7 @@ export function Cities({ cities }: { cities: string[] }) {
   return (
     <section id="geografiya" className="section-compact geo-slot">
       <div className="container-page w-full">
-        <div className="mx-auto max-w-2xl rounded-3xl border border-white/60 bg-white/75 p-6 shadow-sm backdrop-blur-md sm:p-8">
+        <div className="mx-auto max-w-2xl rounded-3xl border border-border bg-white p-6 shadow-[var(--shadow-card)] sm:p-8">
           <SectionHeading
             label="География"
             title="Точки сертификации"
@@ -21,7 +21,7 @@ export function Cities({ cities }: { cities: string[] }) {
             {shown.map((city) => (
               <span
                 key={city}
-                className="inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-white/85 px-3.5 py-1.5 text-sm font-medium whitespace-nowrap shadow-sm backdrop-blur-sm"
+                className="inline-flex items-center gap-1.5 rounded-full border border-border bg-white px-3.5 py-1.5 text-sm font-medium whitespace-nowrap shadow-sm"
               >
                 <MapPin className="h-3.5 w-3.5 text-accent" />
                 {city}

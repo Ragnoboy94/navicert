@@ -8,7 +8,10 @@
   --primary-light: #1e6fd9;
   --accent: #00b8f0;
   --accent-soft: #e6f7fd;
-  --muted: #5a6b82;
+  --muted: #475569;
+  --map-opacity: 0.34;
+  --surface-white-alpha: 0.94;
+  --surface-muted-alpha: 0.92;
   --card: #ffffff;
   --border: #d8e2f0;
   --radius-card: 1.5rem;
@@ -140,7 +143,8 @@ p {
   background-repeat: no-repeat;
   background-size: min(1080px, 96vw);
   background-attachment: fixed;
-  opacity: 0.5;
+  opacity: var(--map-opacity);
+  filter: contrast(1.12) saturate(1.06);
   pointer-events: none;
 }
 
@@ -153,7 +157,7 @@ p {
   .site-map-layer {
     background-attachment: scroll;
     background-size: min(800px, 128vw);
-    opacity: 0.42;
+    opacity: 0.3;
   }
 }
 
@@ -163,22 +167,22 @@ p {
   }
 }
 
-/* Блоки контента — 40% непрозрачности, без blur */
+/* Блоки — плотная заливка: карта читается в просветах, контент без «мыла» */
 .surface-blue {
   background: linear-gradient(
     135deg,
-    rgba(10, 31, 77, 0.4) 0%,
-    rgba(19, 72, 168, 0.4) 50%,
-    rgba(30, 111, 217, 0.4) 100%
+    rgba(10, 31, 77, 0.96) 0%,
+    rgba(19, 72, 168, 0.94) 50%,
+    rgba(30, 111, 217, 0.92) 100%
   );
 }
 
 .surface-white {
-  background: rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, var(--surface-white-alpha));
 }
 
 .surface-muted {
-  background: rgba(240, 244, 251, 0.4);
+  background: rgba(240, 244, 251, var(--surface-muted-alpha));
 }
 
 /* География — без заливки секции, только стеклянная карточка на карте */
@@ -189,7 +193,8 @@ p {
 }
 
 .site-map-page .card {
-  background: rgba(255, 255, 255, 0.4);
+  background: #ffffff;
+  box-shadow: var(--shadow-card);
 }
 
 .container-page {
