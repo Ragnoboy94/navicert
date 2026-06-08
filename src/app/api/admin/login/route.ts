@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { COOKIE_NAME, getAdminPassword } from "@/lib/auth";
+import { COOKIE_NAME, getAdminCookieOptions, getAdminPassword } from "@/lib/auth";
 
 export async function POST(request: Request) {
   const { password } = await request.json();
@@ -9,13 +9,7 @@ export async function POST(request: Request) {
   }
 
   const response = NextResponse.json({ success: true });
-  response.cookies.set(COOKIE_NAME, password, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    maxAge: 60 * 60 * 24 * 7,
-    path: "/",
-  });
+  response.cookies.set(COOKIE_NAME, password, getAdminCookieOptions(request));
 
   return response;
 }

@@ -166,7 +166,7 @@ export default function AdminPage() {
   }, []);
 
   async function checkAuth() {
-    const res = await fetch("/api/admin/content");
+    const res = await fetch("/api/admin/content", { credentials: "same-origin" });
     setAuthed(res.ok);
     if (res.ok) {
       const data = await res.json();
@@ -182,18 +182,18 @@ export default function AdminPage() {
     const res = await fetch("/api/admin/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
       body: JSON.stringify({ password }),
     });
     if (res.ok) {
-      setAuthed(true);
-      checkAuth();
+      await checkAuth();
     } else {
       setLoginError("Неверный пароль");
     }
   }
 
   async function logout() {
-    await fetch("/api/admin/logout", { method: "POST" });
+    await fetch("/api/admin/logout", { method: "POST", credentials: "same-origin" });
     setAuthed(false);
   }
 
