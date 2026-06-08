@@ -1,0 +1,71 @@
+{
+  "title": "Какой документ вам нужен?",
+  "subtitle": "Ответьте на 2 вопроса — подскажем оптимальный вариант",
+  "steps": [
+    {
+      "id": "category",
+      "question": "Какая у вас продукция?",
+      "options": [
+        { "value": "food", "label": "Пищевая продукция" },
+        { "value": "cosmetics", "label": "Косметика и гигиена" },
+        { "value": "toys", "label": "Игрушки и детские товары" },
+        { "value": "equipment", "label": "Оборудование и техника" },
+        { "value": "textile", "label": "Одежда и текстиль" },
+        { "value": "other", "label": "Другое" }
+      ]
+    },
+    {
+      "id": "goal",
+      "question": "Какая у вас задача?",
+      "options": [
+        { "value": "mandatory", "label": "Обязательная сертификация для продажи" },
+        { "value": "import", "label": "Ввоз через таможню" },
+        { "value": "marketplace", "label": "Выход на маркетплейс / в сеть" },
+        { "value": "voluntary", "label": "Добровольный сертификат (ЭКО, ISO и др.)" },
+        { "value": "unknown", "label": "Не знаю — нужна консультация" }
+      ]
+    }
+  ],
+  "results": {
+    "food-mandatory": {
+      "title": "Декларация или сертификат ЕАЭС",
+      "description": "Для пищевой продукции обычно требуется декларация соответствия или сертификат — зависит от вида продукта. Мы бесплатно определим точный документ.",
+      "serviceSlug": "deklaratsiya-sootvetstviya-eaes"
+    },
+    "food-import": {
+      "title": "Декларация + сопровождение таможни",
+      "description": "Для ввоза пищевой продукции нужен пакет документов. Поможем с декларацией, СГР (если требуется) и отказным письмом.",
+      "serviceSlug": "deklaratsiya-sootvetstviya-eaes"
+    },
+    "cosmetics-mandatory": {
+      "title": "СГР и декларация",
+      "description": "Косметика и средства гигиены чаще всего требуют свидетельство о госрегистрации (СГР) и декларацию соответствия.",
+      "serviceSlug": "svidetelstvo-gosregistratsii"
+    },
+    "cosmetics-voluntary": {
+      "title": "Добровольные сертификаты ЭКО / VEGAN",
+      "description": "Для маркировки «ЭКО», «ВЕГАН», «БЕЗ ГМО» оформим добровольные сертификаты и обязательные документы.",
+      "serviceSlug": "sertifikaty-eko-bio"
+    },
+    "toys-mandatory": {
+      "title": "Сертификат соответствия ЕАЭС",
+      "description": "Игрушки и детские товары подлежат обязательной сертификации по ТР ТС 008/2011.",
+      "serviceSlug": "sertifikat-sootvetstviya-eaes"
+    },
+    "equipment-mandatory": {
+      "title": "Сертификат или декларация + ОБ",
+      "description": "Для оборудования часто нужен сертификат ЕАЭС и обоснование безопасности. Определим схему по вашему изделию.",
+      "serviceSlug": "sertifikat-sootvetstviya-eaes"
+    },
+    "textile-mandatory": {
+      "title": "Декларация соответствия ЕАЭС",
+      "description": "Текстиль и одежда обычно декларируются по ТР ТС 017/2011.",
+      "serviceSlug": "deklaratsiya-sootvetstviya-eaes"
+    },
+    "default": {
+      "title": "Бесплатная консультация эксперта",
+      "description": "По вашему описанию продукции определим точный перечень документов в течение дня — без обязательств.",
+      "serviceSlug": ""
+    }
+  }
+}

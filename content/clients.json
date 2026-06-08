@@ -1,0 +1,13 @@
+[
+  { "name": "Клиент 1", "logo": "/images/client-1.png" },
+  { "name": "Atlantic", "logo": "/images/client-2.svg" },
+  { "name": "Клиент 3", "logo": "/images/client-3.png" },
+  { "name": "Клиент 4", "logo": "/images/client-4.png" },
+  { "name": "Клиент 5", "logo": "/images/client-5.png" },
+  { "name": "Enika", "logo": "/images/client-6.png" },
+  { "name": "Клиент 7", "logo": "/images/client-7.png" },
+  { "name": "Клиент 8", "logo": "/images/client-8.png" },
+  { "name": "Клиент 9", "logo": "/images/client-9.png" },
+  { "name": "Клиент 10", "logo": "/images/client-10.png" },
+  { "name": "Клиент 11", "logo": "/images/client-11.png" }
+]

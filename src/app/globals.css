@@ -1,26 +1,242 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f0f4fb;
+  --foreground: #0c1a2e;
+  --primary-dark: #0a1f4d;
+  --primary: #1348a8;
+  --primary-light: #1e6fd9;
+  --accent: #00b8f0;
+  --accent-soft: #e6f7fd;
+  --muted: #5a6b82;
+  --card: #ffffff;
+  --border: #d8e2f0;
+  --radius-card: 1.5rem;
+  --radius-button: 9999px;
+  --radius-input: 1rem;
+  --shadow-card: 0 4px 24px -4px rgba(10, 31, 77, 0.08);
+  --shadow-hover: 0 12px 40px -8px rgba(10, 31, 77, 0.15);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-primary: var(--primary);
+  --color-primary-dark: var(--primary-dark);
+  --color-primary-light: var(--primary-light);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-muted: var(--muted);
+  --color-card: var(--card);
+  --color-border: var(--border);
+  --font-sans: var(--font-onest);
+  --radius-2xl: 1rem;
+  --radius-3xl: 1.5rem;
+  --radius-4xl: 2rem;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  scroll-behavior: smooth;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-onest), system-ui, sans-serif;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: #b8e8fa;
+  color: var(--primary-dark);
+}
+
+h1, h2, h3 {
+  text-wrap: balance;
+}
+
+p {
+  text-wrap: pretty;
+}
+
+.card {
+  border-radius: var(--radius-card);
+  background: var(--card);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-card);
+}
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: var(--radius-button);
+  background: linear-gradient(135deg, var(--accent) 0%, var(--primary-light) 100%);
+  color: white;
+  font-weight: 600;
+  transition: transform 0.15s, box-shadow 0.15s;
+  box-shadow: 0 4px 14px -2px rgba(0, 184, 240, 0.4);
+}
+
+.btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px -2px rgba(0, 184, 240, 0.5);
+}
+
+.btn-outline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: var(--radius-button);
+  border: 1.5px solid rgba(255, 255, 255, 0.45);
+  color: white;
+  font-weight: 600;
+  transition: background 0.15s;
+}
+
+.btn-outline:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: var(--radius-button);
+  border: 1.5px solid var(--border);
+  background: white;
+  color: var(--primary);
+  font-weight: 600;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.btn-ghost:hover {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-card);
+}
+
+.section {
+  padding-block: clamp(2rem, 4vw, 3.5rem);
+}
+
+.section-compact {
+  padding-block: clamp(1.5rem, 3vw, 2.5rem);
+}
+
+/* Карта России — статичный фон всех страниц сайта (не админка) */
+.site-map-page {
+  position: relative;
+}
+
+.site-map-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background-image: url("/images/russia-map.png");
+  background-position: center center;
+  background-repeat: no-repeat;
+  background-size: min(1080px, 96vw);
+  background-attachment: fixed;
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.site-map-content {
+  position: relative;
+  z-index: 1;
+}
+
+@media (max-width: 768px) {
+  .site-map-layer {
+    background-attachment: scroll;
+    background-size: min(800px, 128vw);
+    opacity: 0.42;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .site-map-layer {
+    background-attachment: scroll;
+  }
+}
+
+/* Блоки контента — 40% непрозрачности, без blur */
+.surface-blue {
+  background: linear-gradient(
+    135deg,
+    rgba(10, 31, 77, 0.4) 0%,
+    rgba(19, 72, 168, 0.4) 50%,
+    rgba(30, 111, 217, 0.4) 100%
+  );
+}
+
+.surface-white {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.surface-muted {
+  background: rgba(240, 244, 251, 0.4);
+}
+
+/* География — без заливки секции, только стеклянная карточка на карте */
+.geo-slot {
+  display: flex;
+  align-items: center;
+  min-height: clamp(400px, 52vh, 540px);
+}
+
+.site-map-page .card {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.container-page {
+  width: 100%;
+  max-width: 76rem;
+  margin-inline: auto;
+  padding-inline: clamp(1rem, 4vw, 2rem);
+}
+
+.input-field {
+  width: 100%;
+  border-radius: var(--radius-input);
+  border: 1px solid var(--border);
+  background: white;
+  padding: 0.75rem 1rem;
+  font-size: 0.9375rem;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.input-field:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(0, 184, 240, 0.15);
+}
+
+.prose-privacy h1 {
+  font-size: 1.875rem;
+  font-weight: 700;
+  margin-bottom: 1.5rem;
+  color: var(--primary-dark);
+}
+
+.prose-privacy p,
+.prose-privacy li {
+  line-height: 1.75;
+  color: #334155;
+  margin-bottom: 0.75rem;
+}
+
+.prose-privacy ul {
+  list-style: disc;
+  padding-left: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+details > summary {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  user-select: none;
 }
