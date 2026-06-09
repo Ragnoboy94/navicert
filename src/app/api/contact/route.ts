@@ -3,6 +3,11 @@ import fs from "fs";
 import path from "path";
 import { getSite } from "@/lib/content";
 import { notifyNewLead } from "@/lib/notifications";
+import {
+  normalizeRuPhone,
+  validateLeadEmail,
+  validateLeadName,
+} from "@/lib/phone";
 import type { Lead } from "@/lib/types";
 
 const leadsPath = path.join(process.cwd(), "data", "leads.json");
@@ -12,19 +17,37 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { name, phone, email, message, service, source } = body;
 
-    if (!name || !phone) {
+    const trimmedName = String(name || "").trim();
+    const normalizedPhone = normalizeRuPhone(String(phone || ""));
+
+    if (!validateLeadName(trimmedName)) {
       return NextResponse.json(
-        { error: "Укажите имя и телефон" },
+        { error: "Укажите корректное имя" },
+        { status: 400 }
+      );
+    }
+
+    if (!normalizedPhone) {
+      return NextResponse.json(
+        { error: "Укажите корректный номер телефона" },
+        { status: 400 }
+      );
+    }
+
+    const trimmedEmail = email ? String(email).trim() : undefined;
+    if (!validateLeadEmail(trimmedEmail)) {
+      return NextResponse.json(
+        { error: "Укажите корректный e-mail" },
         { status: 400 }
       );
     }
 
     const lead: Lead = {
       id: crypto.randomUUID(),
-      name: String(name).trim(),
-      phone: String(phone).trim(),
-      email: email ? String(email).trim() : undefined,
-      message: message ? String(message).trim() : undefined,
+      name: trimmedName,
+      phone: normalizedPhone,
+      email: trimmedEmail,
+      message: message ? String(message).trim().slice(0, 2000) : undefined,
       service: service ? String(service).trim() : undefined,
       source: source ? String(source) : "website",
       createdAt: new Date().toISOString(),
@@ -44,7 +67,7 @@ export async function POST(request: Request) {
 
     const site = getSite();
     if (site.notifications?.telegramEnabled !== false) {
-      await notifyNewLead(lead);
+      notifyNewLead(lead);
     }
 
     return NextResponse.json({ success: true, id: lead.id });

@@ -3,6 +3,13 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Send, Loader2, CheckCircle } from "lucide-react";
+import { PhoneInput } from "./PhoneInput";
+import {
+  isValidRuPhone,
+  normalizeRuPhone,
+  validateLeadEmail,
+  validateLeadName,
+} from "@/lib/phone";
 
 interface ContactFormProps {
   source?: string;
@@ -21,24 +28,50 @@ export function ContactForm({
     "idle"
   );
   const [error, setError] = useState("");
+  const [nameError, setNameError] = useState("");
+  const [phoneKey, setPhoneKey] = useState(0);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setStatus("loading");
     setError("");
+    setNameError("");
 
     const form = e.currentTarget;
     const data = new FormData(form);
+    const name = String(data.get("name") || "").trim();
+    const phoneRaw = String(data.get("phone") || "");
+    const email = String(data.get("email") || "").trim();
+    const message = String(data.get("message") || "").trim();
+
+    if (!validateLeadName(name)) {
+      setNameError("Укажите имя (минимум 2 буквы)");
+      setStatus("error");
+      return;
+    }
+
+    const phone = normalizeRuPhone(phoneRaw);
+    if (!phone || !isValidRuPhone(phoneRaw)) {
+      setError("Укажите корректный номер телефона");
+      setStatus("error");
+      return;
+    }
+
+    if (!validateLeadEmail(email)) {
+      setError("Укажите корректный e-mail");
+      setStatus("error");
+      return;
+    }
 
     try {
       const res = await fetch("/api/contact", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: data.get("name"),
-          phone: data.get("phone"),
-          email: data.get("email") || undefined,
-          message: data.get("message") || undefined,
+          name,
+          phone,
+          email: email || undefined,
+          message: message || undefined,
           service: service || data.get("service") || undefined,
           source,
         }),
@@ -51,6 +84,7 @@ export function ContactForm({
 
       setStatus("success");
       form.reset();
+      setPhoneKey((k) => k + 1);
     } catch (err) {
       setStatus("error");
       setError(err instanceof Error ? err.message : "Ошибка отправки");
@@ -81,7 +115,7 @@ export function ContactForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-4" noValidate>
       <div className={compact ? "space-y-3" : "grid gap-4 sm:grid-cols-2"}>
         <div>
           <label htmlFor="name" className={labelClass}>
@@ -91,22 +125,21 @@ export function ContactForm({
             id="name"
             name="name"
             required
+            minLength={2}
+            maxLength={80}
             placeholder="Ваше имя"
-            className="input-field"
+            className={`input-field${nameError ? " border-red-500 ring-1 ring-red-500/30" : ""}`}
+            onChange={() => nameError && setNameError("")}
           />
+          {nameError && (
+            <p className="mt-1 text-xs text-red-600">{nameError}</p>
+          )}
         </div>
         <div>
           <label htmlFor="phone" className={labelClass}>
             Телефон <span className="text-red-500">*</span>
           </label>
-          <input
-            id="phone"
-            name="phone"
-            type="tel"
-            required
-            placeholder="+7 (___) ___-__-__"
-            className="input-field"
-          />
+          <PhoneInput key={phoneKey} id="phone" name="phone" />
         </div>
       </div>
 
@@ -134,6 +167,7 @@ export function ContactForm({
             id="message"
             name="message"
             rows={3}
+            maxLength={2000}
             placeholder="Опишите продукцию или задайте вопрос"
             className="input-field resize-none"
           />
