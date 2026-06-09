@@ -4,13 +4,17 @@ export function SectionHeading({
   description,
   center = true,
   light = false,
+  headingLevel = "h2",
 }: {
   label?: string;
   title: string;
   description?: string;
   center?: boolean;
   light?: boolean;
+  headingLevel?: "h1" | "h2";
 }) {
+  const Heading = headingLevel;
+
   return (
     <div className={center ? "mx-auto max-w-2xl text-center" : "max-w-2xl"}>
       {label && (
@@ -22,13 +26,13 @@ export function SectionHeading({
           {label}
         </p>
       )}
-      <h2
+      <Heading
         className={`text-2xl font-bold tracking-tight sm:text-3xl lg:text-4xl ${
           light ? "text-white" : "text-foreground"
         }`}
       >
         {title}
-      </h2>
+      </Heading>
       {description && (
         <p
           className={`mt-3 text-base leading-relaxed sm:text-lg ${

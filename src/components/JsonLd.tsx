@@ -1,35 +1,13 @@
-import { getSite, getFaq } from "@/lib/content";
+import { getSite, getFaq, getReviews } from "@/lib/content";
+import { buildOrganizationJsonLd, buildWebsiteJsonLd } from "@/lib/jsonld";
 
 export function JsonLd() {
   const site = getSite();
   const faq = getFaq();
-  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://navicert.pro";
+  const reviews = getReviews();
 
-  const organization = {
-    "@context": "https://schema.org",
-    "@type": "ProfessionalService",
-    name: site.name,
-    description: site.description,
-    url: baseUrl,
-    telephone: site.phoneRaw,
-    email: site.email,
-    image: site.ogImage ? `${baseUrl}${site.ogImage}` : undefined,
-    areaServed: { "@type": "Country", name: "Россия" },
-    priceRange: "₽₽",
-    address: {
-      "@type": "PostalAddress",
-      addressCountry: "RU",
-    },
-  };
-
-  const website = {
-    "@context": "https://schema.org",
-    "@type": "WebSite",
-    name: site.name,
-    url: baseUrl,
-    description: site.seo.description,
-    inLanguage: "ru-RU",
-  };
+  const organization = buildOrganizationJsonLd(site, reviews);
+  const website = buildWebsiteJsonLd(site);
 
   const faqPage = {
     "@context": "https://schema.org",

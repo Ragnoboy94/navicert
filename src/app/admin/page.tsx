@@ -11,6 +11,7 @@ import {
   Star,
   HelpCircle,
   TrendingUp,
+  Briefcase,
   Code2,
   ChevronRight,
   Menu,
@@ -20,6 +21,7 @@ import { SiteSettingsForm } from "@/components/admin/SiteSettingsForm";
 import { ReviewsEditor } from "@/components/admin/ReviewsEditor";
 import { FaqEditor } from "@/components/admin/FaqEditor";
 import { CasesEditor } from "@/components/admin/CasesEditor";
+import { ServicesEditor } from "@/components/admin/ServicesEditor";
 import { LeadsPanel } from "@/components/admin/LeadsPanel";
 import { DevJsonEditor } from "@/components/admin/DevJsonEditor";
 import { loadLeads } from "@/components/admin/api";
@@ -31,6 +33,7 @@ type AdminSection =
   | "reviews"
   | "faq"
   | "cases"
+  | "services"
   | "leads"
   | "dev";
 
@@ -69,6 +72,12 @@ const nav: {
     label: "Кейсы",
     icon: TrendingUp,
     description: "Результаты с цифрами",
+  },
+  {
+    id: "services",
+    label: "Услуги и цены",
+    icon: Briefcase,
+    description: "Стоимость и SEO услуг",
   },
   {
     id: "leads",
@@ -349,6 +358,7 @@ export default function AdminPage() {
           {section === "reviews" && <ReviewsEditor />}
           {section === "faq" && <FaqEditor />}
           {section === "cases" && <CasesEditor />}
+          {section === "services" && <ServicesEditor />}
           {section === "leads" && <LeadsPanel />}
           {section === "dev" && <DevJsonEditor files={files} />}
         </div>

@@ -2,6 +2,7 @@ import { Phone, Mail } from "lucide-react";
 import type { QuizConfig, SiteConfig } from "@/lib/types";
 import { SectionHeading } from "../SectionHeading";
 import { ContactForm } from "../ContactForm";
+import { SocialLinks } from "../SocialLinks";
 import { QuizTeaser } from "./QuizTeaser";
 
 export function ContactSection({
@@ -49,24 +50,7 @@ export function ContactSection({
               </div>
             </a>
             <QuizTeaser config={quiz} />
-            <div className="flex gap-2">
-              <a
-                href={site.social.telegram}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn-outline flex-1 px-4 py-2.5 text-sm"
-              >
-                Telegram
-              </a>
-              <a
-                href={site.social.whatsapp}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn-outline flex-1 px-4 py-2.5 text-sm"
-              >
-                WhatsApp
-              </a>
-            </div>
+            <SocialLinks social={site.social} variant="contact" />
           </div>
 
           <div id="zayavka" className="card lg:col-span-3 lg:p-8 p-6 text-foreground">

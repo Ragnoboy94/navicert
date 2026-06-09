@@ -11,9 +11,9 @@
   "copyright": "ИП Громов",
   "year": 2025,
   "social": {
-    "telegram": "https://t.me/navicert",
+    "telegram": "https://t.me/+79114729427",
     "whatsapp": "https://wa.me/79114729427",
-    "max": "https://max.ru"
+    "max": "https://max.ru/u/f9LHodD0cOLQZkVQQPdlR8JTz72ZYRflxGwfd2FSkCCboDIDjiqzkSAImM4"
   },
   "hero": {
     "title": "Сертификация продукции под ключ",
@@ -22,19 +22,19 @@
     "priceFrom": "от 4 000 ₽"
   },
   "logoMark": "/images/logo-mark.png",
-  "ogImage": "/images/hero-main.webp",
+  "ogImage": "/images/hero-main.png",
   "images": {
-    "hero": "/images/hero-main.webp"
+    "hero": "/images/hero-main.png"
   },
   "analytics": {
-    "yandexMetrikaId": ""
+    "yandexMetrikaId": "106623545"
   },
   "notifications": {
     "telegramEnabled": true
   },
   "seo": {
     "title": "Нависерт — сертификация продукции, декларации и сертификаты ЕАЭС",
-    "description": "Центр сертификации Нависерт: оформление сертификатов соответствия, деклараций ЕАЭС, ИСО, СГР, пожарной безопасности. Опыт 12+ лет. Работаем удалённо по всей России.",
-    "keywords": "сертификация продукции, декларация соответствия, сертификат ЕАЭС, сертификат ИСО, оформление документов, нависерт"
+    "description": "Центр сертификации Нависерт: оформление сертификатов и деклараций ЕАЭС от 4 000 ₽. Узнайте стоимость сертификации продукции — бесплатная консультация. Опыт 12+ лет, работаем по всей России.",
+    "keywords": "сертификация продукции, стоимость сертификации, декларация соответствия, сертификат ЕАЭС, сертификат ИСО, оформление документов, нависерт"
   }
 }

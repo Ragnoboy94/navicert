@@ -2,9 +2,11 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import { notFound } from "next/navigation";
 import { CheckCircle } from "lucide-react";
-import { getServices, getService } from "@/lib/content";
+import { getServices, getService, getSite } from "@/lib/content";
 import { ContactForm } from "@/components/ContactForm";
 import { Breadcrumbs } from "@/components/Breadcrumbs";
+import { ServicePrice } from "@/components/ServicePrice";
+import { parsePriceRub } from "@/lib/seo";
 
 export function generateStaticParams() {
   return getServices().map((s) => ({ slug: s.slug }));
@@ -26,6 +28,10 @@ export async function generateMetadata({
     openGraph: {
       title: service.seo.title,
       description: service.seo.description,
+      type: "article",
+      ...(service.image && {
+        images: [{ url: service.image, alt: service.title }],
+      }),
     },
   };
 }
@@ -39,19 +45,30 @@ export default async function ServicePage({
   const service = getService(slug);
   if (!service) notFound();
 
-  const faqJsonLd = {
+  const site = getSite();
+  const priceValue = parsePriceRub(service.priceFrom);
+  const serviceJsonLd = {
     "@context": "https://schema.org",
     "@type": "Service",
     name: service.title,
     description: service.description,
-    provider: { "@type": "Organization", name: "Нависерт" },
+    provider: { "@type": "Organization", name: site.name },
+    ...(priceValue && {
+      offers: {
+        "@type": "Offer",
+        priceCurrency: "RUB",
+        price: priceValue,
+        description: service.priceFrom,
+        availability: "https://schema.org/InStock",
+      },
+    }),
   };
 
   return (
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }}
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(serviceJsonLd) }}
       />
 
       <div className="surface-muted section-compact">
@@ -68,6 +85,14 @@ export default async function ServicePage({
               <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
                 {service.title}
               </h1>
+              {service.priceFrom && (
+                <div className="mt-4">
+                  <p className="mb-1 text-sm font-medium text-muted">
+                    Стоимость оформления
+                  </p>
+                  <ServicePrice price={service.priceFrom} size="lg" />
+                </div>
+              )}
               <p className="mt-4 text-lg leading-relaxed text-muted">
                 {service.description}
               </p>
@@ -101,7 +126,9 @@ export default async function ServicePage({
         <div className="mt-12 rounded-2xl border border-border bg-card p-8">
           <h2 className="text-xl font-bold">Заказать оформление</h2>
           <p className="mt-2 text-sm text-muted">
-            Оставьте заявку — рассчитаем стоимость и сроки бесплатно.
+            {service.priceFrom
+              ? `Ориентировочная стоимость — ${service.priceFrom}. Оставьте заявку — рассчитаем точную цену и сроки бесплатно.`
+              : "Оставьте заявку — рассчитаем стоимость и сроки бесплатно."}
           </p>
           <div className="mt-6">
             <ContactForm source={`service:${slug}`} service={service.title} />

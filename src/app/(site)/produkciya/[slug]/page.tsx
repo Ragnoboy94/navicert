@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { FileText } from "lucide-react";
-import { getCategories, getCategory } from "@/lib/content";
+import { getCategories, getCategory, getSite } from "@/lib/content";
 import { ContactForm } from "@/components/ContactForm";
 import { Breadcrumbs } from "@/components/Breadcrumbs";
 
@@ -22,6 +22,11 @@ export async function generateMetadata({
     title: category.seo.title,
     description: category.seo.description,
     alternates: { canonical: `/produkciya/${slug}` },
+    openGraph: {
+      title: category.seo.title,
+      description: category.seo.description,
+      type: "article",
+    },
   };
 }
 
@@ -34,7 +39,22 @@ export default async function CategoryPage({
   const category = getCategory(slug);
   if (!category) notFound();
 
+  const site = getSite();
+  const categoryJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Service",
+    name: `Сертификация: ${category.title}`,
+    description: category.description,
+    provider: { "@type": "Organization", name: site.name },
+    areaServed: { "@type": "Country", name: "Россия" },
+  };
+
   return (
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(categoryJsonLd) }}
+      />
     <div>
       <div className="surface-muted section-compact">
         <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
@@ -82,5 +102,6 @@ export default async function CategoryPage({
         </div>
       </div>
     </div>
+    </>
   );
 }

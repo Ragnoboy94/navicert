@@ -29,6 +29,24 @@ export function SiteSettingsForm() {
     setSite({ ...site!, social: { ...site!.social, [key]: value } });
   }
 
+  function updateAddress(
+    key: keyof NonNullable<SiteConfig["address"]>,
+    value: string
+  ) {
+    const next = {
+      locality: site!.address?.locality || "",
+      region: site!.address?.region || "",
+      country: site!.address?.country || "RU",
+      [key]: value,
+    };
+    if (!next.locality.trim() && !next.region.trim()) {
+      const { address: _, ...rest } = site!;
+      setSite(rest as SiteConfig);
+      return;
+    }
+    setSite({ ...site!, address: next });
+  }
+
   async function save() {
     await run(() => saveContent("site.json", site));
   }
@@ -115,6 +133,41 @@ export function SiteSettingsForm() {
             <TextInput
               value={site.social.max}
               onChange={(e) => updateSocial("max", e.target.value)}
+            />
+          </Field>
+        </div>
+      </AdminCard>
+
+      <AdminCard
+        title="Офис (необязательно)"
+        description="Услуги дистанционные по всей России — поля можно оставить пустыми. Укажите город только если есть офис приёма клиентов; иначе в поиске не привязываемся к одному региону."
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Город офиса">
+            <TextInput
+              value={site.address?.locality || ""}
+              onChange={(e) => {
+                const locality = e.target.value.trim();
+                if (!locality && !site.address?.region?.trim()) {
+                  const { address: _, ...rest } = site;
+                  setSite(rest as SiteConfig);
+                  return;
+                }
+                setSite({
+                  ...site,
+                  address: {
+                    locality,
+                    region: site.address?.region || "",
+                    country: site.address?.country || "RU",
+                  },
+                });
+              }}
+            />
+          </Field>
+          <Field label="Регион">
+            <TextInput
+              value={site.address?.region || ""}
+              onChange={(e) => updateAddress("region", e.target.value)}
             />
           </Field>
         </div>

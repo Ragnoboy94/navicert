@@ -2,9 +2,10 @@ import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, Shield, Clock, MapPin } from "lucide-react";
 import type { SiteConfig } from "@/lib/types";
+import { SocialLinks } from "../SocialLinks";
 
 export function Hero({ site }: { site: SiteConfig }) {
-  const heroImage = site.images?.hero ?? "/images/hero-main.webp";
+  const heroImage = site.images?.hero ?? "/images/hero-main.png";
 
   return (
     <section className="surface-blue relative overflow-hidden text-white">
@@ -34,15 +35,18 @@ export function Hero({ site }: { site: SiteConfig }) {
             </Link>
           </div>
 
-          <div className="mt-10 flex flex-wrap gap-x-8 gap-y-3 text-sm text-blue-100">
-            <span className="inline-flex items-center gap-2 whitespace-nowrap">
-              <Clock className="h-4 w-4 shrink-0 text-accent" />
-              {site.hero.priceFrom}
-            </span>
-            <span className="inline-flex items-center gap-2">
-              <MapPin className="h-4 w-4 shrink-0 text-accent" />
-              Работаем по всей России
-            </span>
+          <div className="mt-8 flex flex-col gap-4 sm:mt-10">
+            <div className="flex flex-col gap-3 text-sm text-blue-100 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-8 sm:gap-y-2">
+              <span className="inline-flex items-center gap-2 whitespace-nowrap">
+                <Clock className="h-4 w-4 shrink-0 text-accent" />
+                {site.hero.priceFrom}
+              </span>
+              <span className="inline-flex items-center gap-2">
+                <MapPin className="h-4 w-4 shrink-0 text-accent" />
+                Работаем по всей России
+              </span>
+            </div>
+            <SocialLinks social={site.social} variant="hero" />
           </div>
         </div>
 
@@ -50,7 +54,7 @@ export function Hero({ site }: { site: SiteConfig }) {
           <div className="overflow-hidden rounded-4xl shadow-2xl shadow-black/25 ring-1 ring-white/10">
             <Image
               src={heroImage}
-              alt="Документы сертификации продукции"
+              alt="Документы сертификации продукции — Нависерт"
               width={640}
               height={480}
               quality={92}

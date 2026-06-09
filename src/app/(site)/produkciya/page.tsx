@@ -7,7 +7,13 @@ import { SectionHeading } from "@/components/SectionHeading";
 export const metadata: Metadata = {
   title: "Сертифицируемая продукция",
   description:
-    "Сертификация всех видов продукции: косметика, пищевая продукция, оборудование, мебель, игрушки и другие товарные группы.",
+    "Сертификация всех видов продукции: косметика, пищевая продукция, оборудование, мебель, игрушки и другие товарные группы. Узнайте стоимость оформления документов.",
+  alternates: { canonical: "/produkciya" },
+  openGraph: {
+    title: "Сертифицируемая продукция | Нависерт",
+    description:
+      "Документы для косметики, пищевой продукции, оборудования, мебели, игрушек и других товарных групп.",
+  },
 };
 
 export default function CategoriesPage() {
@@ -17,6 +23,7 @@ export default function CategoriesPage() {
     <div className="section surface-muted">
       <div className="container-page">
         <SectionHeading
+          headingLevel="h1"
           title="Перечень сертифицируемой продукции"
           description="Помогаем с документами для любых товарных групп. Выберите категорию, чтобы узнать, какие документы потребуются."
         />

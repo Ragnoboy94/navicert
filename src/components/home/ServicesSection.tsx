@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import type { Service } from "@/lib/types";
 import { SectionHeading } from "../SectionHeading";
+import { ServicePrice } from "../ServicePrice";
 
 const FEATURED_SLUGS = [
   "deklaratsiya-sootvetstviya-eaes",
@@ -27,7 +28,7 @@ export function ServicesSection({ services }: { services: Service[] }) {
         <SectionHeading
           label="Услуги"
           title="Популярные направления"
-          description="Три ключевых документа и полный перечень — оформим под ключ."
+          description="Три ключевых документа и полный перечень — оформим под ключ. Указана стоимость «от»."
         />
 
         <div className="mt-8 grid gap-5 md:grid-cols-3">
@@ -39,6 +40,13 @@ export function ServicesSection({ services }: { services: Service[] }) {
             >
               {service.image && (
                 <div className="relative aspect-[16/10] overflow-hidden bg-accent-soft">
+                  {service.priceFrom && (
+                    <ServicePrice
+                      price={service.priceFrom}
+                      size="sm"
+                      className="absolute right-3 top-3 z-10 bg-white/95 shadow-sm"
+                    />
+                  )}
                   <Image
                     src={service.image}
                     alt={service.title}
@@ -51,9 +59,14 @@ export function ServicesSection({ services }: { services: Service[] }) {
                 </div>
               )}
               <div className="p-4 sm:p-5">
-                <h3 className="text-base font-bold leading-snug text-foreground group-hover:text-primary sm:text-lg">
-                  {service.shortTitle}
-                </h3>
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <h3 className="text-base font-bold leading-snug text-foreground group-hover:text-primary sm:text-lg">
+                    {service.shortTitle}
+                  </h3>
+                  {!service.image && service.priceFrom && (
+                    <ServicePrice price={service.priceFrom} size="sm" />
+                  )}
+                </div>
                 <p className="mt-1.5 line-clamp-2 text-sm leading-relaxed text-muted">
                   {service.description}
                 </p>
@@ -71,10 +84,17 @@ export function ServicesSection({ services }: { services: Service[] }) {
             <Link
               key={service.slug}
               href={`/uslugi/${service.slug}`}
-              className="group flex items-center justify-between gap-2 rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm font-medium transition hover:border-accent/40 hover:bg-accent-soft/30"
+              className="group flex items-center justify-between gap-2 rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm transition hover:border-accent/40 hover:bg-accent-soft/30"
             >
-              <span className="min-w-0 truncate text-foreground group-hover:text-primary">
-                {service.shortTitle}
+              <span className="min-w-0">
+                <span className="block truncate font-medium text-foreground group-hover:text-primary">
+                  {service.shortTitle}
+                </span>
+                {service.priceFrom && (
+                  <span className="text-xs font-semibold text-primary">
+                    {service.priceFrom}
+                  </span>
+                )}
               </span>
               <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted opacity-0 group-hover:opacity-100" />
             </Link>

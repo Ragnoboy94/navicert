@@ -50,11 +50,10 @@ export function TrustWhy({
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-soft p-1.5">
                     <Image
                       src={item.image}
-                      alt=""
+                      alt={item.title}
                       width={32}
                       height={32}
                       className="h-full w-full object-contain"
-                      aria-hidden
                       loading="lazy"
                     />
                   </div>

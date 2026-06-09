@@ -4,13 +4,20 @@ import { ArrowRight } from "lucide-react";
 import { getServices, getSite } from "@/lib/content";
 import { SectionHeading } from "@/components/SectionHeading";
 import { ContactForm } from "@/components/ContactForm";
+import { ServicePrice } from "@/components/ServicePrice";
 
 const site = getSite();
 
 export const metadata: Metadata = {
-  title: "Услуги по сертификации",
+  title: "Услуги по сертификации — стоимость",
   description:
-    "Полный перечень услуг центра сертификации Нависерт: сертификаты ЕАЭС, декларации, ИСО, СГР, пожарная безопасность и другие документы.",
+    "Полный перечень услуг центра сертификации Нависерт с ценами «от»: сертификаты ЕАЭС, декларации, ИСО, СГР, пожарная безопасность и другие документы.",
+  alternates: { canonical: "/uslugi" },
+  openGraph: {
+    title: "Услуги по сертификации — стоимость | Нависерт",
+    description:
+      "Сертификаты ЕАЭС, декларации, ИСО, СГР и другие документы с указанием стоимости «от».",
+  },
 };
 
 export default function ServicesPage() {
@@ -20,8 +27,9 @@ export default function ServicesPage() {
     <div className="section surface-white">
       <div className="container-page">
         <SectionHeading
+          headingLevel="h1"
           title="Услуги по сертификации"
-          description="Оформим все необходимые документы для вашей продукции — от анализа до регистрации в реестре."
+          description="Оформим все необходимые документы — от анализа до регистрации в реестре. Указана стоимость каждой услуги."
         />
 
         <div className="mt-12 space-y-4">
@@ -31,10 +39,15 @@ export default function ServicesPage() {
               href={`/uslugi/${service.slug}`}
               className="group flex items-center justify-between gap-4 rounded-xl border border-border bg-card p-5 transition hover:border-primary/30 hover:shadow-md"
             >
-              <div>
-                <h2 className="font-semibold text-foreground group-hover:text-primary">
-                  {service.title}
-                </h2>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="font-semibold text-foreground group-hover:text-primary">
+                    {service.title}
+                  </h2>
+                  {service.priceFrom && (
+                    <ServicePrice price={service.priceFrom} size="sm" />
+                  )}
+                </div>
                 <p className="mt-1 text-sm text-muted line-clamp-1">
                   {service.description}
                 </p>

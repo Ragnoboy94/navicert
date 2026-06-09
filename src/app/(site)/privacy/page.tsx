@@ -5,6 +5,7 @@ export const metadata: Metadata = {
   title: "Политика конфиденциальности",
   description:
     "Соглашение на обработку персональных данных центра сертификации Нависерт.",
+  alternates: { canonical: "/privacy" },
   robots: { index: true, follow: true },
 };
 

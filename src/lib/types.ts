@@ -20,6 +20,11 @@ export interface SiteConfig {
     whatsapp: string;
     max: string;
   };
+  address?: {
+    locality: string;
+    region: string;
+    country?: string;
+  };
   hero: {
     title: string;
     subtitle: string;
@@ -105,6 +110,7 @@ export interface Service {
   shortTitle: string;
   icon: string;
   image?: string;
+  priceFrom: string;
   description: string;
   features: string[];
   seo: {

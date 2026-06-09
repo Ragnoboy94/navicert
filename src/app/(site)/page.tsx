@@ -27,6 +27,8 @@ import {
 
 export const metadata: Metadata = {
   alternates: { canonical: "/" },
+  description:
+    "Сертификация продукции под ключ: сертификаты и декларации ЕАЭС. Стоимость от 4 000 ₽. Бесплатная консультация по всей России.",
 };
 
 export default function HomePage() {
