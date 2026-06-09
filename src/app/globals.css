@@ -138,7 +138,7 @@ p {
   position: fixed;
   inset: 0;
   z-index: 0;
-  background-image: url("/images/russia-map.png");
+  background-image: url("/images/russia-map.webp");
   background-position: center center;
   background-repeat: no-repeat;
   background-size: min(1080px, 96vw);

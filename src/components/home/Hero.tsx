@@ -5,7 +5,7 @@ import type { SiteConfig } from "@/lib/types";
 import { SocialLinks } from "../SocialLinks";
 
 export function Hero({ site }: { site: SiteConfig }) {
-  const heroImage = site.images?.hero ?? "/images/hero-main.png";
+  const heroImage = site.images?.hero ?? "/images/hero-main.webp";
 
   return (
     <section className="surface-blue relative overflow-hidden text-white">

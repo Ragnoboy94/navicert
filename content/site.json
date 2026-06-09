@@ -22,9 +22,9 @@
     "priceFrom": "от 4 000 ₽"
   },
   "logoMark": "/images/logo-mark.png",
-  "ogImage": "/images/hero-main.png",
+  "ogImage": "/images/hero-main.webp",
   "images": {
-    "hero": "/images/hero-main.png"
+    "hero": "/images/hero-main.webp"
   },
   "analytics": {
     "yandexMetrikaId": "106623545"
