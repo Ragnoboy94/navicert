@@ -38,6 +38,10 @@ export const metadata: Metadata = {
     images: site.ogImage ? [site.ogImage] : undefined,
   },
   robots: { index: true, follow: true },
+  verification: {
+    google: "oNSfLJdFqi5LWHaKS2gsg0qha0TeVlSZwrmYdiIPFWY",
+    yandex: "b3695aa9e85374bf",
+  },
 };
 
 export default function RootLayout({
