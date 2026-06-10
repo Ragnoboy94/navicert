@@ -6,6 +6,12 @@ export const metadata: Metadata = {
   description:
     "Соглашение на обработку персональных данных центра сертификации Нависерт.",
   alternates: { canonical: "/privacy" },
+  openGraph: {
+    title: "Политика конфиденциальности | Нависерт",
+    description:
+      "Соглашение на обработку персональных данных центра сертификации Нависерт.",
+    url: "/privacy",
+  },
   robots: { index: true, follow: true },
 };
 

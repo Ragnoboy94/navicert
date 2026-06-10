@@ -25,6 +25,7 @@ export async function generateMetadata({
     openGraph: {
       title: category.seo.title,
       description: category.seo.description,
+      url: `/produkciya/${slug}`,
       type: "article",
     },
   };

@@ -28,6 +28,7 @@ export async function generateMetadata({
     openGraph: {
       title: service.seo.title,
       description: service.seo.description,
+      url: `/uslugi/${slug}`,
       type: "article",
       ...(service.image && {
         images: [{ url: service.image, alt: service.title }],
