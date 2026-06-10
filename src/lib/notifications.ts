@@ -1,8 +1,12 @@
 import nodemailer from "nodemailer";
 import type { Lead } from "./types";
 import { getSite } from "./content";
+import { formatLeadTimeLines } from "./lead-time";
+import { validateLeadEmail } from "./phone";
 
 function formatLeadText(lead: Lead): string {
+  const timeLines = formatLeadTimeLines(lead.createdAt, lead.clientTimezone);
+
   return [
     "Новая заявка с сайта Нависерт",
     "",
@@ -12,10 +16,14 @@ function formatLeadText(lead: Lead): string {
     lead.service ? `Услуга: ${lead.service}` : null,
     lead.message ? `Сообщение: ${lead.message}` : null,
     `Источник: ${lead.source}`,
-    `Время: ${new Date(lead.createdAt).toLocaleString("ru-RU")}`,
+    ...timeLines,
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+function formatLeadTelegramTime(lead: Lead): string {
+  return formatLeadTimeLines(lead.createdAt, lead.clientTimezone).join("\n");
 }
 
 async function notifyTelegram(lead: Lead): Promise<void> {
@@ -33,7 +41,7 @@ async function notifyTelegram(lead: Lead): Promise<void> {
       lead.service ? `📋 ${lead.service}` : null,
       lead.message ? `💬 ${lead.message}` : null,
       `📍 Источник: ${lead.source}`,
-      `🕐 ${new Date(lead.createdAt).toLocaleString("ru-RU")}`,
+      `🕐 ${formatLeadTelegramTime(lead)}`,
     ].filter(Boolean);
 
     const res = await fetch(
@@ -55,35 +63,55 @@ async function notifyTelegram(lead: Lead): Promise<void> {
   }
 }
 
+function smtpAttempts(): { port: number; secure: boolean }[] {
+  const configured = Number(process.env.SMTP_PORT || "465");
+  const attempts: { port: number; secure: boolean }[] = [
+    { port: configured, secure: configured === 465 },
+  ];
+  // AEZA и многие VPS блокируют 465/587, но пропускают 2525 (Mail.ru).
+  if (configured !== 2525) {
+    attempts.push({ port: 2525, secure: false });
+  }
+  return attempts;
+}
+
 async function notifyEmail(lead: Lead): Promise<void> {
-  try {
-    const host = process.env.SMTP_HOST || "smtp.mail.ru";
-    const port = Number(process.env.SMTP_PORT || "465");
-    const user = process.env.SMTP_USER;
-    const pass = process.env.SMTP_PASS;
+  const host = process.env.SMTP_HOST?.trim() || "smtp.mail.ru";
+  const user = process.env.SMTP_USER?.trim();
+  const pass = process.env.SMTP_PASS?.trim();
+  if (!user || !pass) return;
 
-    if (!user || !pass) return;
+  const site = getSite();
+  const from = process.env.SMTP_FROM?.trim() || user;
+  const to = process.env.NOTIFY_EMAIL?.trim() || site.email;
 
-    const site = getSite();
-    const from = process.env.SMTP_FROM || user;
-    const to = process.env.NOTIFY_EMAIL || site.email;
+  const mail: nodemailer.SendMailOptions = {
+    from: `"${site.name}" <${from}>`,
+    to,
+    subject: `Заявка с сайта — ${lead.name}`,
+    text: formatLeadText(lead),
+  };
 
-    const transporter = nodemailer.createTransport({
-      host,
-      port,
-      secure: port === 465,
-      auth: { user, pass },
-    });
+  if (lead.email && validateLeadEmail(lead.email)) {
+    mail.replyTo = lead.email;
+  }
 
-    await transporter.sendMail({
-      from: `"${site.name}" <${from}>`,
-      to,
-      replyTo: lead.email || undefined,
-      subject: `Заявка с сайта — ${lead.name}`,
-      text: formatLeadText(lead),
-    });
-  } catch {
-    return;
+  for (const { port, secure } of smtpAttempts()) {
+    try {
+      const transporter = nodemailer.createTransport({
+        host,
+        port,
+        secure,
+        auth: { user, pass },
+        connectionTimeout: 15_000,
+        greetingTimeout: 15_000,
+        tls: { minVersion: "TLSv1.2" },
+      });
+      await transporter.sendMail(mail);
+      return;
+    } catch {
+      continue;
+    }
   }
 }
 

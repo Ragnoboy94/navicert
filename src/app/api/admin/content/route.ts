@@ -1,3 +1,4 @@
+import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 import { isAuthenticated } from "@/lib/auth";
 import {
@@ -5,6 +6,30 @@ import {
   readContentFile,
   writeContentFile,
 } from "@/lib/content";
+
+function revalidateSiteContent(file: string, data: unknown) {
+  revalidatePath("/", "layout");
+  revalidatePath("/uslugi");
+  revalidatePath("/produkciya");
+  revalidatePath("/privacy");
+  revalidatePath("/sitemap.xml");
+
+  if (file === "services.json" && Array.isArray(data)) {
+    for (const item of data) {
+      if (item && typeof item === "object" && "slug" in item) {
+        revalidatePath(`/uslugi/${String(item.slug)}`);
+      }
+    }
+  }
+
+  if (file === "categories.json" && Array.isArray(data)) {
+    for (const item of data) {
+      if (item && typeof item === "object" && "slug" in item) {
+        revalidatePath(`/produkciya/${String(item.slug)}`);
+      }
+    }
+  }
+}
 
 export async function GET(request: Request) {
   if (!(await isAuthenticated())) {
@@ -37,6 +62,7 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: "Invalid request" }, { status: 400 });
     }
     writeContentFile(file, data);
+    revalidateSiteContent(file, data);
     return NextResponse.json({ success: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Save failed";

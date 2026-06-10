@@ -153,4 +153,5 @@ export interface Lead {
   service?: string;
   source: string;
   createdAt: string;
+  clientTimezone?: string;
 }

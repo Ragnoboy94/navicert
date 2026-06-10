@@ -15,7 +15,15 @@ const leadsPath = path.join(process.cwd(), "data", "leads.json");
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { name, phone, email, message, service, source } = body;
+    const { name, phone, email, message, service, source, consent, clientTimezone } =
+      body;
+
+    if (!consent) {
+      return NextResponse.json(
+        { error: "Необходимо принять политику конфиденциальности" },
+        { status: 400 }
+      );
+    }
 
     const trimmedName = String(name || "").trim();
     const normalizedPhone = normalizeRuPhone(String(phone || ""));
@@ -51,6 +59,9 @@ export async function POST(request: Request) {
       service: service ? String(service).trim() : undefined,
       source: source ? String(source) : "website",
       createdAt: new Date().toISOString(),
+      clientTimezone: clientTimezone
+        ? String(clientTimezone).trim().slice(0, 64)
+        : undefined,
     };
 
     const dataDir = path.dirname(leadsPath);

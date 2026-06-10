@@ -43,6 +43,13 @@ export function ContactForm({
     const phoneRaw = String(data.get("phone") || "");
     const email = String(data.get("email") || "").trim();
     const message = String(data.get("message") || "").trim();
+    const consent = data.get("consent");
+
+    if (consent !== "on") {
+      setError("Примите политику конфиденциальности");
+      setStatus("error");
+      return;
+    }
 
     if (!validateLeadName(name)) {
       setNameError("Укажите имя (минимум 2 буквы)");
@@ -74,6 +81,8 @@ export function ContactForm({
           message: message || undefined,
           service: service || data.get("service") || undefined,
           source,
+          consent: true,
+          clientTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         }),
       });
 
