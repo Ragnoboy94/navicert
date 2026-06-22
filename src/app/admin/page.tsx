@@ -16,12 +16,14 @@ import {
   ChevronRight,
   Menu,
   X,
+  Package,
 } from "lucide-react";
 import { SiteSettingsForm } from "@/components/admin/SiteSettingsForm";
 import { ReviewsEditor } from "@/components/admin/ReviewsEditor";
 import { FaqEditor } from "@/components/admin/FaqEditor";
 import { CasesEditor } from "@/components/admin/CasesEditor";
 import { ServicesEditor } from "@/components/admin/ServicesEditor";
+import { CategoriesEditor } from "@/components/admin/CategoriesEditor";
 import { LeadsPanel } from "@/components/admin/LeadsPanel";
 import { DevJsonEditor } from "@/components/admin/DevJsonEditor";
 import { loadLeads } from "@/components/admin/api";
@@ -34,6 +36,7 @@ type AdminSection =
   | "faq"
   | "cases"
   | "services"
+  | "categories"
   | "leads"
   | "dev";
 
@@ -78,6 +81,12 @@ const nav: {
     label: "Услуги и цены",
     icon: Briefcase,
     description: "Стоимость и SEO услуг",
+  },
+  {
+    id: "categories",
+    label: "Продукция",
+    icon: Package,
+    description: "Страницы категорий продукции",
   },
   {
     id: "leads",
@@ -359,6 +368,7 @@ export default function AdminPage() {
           {section === "faq" && <FaqEditor />}
           {section === "cases" && <CasesEditor />}
           {section === "services" && <ServicesEditor />}
+          {section === "categories" && <CategoriesEditor />}
           {section === "leads" && <LeadsPanel />}
           {section === "dev" && <DevJsonEditor files={files} />}
         </div>

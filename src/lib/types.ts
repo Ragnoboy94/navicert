@@ -123,6 +123,8 @@ export interface Category {
   slug: string;
   title: string;
   description: string;
+  /** Основной текст страницы (Markdown): заголовки, списки, жирный. */
+  body?: string;
   documents: string[];
   seo: {
     title: string;

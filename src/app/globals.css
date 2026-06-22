@@ -240,6 +240,40 @@ p {
   margin-bottom: 1rem;
 }
 
+.prose-content h2 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-top: 2rem;
+  margin-bottom: 1rem;
+  color: var(--primary-dark);
+}
+
+.prose-content h3 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+  color: var(--primary-dark);
+}
+
+.prose-content p,
+.prose-content li {
+  line-height: 1.75;
+  color: #334155;
+  margin-bottom: 0.75rem;
+}
+
+.prose-content ul {
+  list-style: disc;
+  padding-left: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.prose-content strong {
+  font-weight: 600;
+  color: var(--foreground);
+}
+
 details > summary {
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
