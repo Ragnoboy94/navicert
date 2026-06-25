@@ -54,8 +54,12 @@ export function slugify(text: string): string {
     .slice(0, 80);
 }
 
-export function uniqueSlug(base: string, existing: string[]): string {
-  let slug = slugify(base) || "kategoriya";
+export function uniqueSlug(
+  base: string,
+  existing: string[],
+  fallback = "kategoriya"
+): string {
+  let slug = slugify(base) || fallback;
   if (!existing.includes(slug)) return slug;
 
   let n = 2;
@@ -83,4 +87,32 @@ export function buildCategorySeo(title: string, description: string) {
         ? `Оформление сертификатов и деклараций: ${name}. Бесплатная консультация и расчёт стоимости.`
         : "",
   };
+}
+
+export function buildServiceSeo(
+  title: string,
+  description: string,
+  priceFrom = ""
+) {
+  const name = title.trim();
+  const desc = description.trim();
+  const price = priceFrom.trim();
+
+  const seoTitle = name
+    ? price
+      ? `${name} — оформление — ${price}`
+      : `${name} — оформление под ключ`
+    : "";
+
+  const seoDescription = desc
+    ? price
+      ? trimDescription(`Стоимость ${price}. ${desc}`)
+      : trimDescription(desc)
+    : name
+      ? price
+        ? `Стоимость ${price}. Оформление: ${name}. Бесплатная консультация.`
+        : `Оформление: ${name}. Бесплатная консультация и расчёт стоимости.`
+      : "";
+
+  return { title: seoTitle, description: seoDescription };
 }

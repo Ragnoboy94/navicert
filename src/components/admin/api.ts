@@ -19,3 +19,28 @@ export async function loadLeads() {
   if (!res.ok) return [];
   return res.json();
 }
+
+export async function uploadImage(
+  file: File,
+  name: string,
+  folder = "uploads"
+): Promise<{ url: string }> {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("name", name);
+  formData.append("folder", folder);
+
+  const res = await fetch("/api/admin/upload", {
+    method: "POST",
+    body: formData,
+  });
+
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(
+      typeof json.error === "string" ? json.error : "upload failed"
+    );
+  }
+
+  return json as { url: string };
+}
