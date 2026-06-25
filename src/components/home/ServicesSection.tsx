@@ -5,21 +5,46 @@ import type { Service } from "@/lib/types";
 import { SectionHeading } from "../SectionHeading";
 import { ServicePrice } from "../ServicePrice";
 
-const FEATURED_SLUGS = [
+const FEATURED_SLUG_PRIORITY = [
   "deklaratsiya-sootvetstviya-eaes",
   "sertifikat-sootvetstviya-eaes",
   "razrabotka-tehnicheskoy-dokumentatsii",
+  // друг переименовал услугу в админке — тот же блок с картинкой
+  "tehnicheskie-usloviya",
 ];
 
 const COMPACT_LIMIT = 8;
 
+function pickFeatured(services: Service[]): Service[] {
+  const bySlug = new Map(services.map((s) => [s.slug, s]));
+  const picked: Service[] = [];
+  const used = new Set<string>();
+
+  for (const slug of FEATURED_SLUG_PRIORITY) {
+    const service = bySlug.get(slug);
+    if (service && !used.has(service.slug)) {
+      picked.push(service);
+      used.add(service.slug);
+      if (picked.length >= 3) return picked;
+    }
+  }
+
+  for (const service of services) {
+    if (!used.has(service.slug) && service.image) {
+      picked.push(service);
+      used.add(service.slug);
+      if (picked.length >= 3) return picked;
+    }
+  }
+
+  return picked;
+}
+
 export function ServicesSection({ services }: { services: Service[] }) {
-  const featured = FEATURED_SLUGS.map(
-    (slug) => services.find((s) => s.slug === slug)!
-  ).filter(Boolean);
+  const featured = pickFeatured(services);
 
   const compact = services
-    .filter((s) => !FEATURED_SLUGS.includes(s.slug))
+    .filter((s) => !featured.some((f) => f.slug === s.slug))
     .slice(0, COMPACT_LIMIT);
 
   return (

@@ -6,16 +6,20 @@ cd /var/www/navicert
 
 BK="/var/backups/navicert-$(date -u +%Y%m%d-%H%M%S)"
 mkdir -p "$BK"
-cp -a content/site.json content/services.json "$BK/" 2>/dev/null || true
+cp -a content "$BK/"
 test -f data/leads.json && cp -a data/leads.json "$BK/" || true
 cp -a .env.local "$BK/"
+echo "backup: $BK"
 
-git stash push -m "pre-deploy-$(date -u +%Y%m%d-%H%M%S)" -- \
-  content/site.json content/services.json 2>/dev/null || true
+# Сбрасываем локальные правки контента, чтобы pull прошёл без конфликтов
+git checkout -- content/ 2>/dev/null || true
+test -f data/leads.json && git checkout -- data/leads.json 2>/dev/null || true
 
 git pull --ff-only origin main
 
-git stash pop 2>/dev/null || true
+# Возвращаем контент с сервера (правки из админки)
+cp -a "$BK/content/." content/
+test -f "$BK/leads.json" && cp -a "$BK/leads.json" data/leads.json || true
 
 export NODE_OPTIONS=--max-old-space-size=1536
 npm run build
