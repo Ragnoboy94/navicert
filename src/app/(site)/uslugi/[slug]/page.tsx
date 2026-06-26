@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
-import Image from "next/image";
 import { notFound } from "next/navigation";
 import { CheckCircle } from "lucide-react";
 import { getServices, getService, getSite } from "@/lib/content";
 import { ContactForm } from "@/components/ContactForm";
 import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { ServicePrice } from "@/components/ServicePrice";
+import { ServiceImageLightbox } from "@/components/uslugi/ServiceImageLightbox";
 import { parsePriceRub } from "@/lib/seo";
 
 export function generateStaticParams() {
@@ -99,15 +99,7 @@ export default async function ServicePage({
               </p>
             </div>
             {service.image && (
-              <div className="overflow-hidden rounded-4xl shadow-lg">
-                <Image
-                  src={service.image}
-                  alt={service.title}
-                  width={280}
-                  height={200}
-                  className="h-48 w-full object-cover lg:h-44"
-                />
-              </div>
+              <ServiceImageLightbox src={service.image} alt={service.title} />
             )}
           </div>
         </div>
