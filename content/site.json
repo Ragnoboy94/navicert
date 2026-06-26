@@ -27,7 +27,8 @@
     "hero": "/images/hero-main.webp"
   },
   "analytics": {
-    "yandexMetrikaId": "106623545"
+    "yandexMetrikaId": "106623545",
+    "chaportAppId": "69c5ae15859d6ac0c99f5185"
   },
   "notifications": {
     "telegramEnabled": true

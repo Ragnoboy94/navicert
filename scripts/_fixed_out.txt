@@ -1,0 +1,15 @@
+﻿
+NOMINIFY 0 len=187942
+ <script> var kbDefaultServers={default:((kbID!="ogRSmG5")?"https://data.killbot.ru":"https://r2.hk.kill-bot.ru"),ru:((kbID!="ogRSmG5")?"https://data.killbot.ru":"https://r2.hk.kill-bot.ru"),zh:((kbID!="ogRSmG5")?"https://data.killbot.ru":"https://r2.hk.kill-bot.ru")};var kbBackupServers=[((kbID=="ogRSmG5")?"https://data.killbot.ru":"https://r2.hk.kill-bot.ru"),"https://r1.kill-bot.ru","https://data.kill-bot.net","https://data.killbot.ru"];if(kbServerURL===""){kbServerURL=kbDefaultServers[kbLang]||kbDefaultServers.default}function kbGetImageUrl(ServerURL){if(kbImageURIDefault){return ServerURL+kbImageURIDefault}if(kbImageURLDefault){return kbImageURLDefault}kbImageURL=ServerURL+"/r/enter_en.png";if(kbLang=="ru")kbImageURL=ServerURL+"/r/enter_ru.png";if(kbLang=="zh")kbImageURL=ServerURL+"/r/enter_zh.png";return kbImageURL}kbImageURL=kbGetImageUrl(kbServerURL);function kbGetVerificationText(type){const check_text_ru="\u041F\u0440\u043E\u0432\u0435\u0440\u043A\u0430 \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044F...";const check_text_en="User Verification...";const check_text_zh="\u7528\u6237\u9A8C\u8BC1...";const loading_text_ru="\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0441\u0430\u0439\u0442\u0430...";const loading_text_en="Loading website...";const loading_text_zh="\u7F51\u7AD9\u52A0\u8F7D\u4E2D...";if(type=="check"){if(kbLang=="ru")return check_text_ru;if(kbLang=="zh")return check_text_zh;return check_text_en}if(type=="load"){if(kbLang=="ru
+
+NOMINIFY 1 len=137
+ <style> @media screen and (max-width: 1499px) { @media screen and (max-width: 1199px) { @media screen and (max-width: 959px) { </style> 
+
+NOMINIFY 2 len=119
+ <!--???????????????????? VORON--><!--?????????????? ???? ???????? https://voron-dev.ru/zeroslide--> <style> </script> 
+
+TAIL domains non-tilda:
+max.ru
+t.me
+voron-dev.ru
+wa.me

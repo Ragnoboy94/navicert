@@ -33,6 +33,7 @@ export interface SiteConfig {
   };
   analytics?: {
     yandexMetrikaId?: string;
+    chaportAppId?: string;
   };
   notifications?: {
     telegramEnabled?: boolean;

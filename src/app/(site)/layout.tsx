@@ -1,6 +1,7 @@
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { JsonLd } from "@/components/JsonLd";
+import { Chaport } from "@/components/Chaport";
 import { YandexMetrika } from "@/components/YandexMetrika";
 import { SiteMapShell } from "@/components/SiteMapShell";
 import { getSite, getPartners } from "@/lib/content";
@@ -16,6 +17,7 @@ export default function SiteLayout({
   return (
     <>
       <YandexMetrika />
+      <Chaport />
       <JsonLd />
       <Header site={site} />
       <main>

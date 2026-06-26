@@ -1,0 +1,24 @@
+﻿=== UNIQUE DOMAINS (20) ===
+data.kill-bot.net
+data.killbot.ru
+max.ru
+mc.yandex.ru
+navicert.pro
+r1.kill-bot.ru
+r2.hk.kill-bot.ru
+sci-hub.ru
+t.me
+top-fwz1.mail.ru
+voron-dev.ru
+wa.me
+www.instagram.com
+www.w3.org
+
+=== URLS MATCHING CHAT KEYWORDS ===
+https://max.ru/u/f9LHodD0cOLQZkVQQPdlR8JTz72ZYRflxGwfd2FSkCCboDIDjiqzkSAImM4
+
+=== SCRIPT SRC (non-tilda) ===
+
+=== IFRAMES ===
+
+=== INLINE PATTERNS ===
