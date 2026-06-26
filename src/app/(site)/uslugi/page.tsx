@@ -1,10 +1,8 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import { ArrowRight } from "lucide-react";
 import { getServices, getSite } from "@/lib/content";
 import { SectionHeading } from "@/components/SectionHeading";
 import { ContactForm } from "@/components/ContactForm";
-import { ServicePrice } from "@/components/ServicePrice";
+import { ServicesSearchList } from "@/components/uslugi/ServicesSearchList";
 
 const site = getSite();
 
@@ -33,30 +31,7 @@ export default function ServicesPage() {
           description="Оформим все необходимые документы — от анализа до регистрации в реестре. Указана стоимость каждой услуги."
         />
 
-        <div className="mt-12 space-y-4">
-          {services.map((service) => (
-            <Link
-              key={service.slug}
-              href={`/uslugi/${service.slug}`}
-              className="group flex items-center justify-between gap-4 rounded-xl border border-border bg-card p-5 transition hover:border-primary/30 hover:shadow-md"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="font-semibold text-foreground group-hover:text-primary">
-                    {service.title}
-                  </h2>
-                  {service.priceFrom && (
-                    <ServicePrice price={service.priceFrom} size="sm" />
-                  )}
-                </div>
-                <p className="mt-1 text-sm text-muted line-clamp-1">
-                  {service.description}
-                </p>
-              </div>
-              <ArrowRight className="h-5 w-5 shrink-0 text-muted transition group-hover:text-primary" />
-            </Link>
-          ))}
-        </div>
+        <ServicesSearchList services={services} />
 
         <div className="mt-16 rounded-2xl border border-border bg-card p-8">
           <h2 className="text-xl font-bold">Не нашли нужную услугу?</h2>
