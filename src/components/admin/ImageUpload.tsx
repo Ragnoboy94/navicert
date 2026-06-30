@@ -44,6 +44,7 @@ export function ImageUpload({
       {value ? (
         <div className="relative aspect-[16/10] max-w-md overflow-hidden rounded-xl border border-border bg-accent-soft">
           <Image
+            key={value}
             src={value}
             alt=""
             fill

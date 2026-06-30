@@ -50,7 +50,7 @@ export async function POST(request: Request) {
     }
 
     const basename = sanitizeUploadBasename(rawName);
-    const filename = `${basename}.${ext}`;
+    const filename = `${basename}-${Date.now()}.${ext}`;
     const uploadDir = path.join(process.cwd(), "public", "images", folder);
 
     fs.mkdirSync(uploadDir, { recursive: true });

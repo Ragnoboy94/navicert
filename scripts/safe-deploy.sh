@@ -53,6 +53,7 @@ sys.exit(0 if ok else 1)
 PY
 
 export NODE_OPTIONS=--max-old-space-size=1536
+npm ci
 npm run build
 
 pm2 restart navicert --update-env
