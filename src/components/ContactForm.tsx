@@ -30,6 +30,7 @@ export function ContactForm({
   const [error, setError] = useState("");
   const [nameError, setNameError] = useState("");
   const [phoneKey, setPhoneKey] = useState(0);
+  const [formOpenedAt] = useState(() => Date.now());
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -83,6 +84,8 @@ export function ContactForm({
           source,
           consent: true,
           clientTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          company: String(data.get("company") || ""),
+          formOpenedAt,
         }),
       });
 
@@ -124,7 +127,21 @@ export function ContactForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+    <form onSubmit={handleSubmit} className="relative space-y-4" noValidate>
+      <div
+        className="pointer-events-none absolute -left-[9999px] h-0 w-0 overflow-hidden opacity-0"
+        aria-hidden
+      >
+        <label htmlFor="company">Компания</label>
+        <input
+          id="company"
+          name="company"
+          type="text"
+          tabIndex={-1}
+          autoComplete="off"
+        />
+      </div>
+
       <div className={compact ? "space-y-3" : "grid gap-4 sm:grid-cols-2"}>
         <div>
           <label htmlFor="name" className={labelClass}>

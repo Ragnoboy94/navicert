@@ -2,21 +2,76 @@ import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import { getSite } from "@/lib/content";
+import {
+  getClientIp,
+  isHoneypotTriggered,
+  validateFormTiming,
+} from "@/lib/contactGuard";
 import { notifyNewLead } from "@/lib/notifications";
 import {
   normalizeRuPhone,
   validateLeadEmail,
   validateLeadName,
 } from "@/lib/phone";
+import { checkRateLimit } from "@/lib/rateLimit";
 import type { Lead } from "@/lib/types";
 
 const leadsPath = path.join(process.cwd(), "data", "leads.json");
 
+const RATE_LIMIT_MAX = 5;
+const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
+
+function fakeSuccess() {
+  return NextResponse.json({ success: true, id: "accepted" });
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { name, phone, email, message, service, source, consent, clientTimezone } =
-      body;
+    const {
+      name,
+      phone,
+      email,
+      message,
+      service,
+      source,
+      consent,
+      clientTimezone,
+      company,
+      formOpenedAt,
+    } = body;
+
+    if (isHoneypotTriggered(company)) {
+      return fakeSuccess();
+    }
+
+    const clientIp = getClientIp(request);
+    if (
+      !checkRateLimit(
+        `contact:${clientIp}`,
+        RATE_LIMIT_MAX,
+        RATE_LIMIT_WINDOW_MS
+      )
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Слишком много заявок с вашего подключения. Попробуйте позже или позвоните нам.",
+        },
+        { status: 429 }
+      );
+    }
+
+    const timing = validateFormTiming(formOpenedAt);
+    if (timing === "invalid") {
+      return fakeSuccess();
+    }
+    if (timing === "too_fast") {
+      return NextResponse.json(
+        { error: "Подождите пару секунд и отправьте форму ещё раз" },
+        { status: 400 }
+      );
+    }
 
     if (!consent) {
       return NextResponse.json(
