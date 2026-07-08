@@ -37,6 +37,13 @@ yarn-error.log*
 # заявки с форм (персональные данные)
 /data/leads.json
 
+# рассылка: runtime-данные, токены, история (не коммитить)
+/data/fsa-token.json
+/data/outreach-queue.json
+/data/outreach-sent.json
+/data/outreach-unsubscribed.json
+/data/outreach-schedule.json
+
 # vercel
 .vercel
 
@@ -46,3 +53,7 @@ next-env.d.ts
 
 # временные скрипты отладки
 scripts/_*
+scripts/outreach/_*
+
+# браузеры Playwright для парсера ФСА
+.playwright-browsers/

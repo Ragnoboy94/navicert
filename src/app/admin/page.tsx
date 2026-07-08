@@ -17,6 +17,7 @@ import {
   Menu,
   X,
   Package,
+  Send,
 } from "lucide-react";
 import { SiteSettingsForm } from "@/components/admin/SiteSettingsForm";
 import { ReviewsEditor } from "@/components/admin/ReviewsEditor";
@@ -25,6 +26,7 @@ import { CasesEditor } from "@/components/admin/CasesEditor";
 import { ServicesEditor } from "@/components/admin/ServicesEditor";
 import { CategoriesEditor } from "@/components/admin/CategoriesEditor";
 import { LeadsPanel } from "@/components/admin/LeadsPanel";
+import { MailingsPanel } from "@/components/admin/MailingsPanel";
 import { DevJsonEditor } from "@/components/admin/DevJsonEditor";
 import { loadLeads } from "@/components/admin/api";
 import { AdminCard } from "@/components/admin/ui";
@@ -38,6 +40,7 @@ type AdminSection =
   | "services"
   | "categories"
   | "leads"
+  | "mailings"
   | "dev";
 
 const nav: {
@@ -93,6 +96,12 @@ const nav: {
     label: "Заявки",
     icon: Inbox,
     description: "Обращения с формы",
+  },
+  {
+    id: "mailings",
+    label: "Рассылки",
+    icon: Send,
+    description: "Информационные уведомления клиентам",
   },
   {
     id: "dev",
@@ -370,6 +379,7 @@ export default function AdminPage() {
           {section === "services" && <ServicesEditor />}
           {section === "categories" && <CategoriesEditor />}
           {section === "leads" && <LeadsPanel />}
+          {section === "mailings" && <MailingsPanel />}
           {section === "dev" && <DevJsonEditor files={files} />}
         </div>
       </main>

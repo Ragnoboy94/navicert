@@ -1,0 +1,115 @@
+import { NextResponse } from "next/server";
+import { isAuthenticated } from "@/lib/auth";
+import { clampBatchCount } from "@/lib/outreach/limits";
+import { sendOutreachBatch, sendOutreachEmail } from "@/lib/outreach/mailer";
+import { readOutreachQueue } from "@/lib/outreach/queue";
+import {
+  formatEmptySendMessage,
+  pickSendableCandidates,
+  summarizeSendBlocks,
+} from "@/lib/outreach/send-selection";
+import type { FsaDeclaration, OutreachQueueItem } from "@/lib/outreach/types";
+
+export const maxDuration = 300;
+
+function findQueueItem(
+  queue: NonNullable<ReturnType<typeof readOutreachQueue>>,
+  id: number
+): OutreachQueueItem | undefined {
+  return (
+    queue.items.find((item) => item.id === id) ??
+    queue.rejected.find((item) => item.id === id)
+  );
+}
+
+export async function POST(request: Request) {
+  if (!(await isAuthenticated())) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  try {
+    const body = await request.json();
+    const count = clampBatchCount(body.count);
+    const force = Boolean(body.force);
+    const manual = Boolean(body.manual);
+    const ids = Array.isArray(body.ids)
+      ? body.ids.map((id: unknown) => Number(id)).filter(Boolean)
+      : null;
+
+    const queue = readOutreachQueue();
+    if (!queue?.items?.length && !queue?.rejected?.length) {
+      return NextResponse.json(
+        { error: "Сначала обновите список из реестра ФСА" },
+        { status: 400 }
+      );
+    }
+
+    let pool: FsaDeclaration[] = [];
+
+    if (ids?.length) {
+      for (const id of ids) {
+        const item = findQueueItem(queue, id);
+        if (item) pool.push(item);
+      }
+    } else {
+      pool = queue.items;
+    }
+
+    if (manual && ids?.length === 1) {
+      const item = findQueueItem(queue, ids[0]);
+      if (!item) {
+        return NextResponse.json(
+          { error: "Декларация не найдена" },
+          { status: 404 }
+        );
+      }
+      const result = await sendOutreachEmail(item, { force, manual: true });
+      return NextResponse.json({
+        ok: result.ok,
+        sent: result.ok ? 1 : 0,
+        results: [
+          {
+            id: item.id,
+            ok: result.ok,
+            reason: result.ok ? undefined : result.reason,
+            record: result.ok ? result.record : undefined,
+          },
+        ],
+      });
+    }
+
+    const toSend = pickSendableCandidates(pool, {
+      force,
+      manual,
+      limit: count,
+    });
+
+    if (toSend.length === 0) {
+      const summary = summarizeSendBlocks(pool);
+      return NextResponse.json(
+        {
+          error: formatEmptySendMessage(summary),
+          summary,
+        },
+        { status: 400 }
+      );
+    }
+
+    const results = await sendOutreachBatch(toSend, { force, manual });
+
+    return NextResponse.json({
+      ok: true,
+      sent: results.filter((item) => item.ok).length,
+      failed: results.filter((item) => !item.ok),
+      results,
+    });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Не удалось отправить письма",
+      },
+      { status: 500 }
+    );
+  }
+}

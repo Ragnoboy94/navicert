@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "outreach:setup": "node scripts/outreach/install-browsers.mjs",
+    "outreach:verify": "tsx scripts/verify-outreach.ts",
+    "outreach:verify-ui": "node scripts/verify-outreach-ui.mjs"
   },
   "dependencies": {
     "fuse.js": "^7.4.2",
@@ -22,9 +25,12 @@
     "@types/nodemailer": "^8.0.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "dotenv": "^17.4.2",
     "eslint": "^9",
     "eslint-config-next": "16.2.7",
+    "playwright": "^1.61.1",
     "tailwindcss": "^4",
+    "tsx": "^4.20.3",
     "typescript": "^5"
   }
 }
