@@ -4,8 +4,10 @@ import { emailFilterLabel } from "@/lib/outreach/email-filter";
 import {
   buildSentLookup,
   getOutreachTestEmail,
+  getRecipientCooldownUntil,
   getSendBlockReason,
   isOutreachTestMode,
+  isRecipientInCooldown,
   readSentRecords,
 } from "@/lib/outreach/mailer";
 import { getExpiringMonthRange, readOutreachQueue } from "@/lib/outreach/queue";
@@ -36,7 +38,8 @@ function decorateItem(
   return {
     ...item,
     alreadySent: sentLookup.byDeclarationId.has(item.id),
-    recipientAlreadySent: email ? sentLookup.byRecipient.has(email) : false,
+    recipientAlreadySent: email ? isRecipientInCooldown(email) : false,
+    recipientCooldownUntil: email ? getRecipientCooldownUntil(email) : null,
     unsubscribed: email ? isUnsubscribed(email, CATEGORY) : false,
     excludeFromAutoSend: excludedFromAuto,
     sendable: manualSendable,

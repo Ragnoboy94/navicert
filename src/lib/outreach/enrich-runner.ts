@@ -1,5 +1,6 @@
 import { applyEnrichResult, enrichQueueBatch } from "./bulk-load";
 import { readOutreachQueue, writeOutreachQueue } from "./queue";
+import type { OutreachQueue } from "./types";
 
 export type EnrichRunnerStatus = {
   running: boolean;
@@ -17,11 +18,16 @@ let loopPromise: Promise<void> | null = null;
 
 const session = {
   running: false,
-  processedTotal: 0,
-  emailsFoundTotal: 0,
   lastBatchAt: null as string | null,
   lastError: null as string | null,
 };
+
+function queueStats(queue: OutreachQueue | null) {
+  return {
+    processedTotal: queue?.enrichProcessedTotal ?? 0,
+    emailsFoundTotal: queue?.enrichEmailsFoundTotal ?? 0,
+  };
+}
 
 export function isEnrichStopRequested(): boolean {
   if (abortRequested) return true;
@@ -30,13 +36,14 @@ export function isEnrichStopRequested(): boolean {
 
 export function getEnrichRunnerStatus(): EnrichRunnerStatus {
   const queue = readOutreachQueue();
+  const stats = queueStats(queue);
   return {
     running: session.running,
     stopping: abortRequested && session.running,
     paused: Boolean(queue?.enrichPaused),
     pending: queue?.enrichQueue.length ?? 0,
-    processedTotal: session.processedTotal,
-    emailsFoundTotal: session.emailsFoundTotal,
+    processedTotal: stats.processedTotal,
+    emailsFoundTotal: stats.emailsFoundTotal,
     lastBatchAt: session.lastBatchAt,
     lastError: session.lastError,
   };
@@ -55,6 +62,14 @@ function clearEnrichPaused(): void {
   if (queue?.enrichPaused) {
     writeOutreachQueue({ ...queue, enrichPaused: false });
   }
+}
+
+function resetEnrichStats(queue: OutreachQueue): OutreachQueue {
+  return {
+    ...queue,
+    enrichProcessedTotal: 0,
+    enrichEmailsFoundTotal: 0,
+  };
 }
 
 export function startBackgroundEnrich(
@@ -76,12 +91,12 @@ export function startBackgroundEnrich(
   abortRequested = false;
   clearEnrichPaused();
 
-  if (options.resetCounters) {
-    session.processedTotal = 0;
-    session.emailsFoundTotal = 0;
-    session.lastBatchAt = null;
-    session.lastError = null;
+  if (options.resetCounters && queue) {
+    writeOutreachQueue(resetEnrichStats(queue));
   }
+
+  session.lastBatchAt = null;
+  session.lastError = null;
 
   loopPromise = runLoop();
   return { started: true, alreadyRunning: false, paused: false };
@@ -101,13 +116,18 @@ async function runLoop(): Promise<void> {
       });
 
       const paused = isEnrichStopRequested();
+      const latest = readOutreachQueue();
+      const processedBase =
+        latest?.enrichProcessedTotal ?? queue.enrichProcessedTotal ?? 0;
+      const emailsBase =
+        latest?.enrichEmailsFoundTotal ?? queue.enrichEmailsFoundTotal ?? 0;
       writeOutreachQueue({
         ...applyEnrichResult(queue, result),
         enrichPaused: paused,
+        enrichProcessedTotal: processedBase + result.processed,
+        enrichEmailsFoundTotal: emailsBase + result.emailsFound,
       });
 
-      session.processedTotal += result.processed;
-      session.emailsFoundTotal += result.emailsFound;
       session.lastBatchAt = new Date().toISOString();
 
       if (paused) break;

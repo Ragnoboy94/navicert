@@ -63,8 +63,18 @@ def parse_env(text: str) -> tuple[list[str], dict[str, str]]:
         if not stripped or stripped.startswith("#") or "=" not in stripped:
             continue
         key, value = stripped.split("=", 1)
-        values[key.strip()] = value.strip()
+        val = value.strip()
+        if len(val) >= 2 and val[0] == val[-1] == '"':
+            val = val[1:-1].replace('\\"', '"').replace("\\\\", "\\")
+        values[key.strip()] = val
     return lines, values
+
+
+def format_env_value(value: str) -> str:
+    if re.search(r'[\s#"\\]', value):
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
+    return value
 
 
 def merge_env(existing: str, local: dict[str, str]) -> str:
@@ -131,7 +141,7 @@ def merge_env(existing: str, local: dict[str, str]) -> str:
         out.append("")
     out.append("# --- managed keys (deploy merge) ---")
     for key in sorted(values):
-        out.append(f"{key}={values[key]}")
+        out.append(f"{key}={format_env_value(values[key])}")
     return "\n".join(out).rstrip() + "\n"
 
 
@@ -194,6 +204,8 @@ def main() -> int:
 
         git checkout -- content/ 2>/dev/null || true
         test -f data/leads.json && git checkout -- data/leads.json 2>/dev/null || true
+        git clean -fd scripts/outreach/ 2>/dev/null || true
+        rm -f scripts/prod-deploy.py src/lib/outreach/fsa-network.ts src/lib/outreach/smtp-transport.ts 2>/dev/null || true
         git reset --hard HEAD
         git pull --ff-only origin main
 
@@ -213,18 +225,23 @@ def main() -> int:
 
         python3 - <<PY
         import json, pathlib, sys
-        bk = pathlib.Path("$BK/counts.txt")
-        before = dict(line.split("\\t") for line in bk.read_text().strip().splitlines())
-        ok = True
-        for name, count in before.items():
-            p = pathlib.Path("content") / name
-            raw = json.loads(p.read_text(encoding="utf-8"))
-            now = len(raw) if isinstance(raw, list) else 1
-            print(f"{{name}}: backup {{count}} -> now {{now}}")
-            if str(now) != count:
-                ok = False
-                print(f"WARNING mismatch {{name}}", file=sys.stderr)
-        sys.exit(0 if ok else 1)
+        bk = pathlib.Path("$BK")
+        counts_path = bk / "counts.txt"
+        if not counts_path.exists():
+            print("skip content verify: no counts.txt")
+        else:
+            before = dict(line.split("\\t") for line in counts_path.read_text().strip().splitlines())
+            ok = True
+            for name, count in before.items():
+                p = pathlib.Path("content") / name
+                raw = json.loads(p.read_text(encoding="utf-8"))
+                now = len(raw) if isinstance(raw, list) else 1
+                print(f"{{name}}: backup {{count}} -> now {{now}}")
+                if str(now) != count:
+                    ok = False
+                    print(f"WARNING mismatch {{name}}", file=sys.stderr)
+            if not ok:
+                sys.exit(1)
         PY
 
         export NODE_OPTIONS=--max-old-space-size=1536

@@ -14,7 +14,7 @@ export function sendBlockLabel(
     case "already_sent":
       return "письмо по этой декларации уже отправляли";
     case "recipient_already_sent":
-      return "на этот email уже отправляли (другая декларация)";
+      return "на этот email недавно писали — повтор позже";
     case "unsubscribed":
       return "отказался от рассылки";
     case "no_corporate_email":
@@ -106,7 +106,7 @@ export function formatEmptySendMessage(
 
   if (summary.counts.recipient_already_sent) {
     parts.push(
-      `${summary.counts.recipient_already_sent} — на email уже писали`
+      `${summary.counts.recipient_already_sent} — пауза перед повтором на тот же email`
     );
   }
   if (summary.counts.already_sent) {

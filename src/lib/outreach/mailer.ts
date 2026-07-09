@@ -38,6 +38,52 @@ export function readSentRecords(): OutreachSendRecord[] {
   return JSON.parse(fs.readFileSync(sentPath, "utf-8")) as OutreachSendRecord[];
 }
 
+/** Пауза перед повторным письмом на тот же корпоративный email (другая декларация). */
+export function getRecipientCooldownDays(): number {
+  const parsed = Number(process.env.OUTREACH_RECIPIENT_COOLDOWN_DAYS ?? 7);
+  if (!Number.isFinite(parsed) || parsed < 0) return 7;
+  return Math.min(Math.max(parsed, 0), 90);
+}
+
+function getRecipientCooldownMs(): number {
+  return getRecipientCooldownDays() * 24 * 60 * 60 * 1000;
+}
+
+export function getLastSendToRecipient(
+  email: string,
+  records = readSentRecords()
+): OutreachSendRecord | null {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) return null;
+
+  let latest: OutreachSendRecord | null = null;
+  for (const record of records) {
+    if (record.originalRecipient.trim().toLowerCase() !== normalized) continue;
+    if (!latest || record.sentAt > latest.sentAt) latest = record;
+  }
+  return latest;
+}
+
+export function getRecipientCooldownUntil(
+  email: string,
+  records = readSentRecords()
+): string | null {
+  const last = getLastSendToRecipient(email, records);
+  if (!last) return null;
+  const cooldownMs = getRecipientCooldownMs();
+  if (cooldownMs === 0) return null;
+  const until = new Date(new Date(last.sentAt).getTime() + cooldownMs);
+  if (until.getTime() <= Date.now()) return null;
+  return until.toISOString();
+}
+
+export function isRecipientInCooldown(
+  email: string,
+  records = readSentRecords()
+): boolean {
+  return getRecipientCooldownUntil(email, records) !== null;
+}
+
 export function buildSentLookup(records = readSentRecords()) {
   const byDeclarationId = new Set(records.map((item) => item.declarationId));
   const byRecipient = new Set(
@@ -62,11 +108,7 @@ export function wasAlreadySent(declarationId: number): boolean {
 }
 
 export function wasAlreadySentToRecipient(email: string): boolean {
-  const normalized = email.trim().toLowerCase();
-  if (!normalized) return false;
-  return readSentRecords().some(
-    (item) => item.originalRecipient.trim().toLowerCase() === normalized
-  );
+  return isRecipientInCooldown(email);
 }
 
 export function getSendBlockReason(

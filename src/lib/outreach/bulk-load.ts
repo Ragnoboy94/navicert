@@ -308,20 +308,25 @@ export async function enrichQueueBatch(
   const eligible = classified.filter((item) => item.emailStatus === "eligible");
   const rejected = classified.filter((item) => item.emailStatus === "rejected");
 
-  const stillPending = stillMissing
-    .filter((item) => !cardEnrichedIds.has(item.id))
-    .concat(
-      cardEnriched.filter((item) => !item.applicant?.email?.trim())
-    );
+  const cardNoEmail = cardEnriched.filter(
+    (item) => !item.applicant?.email?.trim()
+  );
+  const noEmailRejected = cardNoEmail.map((item) => toQueueItem(item));
+
+  // Без email после Playwright — убираем из очереди (не крутить бесконечно).
+  // Остальные без email — в хвост, чтобы дошла очередь до карточек 8–50 в батче.
+  const stillNeedEnrich = stillMissing.filter(
+    (item) => !cardEnrichedIds.has(item.id)
+  );
 
   const remainingQueue = [
-    ...stillPending,
     ...queue.enrichQueue.slice(batch.length),
+    ...stillNeedEnrich,
   ];
 
   const merged = pruneOutreachQueue(
     mergeUnique(queue.items, eligible),
-    mergeUnique(queue.rejected, rejected),
+    mergeUnique(mergeUnique(queue.rejected, rejected), noEmailRejected),
     queue.range
   );
 
@@ -356,6 +361,10 @@ export function listResultToQueue(
     rejected: result.rejected,
     enrichQueue: result.enrichQueue,
     enrichPaused: mode === "append" ? Boolean(existing?.enrichPaused) : false,
+    enrichProcessedTotal:
+      mode === "append" ? (existing?.enrichProcessedTotal ?? 0) : 0,
+    enrichEmailsFoundTotal:
+      mode === "append" ? (existing?.enrichEmailsFoundTotal ?? 0) : 0,
   };
 }
 

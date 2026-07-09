@@ -97,7 +97,12 @@ export async function processEnrichBacklog(
     if (!queue?.enrichQueue.length) break;
 
     const batch = await enrichQueueBatch(queue, getEnrichBatchSize());
-    writeOutreachQueue(applyEnrichResult(queue, batch));
+    writeOutreachQueue({
+      ...applyEnrichResult(queue, batch),
+      enrichProcessedTotal: (queue.enrichProcessedTotal ?? 0) + batch.processed,
+      enrichEmailsFoundTotal:
+        (queue.enrichEmailsFoundTotal ?? 0) + batch.emailsFound,
+    });
     processed += batch.processed;
     emailsFound += batch.emailsFound;
 

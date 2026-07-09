@@ -22,6 +22,7 @@ type QueueItem = {
   productName: string;
   alreadySent: boolean;
   recipientAlreadySent: boolean;
+  recipientCooldownUntil?: string | null;
   unsubscribed: boolean;
   sendable: boolean;
   autoSendable?: boolean;
@@ -167,9 +168,15 @@ function statusBadge(item: QueueItem) {
     );
   }
   if (item.recipientAlreadySent) {
+    const until = item.recipientCooldownUntil
+      ? new Date(item.recipientCooldownUntil).toLocaleDateString("ru-RU", {
+          day: "numeric",
+          month: "short",
+        })
+      : null;
     return (
       <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">
-        этому email уже писали
+        {until ? `повтор с ${until}` : "пауза на этот email"}
       </span>
     );
   }
@@ -619,7 +626,7 @@ export function OutreachPanel() {
       const reason = json.results?.[0]?.reason as string | undefined;
       const reasonLabel =
         reason === "recipient_already_sent"
-          ? "На этот email уже отправляли"
+          ? "На этот email недавно уже писали — подождите неделю или выберите другую декларацию"
           : reason === "already_sent"
             ? "По этой декларации уже отправляли"
             : reason === "smtp_timeout"
@@ -658,6 +665,7 @@ export function OutreachPanel() {
   const enrichPaused = Boolean(data?.enrichStatus?.paused);
   const enrichPending = data?.enrichPending ?? 0;
   const enrichProcessed = data?.enrichStatus?.processedTotal ?? 0;
+  const enrichEmailsFound = data?.enrichStatus?.emailsFoundTotal ?? 0;
 
   return (
     <div className="space-y-4">
@@ -699,13 +707,16 @@ export function OutreachPanel() {
                     : enrichPaused
                       ? "Обогащение остановлено"
                       : "Остались карточки без email"}{" "}
-                — обработано <strong>{enrichProcessed}</strong>, осталось{" "}
+                — просмотрено <strong>{enrichProcessed}</strong>, найдено email{" "}
+                <strong>{enrichEmailsFound}</strong>, осталось{" "}
                 <strong>{enrichPending}</strong>
                 {enrichRunning && !enrichStopping
                   ? ". Можно уйти из раздела — процесс не остановится."
                   : enrichPaused
                     ? ". Нажмите «Продолжить», чтобы возобновить."
-                    : "."}
+                    : enrichPending > 0
+                      ? ". Если счётчик не растёт — проверьте доступ к ФСА (прокси)."
+                      : "."}
               </p>
             </div>
             {enrichRunning || enrichStopping ? (

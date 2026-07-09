@@ -72,6 +72,8 @@ function normalizeQueue(queue: OutreachQueue): OutreachQueue {
     hasMore: queue.hasMore ?? false,
     enrichQueue: (queue.enrichQueue ?? []).map(normalizeDeclaration),
     enrichPaused: Boolean(queue.enrichPaused),
+    enrichProcessedTotal: queue.enrichProcessedTotal ?? 0,
+    enrichEmailsFoundTotal: queue.enrichEmailsFoundTotal ?? 0,
     items: (queue.items ?? []).map((item) => ({
       ...normalizeDeclaration(item),
       emailStatus: item.emailStatus ?? "eligible",

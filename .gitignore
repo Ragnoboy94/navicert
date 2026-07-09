@@ -55,5 +55,9 @@ next-env.d.ts
 scripts/_*
 scripts/outreach/_*
 
+# vpn: сгенерированный конфиг и одноразовые prod-скрипты (креды в env)
+scripts/vpn/*.json
+scripts/vpn/*.py
+
 # браузеры Playwright для парсера ФСА
 .playwright-browsers/

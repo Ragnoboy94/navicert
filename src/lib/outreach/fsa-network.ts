@@ -1,4 +1,9 @@
-import { ProxyAgent } from "undici";
+import { Agent, ProxyAgent, fetch as undiciFetch } from "undici";
+import {
+  isSocksProxy,
+  playwrightProxyOptions,
+  socksConnect,
+} from "./fsa-proxy-shared";
 
 let cachedWorkingProxy: string | undefined;
 
@@ -27,6 +32,27 @@ export function rememberWorkingFsaProxy(proxy: string): void {
   cachedWorkingProxy = proxy;
 }
 
+function dispatcherForProxy(proxy: string) {
+  if (isSocksProxy(proxy)) {
+    return new Agent({
+      connect: (options, callback) => {
+        const host = options.hostname ?? options.host;
+        const port = Number(options.port);
+        if (!host || !Number.isFinite(port)) {
+          callback(new Error("FSA proxy connect: missing host/port"), null);
+          return;
+        }
+        socksConnect(proxy, { host, port })
+          .then((socket) => callback(null, socket))
+          .catch((error) =>
+            callback(error instanceof Error ? error : new Error(String(error)), null)
+          );
+      },
+    });
+  }
+  return new ProxyAgent(proxy);
+}
+
 export async function fsaFetch(
   url: string,
   init: RequestInit = {}
@@ -37,13 +63,12 @@ export async function fsaFetch(
   let lastError: unknown;
   for (const proxy of proxies) {
     try {
-      const response = await fetch(url, {
+      const response = await undiciFetch(url, {
         ...init,
-        // @ts-expect-error undici dispatcher for Node fetch
-        dispatcher: new ProxyAgent(proxy),
-      });
+        dispatcher: dispatcherForProxy(proxy),
+      } as Parameters<typeof undiciFetch>[1]);
       rememberWorkingFsaProxy(proxy);
-      return response;
+      return response as unknown as Response;
     } catch (error) {
       lastError = error;
       cachedWorkingProxy = undefined;
@@ -57,11 +82,11 @@ export async function fsaFetch(
 
 export function playwrightLaunchOptions(): {
   headless: boolean;
-  proxy?: { server: string };
+  proxy?: { server: string; username?: string; password?: string };
 } {
   const proxy = getFsaProxy();
   return {
     headless: true,
-    ...(proxy ? { proxy: { server: proxy } } : {}),
+    ...(proxy ? { proxy: playwrightProxyOptions(proxy) } : {}),
   };
 }

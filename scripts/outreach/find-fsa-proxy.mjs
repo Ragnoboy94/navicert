@@ -5,16 +5,21 @@ import { ProxyAgent } from "undici";
 const FSA = "https://pub.fsa.gov.ru/rds/declaration";
 /** proxy5.net RU snapshot — tried first when page fetch is slow */
 const PRIORITY = [
-  "http://149.154.69.59:80",
+  "http://185.148.105.13:80",
+  "http://45.67.215.231:80",
+  "http://31.12.75.183:80",
+  "http://45.67.215.105:80",
+  "http://45.67.215.31:80",
   "http://109.234.159.83:80",
   "http://146.185.235.147:8080",
   "http://95.213.206.11:8009",
-  "http://87.236.21.86:80",
-  "http://158.160.87.155:8080",
   "http://51.250.44.119:80",
+  "http://158.160.87.155:8080",
+  "http://87.236.21.86:80",
   "http://37.228.116.103:80",
   "http://193.188.23.78:80",
   "http://109.70.24.168:443",
+  "http://149.154.69.59:80",
 ];
 const SOURCES = [
   "https://proxy5.net/free-proxy/russia",
@@ -23,7 +28,13 @@ const SOURCES = [
 ];
 
 async function fetchText(url) {
-  const res = await fetch(url, { signal: AbortSignal.timeout(20_000) });
+  const res = await fetch(url, {
+    signal: AbortSignal.timeout(25_000),
+    headers: {
+      "User-Agent":
+        "Mozilla/5.0 (compatible; NavicertFSA/1.0; +https://navicert.pro)",
+    },
+  });
   return res.text();
 }
 
@@ -56,7 +67,7 @@ async function testProxy(proxyUrl) {
     const res = await fetch(FSA, {
       method: "GET",
       redirect: "follow",
-      signal: AbortSignal.timeout(20_000),
+      signal: AbortSignal.timeout(15_000),
       dispatcher: agent,
     });
     const ok = res.ok || [301, 302].includes(res.status);
@@ -91,11 +102,11 @@ list.sort((a, b) => {
     (p.includes("149.154.") || p.includes("109.234.") ? -1 : 0);
   return score(a) - score(b);
 });
-const toTest = list.slice(0, 40);
+const toTest = list.slice(0, 250);
 console.error(`testing ${toTest.length} proxies against FSA...`);
 
 const winners = [];
-const batchSize = 6;
+const batchSize = 12;
 for (let i = 0; i < toTest.length && winners.length < 5; i += batchSize) {
   const batch = toTest.slice(i, i + batchSize);
   const results = await Promise.all(batch.map((proxyUrl) => testProxy(proxyUrl)));
