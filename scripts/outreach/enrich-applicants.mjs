@@ -1,6 +1,7 @@
 import { chromium } from "playwright";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { playwrightLaunchOptions } from "./fsa-proxy.mjs";
 
 const FSA_URL = "https://pub.fsa.gov.ru/rds/declaration";
 const __filename = fileURLToPath(import.meta.url);
@@ -105,7 +106,7 @@ async function main() {
     return;
   }
 
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch(playwrightLaunchOptions());
   try {
     const page = await browser.newContext({
       locale: "ru-RU",

@@ -281,6 +281,7 @@ export async function runScheduledOutreach(options: {
   }
 
   const candidates = pickSendableCandidates(queue.items, {
+    forAutoSend: true,
     limit: Math.min(stats.perRunLimit, stats.remainingToday, MAX_BATCH_SEND),
   });
   const batchSize = candidates.length;

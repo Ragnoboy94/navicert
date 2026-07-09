@@ -81,6 +81,7 @@ export async function POST(request: Request) {
     const toSend = pickSendableCandidates(pool, {
       force,
       manual,
+      forAutoSend: !manual,
       limit: count,
     });
 

@@ -1,4 +1,5 @@
 import type { FsaApplicant, FsaDeclaration, OutreachSearchFilter } from "./types";
+import { fsaFetch } from "./fsa-network";
 
 const FSA_BASE = "https://pub.fsa.gov.ru";
 
@@ -213,7 +214,7 @@ async function fsaRequest<T>(
   tokenOverride?: string
 ): Promise<T> {
   const token = getBearerToken(tokenOverride);
-  const response = await fetch(`${FSA_BASE}${path}`, {
+  const response = await fsaFetch(`${FSA_BASE}${path}`, {
     method,
     headers: {
       Authorization: `Bearer ${token}`,

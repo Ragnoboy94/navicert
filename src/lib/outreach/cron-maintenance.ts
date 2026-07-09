@@ -60,7 +60,7 @@ function queueNeedsReset(queue: OutreachQueue | null): boolean {
 
 function countSendable(queue: OutreachQueue | null): number {
   if (!queue) return 0;
-  return pickSendableCandidates(queue.items).length;
+  return pickSendableCandidates(queue.items, { forAutoSend: true }).length;
 }
 
 async function loadFromFsa(mode: "reset" | "append") {

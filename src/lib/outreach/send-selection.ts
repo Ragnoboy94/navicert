@@ -1,5 +1,11 @@
 import { getSendBlockReason } from "./mailer";
-import type { FsaDeclaration } from "./types";
+import type { FsaDeclaration, OutreachQueueItem } from "./types";
+
+export function isExcludedFromAutoSend(
+  item: FsaDeclaration | OutreachQueueItem
+): boolean {
+  return Boolean((item as OutreachQueueItem).excludeFromAutoSend);
+}
 
 export function sendBlockLabel(
   reason: string | null | undefined
@@ -15,6 +21,16 @@ export function sendBlockLabel(
       return "личный или неподходящий email";
     case "no_email":
       return "нет email";
+    case "smtp_timeout":
+      return "таймаут SMTP — сервер не отвечает";
+    case "smtp_auth_failed":
+      return "ошибка авторизации SMTP";
+    case "smtp_send_failed":
+      return "ошибка отправки SMTP";
+    case "smtp_not_configured":
+      return "SMTP не настроен";
+    case "excluded_from_auto":
+      return "исключено из автоматической отправки";
     default:
       return reason ?? undefined;
   }
@@ -33,6 +49,7 @@ export function pickSendableCandidates(
   options: {
     force?: boolean;
     manual?: boolean;
+    forAutoSend?: boolean;
     limit?: number;
   } = {}
 ): FsaDeclaration[] {
@@ -41,6 +58,7 @@ export function pickSendableCandidates(
 
   for (const item of items) {
     if (options.limit !== undefined && result.length >= options.limit) break;
+    if (options.forAutoSend && isExcludedFromAutoSend(item)) continue;
     if (getSendBlockReason(item, options)) continue;
 
     const email = item.applicant?.email?.trim().toLowerCase();
@@ -75,7 +93,7 @@ export function summarizeSendBlocks(items: FsaDeclaration[]) {
 
   return {
     total: items.length,
-    sendable: pickSendableCandidates(items).length,
+    sendable: pickSendableCandidates(items, { forAutoSend: true }).length,
     duplicateEmails,
     counts,
   };

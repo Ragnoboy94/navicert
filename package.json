@@ -8,6 +8,11 @@
     "start": "next start",
     "lint": "eslint",
     "outreach:setup": "node scripts/outreach/install-browsers.mjs",
+    "outreach:test-fsa": "node scripts/outreach/test-fsa-access.mjs",
+    "outreach:find-proxy": "node scripts/outreach/find-fsa-proxy.mjs",
+    "outreach:refresh-proxy": "node scripts/outreach/refresh-fsa-proxy.mjs",
+    "outreach:test-smtp": "node scripts/outreach/test-smtp-informal.mjs",
+    "outreach:setup-proxy6": "node scripts/outreach/setup-proxy6.mjs",
     "outreach:verify": "tsx scripts/verify-outreach.ts",
     "outreach:verify-ui": "node scripts/verify-outreach-ui.mjs"
   },
@@ -17,7 +22,9 @@
     "next": "16.2.7",
     "nodemailer": "^8.0.10",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "socks": "^2.8.9",
+    "undici": "^6.27.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

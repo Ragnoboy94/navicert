@@ -73,6 +73,8 @@ export type OutreachSearchFilter = {
 export type OutreachQueueItem = FsaDeclaration & {
   emailStatus: "eligible" | "rejected" | "no_email";
   emailRejectReason?: string;
+  /** Не включать в автоотправку и пакетную отправку; только вручную */
+  excludeFromAutoSend?: boolean;
 };
 
 export type OutreachQueue = {

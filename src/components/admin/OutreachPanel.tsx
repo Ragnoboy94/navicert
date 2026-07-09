@@ -9,6 +9,7 @@ import {
   RefreshCw,
   Search,
   Send,
+  X,
 } from "lucide-react";
 import { AdminCard } from "./ui";
 import { MAX_BATCH_SEND, MAX_DAILY_SEND } from "@/lib/outreach/limits";
@@ -23,6 +24,8 @@ type QueueItem = {
   recipientAlreadySent: boolean;
   unsubscribed: boolean;
   sendable: boolean;
+  autoSendable?: boolean;
+  excludeFromAutoSend?: boolean;
   blockLabel?: string;
   rejectLabel?: string;
   applicant: {
@@ -115,7 +118,7 @@ const filterMeta: Record<
   pending: {
     label: "Готовы к отправке",
     description:
-      "Уникальные адреса, по которым можно отправить письмо прямо сейчас",
+      "Уникальные адреса для авто- и пакетной отправки (исключённые — только вручную)",
     empty: "Нет готовых адресов — возможно, на них уже писали или это дубликаты",
   },
   rejected: {
@@ -130,11 +133,18 @@ const filterMeta: Record<
   },
 };
 
-function isSendableRow(item: QueueItem) {
-  return item.sendable;
+function isAutoSendableRow(item: QueueItem) {
+  return item.autoSendable ?? (item.sendable && !item.excludeFromAutoSend);
 }
 
 function statusBadge(item: QueueItem) {
+  if (item.excludeFromAutoSend) {
+    return (
+      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
+        только вручную
+      </span>
+    );
+  }
   if (!item.sendable && item.blockLabel) {
     return (
       <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">
@@ -207,12 +217,16 @@ function QueueTable({
   onSendOne,
   sendingId,
   manualSend = false,
+  onToggleAutoExclude,
+  togglingId,
 }: {
   rows: QueueItem[];
   showRejectReason?: boolean;
   onSendOne?: (id: number) => void;
   sendingId?: number | null;
   manualSend?: boolean;
+  onToggleAutoExclude?: (id: number, exclude: boolean) => void;
+  togglingId?: number | null;
 }) {
   if (rows.length === 0) {
     return <p className="py-8 text-center text-sm text-muted">Список пуст</p>;
@@ -232,12 +246,18 @@ function QueueTable({
               <th className="px-3 py-2 font-medium">Причина</th>
             )}
             <th className="px-3 py-2 font-medium">Статус</th>
+            {onToggleAutoExclude && (
+              <th className="px-3 py-2 font-medium w-10" aria-label="Авто" />
+            )}
             {onSendOne && <th className="px-3 py-2 font-medium" />}
           </tr>
         </thead>
         <tbody>
           {rows.map((item) => (
-            <tr key={item.id} className="border-b border-border/70">
+            <tr
+              key={item.id}
+              className={`border-b border-border/70 ${item.excludeFromAutoSend ? "opacity-80" : ""}`}
+            >
               <td className="px-3 py-3 font-medium">
                 {item.applicant?.shortName || item.applicant?.fullName || "—"}
               </td>
@@ -260,6 +280,34 @@ function QueueTable({
                 </td>
               )}
               <td className="px-3 py-3">{statusBadge(item)}</td>
+              {onToggleAutoExclude && (
+                <td className="px-2 py-3">
+                  <button
+                    type="button"
+                    disabled={togglingId === item.id}
+                    onClick={() =>
+                      onToggleAutoExclude(item.id, !item.excludeFromAutoSend)
+                    }
+                    className={`inline-flex h-7 w-7 items-center justify-center rounded-md border transition ${
+                      item.excludeFromAutoSend
+                        ? "border-accent bg-accent-soft text-accent hover:bg-accent/10"
+                        : "border-border text-muted hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+                    } disabled:opacity-40`}
+                    title={
+                      item.excludeFromAutoSend
+                        ? "Вернуть в автоматическую отправку"
+                        : "Исключить из автоматической отправки (останется только ручная)"
+                    }
+                    aria-label={
+                      item.excludeFromAutoSend
+                        ? "Вернуть в автоматическую отправку"
+                        : "Исключить из автоматической отправки"
+                    }
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </td>
+              )}
               {onSendOne && (
                 <td className="px-3 py-3">
                   <button
@@ -334,6 +382,7 @@ export function OutreachPanel() {
   const [appending, setAppending] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendingId, setSendingId] = useState<number | null>(null);
+  const [togglingId, setTogglingId] = useState<number | null>(null);
   const [sendCount, setSendCount] = useState(10);
   const [emailsPerDay, setEmailsPerDay] = useState(50);
   const [savingSchedule, setSavingSchedule] = useState(false);
@@ -537,6 +586,24 @@ export function OutreachPanel() {
     await refresh();
   }
 
+  async function toggleAutoExclude(id: number, exclude: boolean) {
+    setTogglingId(id);
+    setError("");
+    const res = await fetch("/api/admin/outreach/exclude", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, exclude }),
+    });
+    const json = await res.json().catch(() => ({}));
+    setTogglingId(null);
+    if (!res.ok) {
+      setError(json.error || "Не удалось обновить очередь");
+      return;
+    }
+    await refresh();
+  }
+
   async function sendOne(id: number, manual = false) {
     setSendingId(id);
     setError("");
@@ -549,30 +616,37 @@ export function OutreachPanel() {
     const json = await res.json().catch(() => ({}));
     setSendingId(null);
     if (!res.ok || !json.results?.[0]?.ok) {
-      const reason = json.results?.[0]?.reason;
-      setError(
-        json.error ||
-          (reason === "recipient_already_sent"
-            ? "На этот email уже отправляли"
-            : reason === "already_sent"
-              ? "По этой декларации уже отправляли"
-              : reason) ||
-          "Не удалось отправить"
-      );
+      const reason = json.results?.[0]?.reason as string | undefined;
+      const reasonLabel =
+        reason === "recipient_already_sent"
+          ? "На этот email уже отправляли"
+          : reason === "already_sent"
+            ? "По этой декларации уже отправляли"
+            : reason === "smtp_timeout"
+              ? "Таймаут SMTP — сервер не отвечает"
+              : reason === "smtp_auth_failed"
+                ? "Ошибка авторизации SMTP (проверьте пароль приложения)"
+                : reason === "smtp_send_failed"
+                  ? "Ошибка отправки SMTP"
+                  : reason === "smtp_not_configured"
+                    ? "SMTP не настроен"
+                    : reason;
+      setError(json.error || reasonLabel || "Не удалось отправить");
       return;
     }
     setMessage(`Письмо отправлено (ID ${id})`);
     await refresh();
   }
 
-  const sendableItems = data?.items.filter(isSendableRow) ?? [];
-  const sendableCount = data?.sendableCount ?? sendableItems.length;
+  const autoSendableItems =
+    data?.items.filter((item) => isAutoSendableRow(item)) ?? [];
+  const sendableCount = data?.sendableCount ?? autoSendableItems.length;
 
   const filteredRows =
     listFilter === "eligible"
       ? (data?.items ?? [])
       : listFilter === "pending"
-        ? sendableItems
+        ? autoSendableItems
         : listFilter === "rejected"
           ? (data?.rejected ?? [])
           : (data?.sent ?? []);
@@ -929,6 +1003,8 @@ export function OutreachPanel() {
               rows={filteredRows as QueueItem[]}
               onSendOne={(id) => sendOne(id, false)}
               sendingId={sendingId}
+              onToggleAutoExclude={toggleAutoExclude}
+              togglingId={togglingId}
             />
           )}
         </AdminCard>

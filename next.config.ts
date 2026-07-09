@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  serverExternalPackages: ["undici"],
   // В dev картинки и так без агрессивного кропа; на проде отключаем /_next/image
   images: {
     unoptimized: process.env.NODE_ENV === "production",

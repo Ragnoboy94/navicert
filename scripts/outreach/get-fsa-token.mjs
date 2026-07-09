@@ -1,12 +1,12 @@
 import { chromium } from "playwright";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { playwrightLaunchOptions } from "./fsa-proxy.mjs";
 
 const FSA_URL = "https://pub.fsa.gov.ru/rds/declaration";
 
 export async function captureFsaBearerToken() {
-  const browser = await chromium.launch({ headless: true });
-  try {
+  const browser = await chromium.launch(playwrightLaunchOptions());  try {
     const context = await browser.newContext({
       locale: "ru-RU",
       userAgent:
@@ -20,8 +20,8 @@ export async function captureFsaBearerToken() {
       if (auth?.startsWith("Bearer ")) bearerToken = auth.slice(7);
     });
 
-    await page.goto(FSA_URL, { waitUntil: "domcontentloaded", timeout: 90_000 });
-    await page.waitForTimeout(5000);
+    await page.goto(FSA_URL, { waitUntil: "commit", timeout: 120_000 });
+    await page.waitForTimeout(8000);
 
     if (!bearerToken) {
       throw new Error("Не удалось перехватить Bearer-токен ФСА");

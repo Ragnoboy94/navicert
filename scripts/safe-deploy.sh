@@ -8,6 +8,7 @@ BK="/var/backups/navicert-$(date -u +%Y%m%d-%H%M%S)"
 mkdir -p "$BK"
 cp -a content "$BK/"
 test -f data/leads.json && cp -a data/leads.json "$BK/" || true
+test -d data && cp -a data "$BK/data-snapshot" || true
 test -d public/images/uploads && cp -a public/images/uploads "$BK/" || true
 cp -a .env.local "$BK/"
 echo "backup: $BK"
@@ -31,6 +32,12 @@ git pull --ff-only origin main
 
 cp -a "$BK/content/." content/
 test -f "$BK/leads.json" && cp -a "$BK/leads.json" data/leads.json || true
+if [ -d "$BK/data-snapshot" ]; then
+  mkdir -p data
+  for f in outreach-queue.json outreach-sent.json outreach-unsubscribed.json outreach-schedule.json fsa-token.json; do
+    test -f "$BK/data-snapshot/$f" && cp -a "$BK/data-snapshot/$f" "data/$f" || true
+  done
+fi
 if [ -d "$BK/uploads" ]; then
   mkdir -p public/images/uploads
   cp -a "$BK/uploads/." public/images/uploads/
@@ -54,6 +61,8 @@ PY
 
 export NODE_OPTIONS=--max-old-space-size=1536
 npm ci
+npm run outreach:setup
+# Опционально: PROXY6_API_KEY в .env.local → node scripts/outreach/setup-proxy6.mjs
 npm run build
 
 pm2 restart navicert --update-env

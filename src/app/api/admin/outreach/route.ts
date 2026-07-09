@@ -31,12 +31,16 @@ function decorateItem(
 ) {
   const email = item.applicant?.email?.trim().toLowerCase() ?? "";
   const blockReason = getSendBlockReason(item);
+  const excludedFromAuto = Boolean(item.excludeFromAutoSend);
+  const manualSendable = blockReason === null;
   return {
     ...item,
     alreadySent: sentLookup.byDeclarationId.has(item.id),
     recipientAlreadySent: email ? sentLookup.byRecipient.has(email) : false,
     unsubscribed: email ? isUnsubscribed(email, CATEGORY) : false,
-    sendable: blockReason === null,
+    excludeFromAutoSend: excludedFromAuto,
+    sendable: manualSendable,
+    autoSendable: manualSendable && !excludedFromAuto,
     blockReason,
     blockLabel: sendBlockLabel(blockReason),
     rejectLabel: item.emailRejectReason
@@ -78,7 +82,9 @@ export async function GET() {
     testEmail: isOutreachTestMode() ? getOutreachTestEmail() : null,
     items,
     rejected,
-    sendableCount: pickSendableCandidates(queue?.items ?? []).length,
+    sendableCount: pickSendableCandidates(queue?.items ?? [], {
+      forAutoSend: true,
+    }).length,
     sendSummary,
     unsubscribed: listUnsubscribesByCategory(CATEGORY).map((item) => ({
       ...item,

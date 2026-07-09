@@ -1,7 +1,11 @@
 import fs from "fs";
 import path from "path";
-import nodemailer from "nodemailer";
 import { classifyEmail, isCorporateEmail } from "./email-filter";
+import {
+  createOutreachTransporter,
+  outreachSmtpAttempts,
+  smtpErrorReason,
+} from "./smtp-transport";
 import { buildOutreachEmail, getOutreachFromName } from "./template";
 import type { FsaDeclaration, OutreachCategory, OutreachSendRecord } from "./types";
 import { isUnsubscribed } from "./unsubscribe";
@@ -9,19 +13,6 @@ import { isUnsubscribed } from "./unsubscribe";
 const DEFAULT_CATEGORY: OutreachCategory = "expiring";
 
 const sentPath = path.join(process.cwd(), "data", "outreach-sent.json");
-
-function smtpAttempts(): { port: number; secure: boolean }[] {
-  const configured = Number(
-    process.env.OUTREACH_SMTP_PORT || process.env.SMTP_PORT || "465"
-  );
-  const attempts: { port: number; secure: boolean }[] = [
-    { port: configured, secure: configured === 465 },
-  ];
-  if (configured !== 2525) {
-    attempts.push({ port: 2525, secure: false });
-  }
-  return attempts;
-}
 
 export function isOutreachTestMode(): boolean {
   return process.env.OUTREACH_TEST_MODE !== "false";
@@ -181,16 +172,17 @@ export async function sendOutreachEmail(
     mail.replyTo = replyTo;
   }
 
-  for (const { port, secure } of smtpAttempts()) {
+  let lastSmtpError: string | undefined;
+
+  for (const attempt of outreachSmtpAttempts()) {
     try {
-      const transporter = nodemailer.createTransport({
+      const transporter = createOutreachTransporter({
         host,
-        port,
-        secure,
-        auth: { user, pass },
-        connectionTimeout: 15_000,
-        greetingTimeout: 15_000,
-        tls: { minVersion: "TLSv1.2" },
+        user,
+        pass,
+        port: attempt.port,
+        secure: attempt.secure,
+        requireTLS: attempt.requireTLS,
       });
       await transporter.sendMail(mail);
 
@@ -209,12 +201,19 @@ export async function sendOutreachEmail(
       };
       writeSentRecord(record);
       return { ok: true, record };
-    } catch {
+    } catch (error) {
+      lastSmtpError =
+        error instanceof Error ? error.message : String(error);
       continue;
     }
   }
 
-  return { ok: false, reason: "smtp_send_failed" };
+  return {
+    ok: false,
+    reason: lastSmtpError
+      ? smtpErrorReason(lastSmtpError)
+      : "smtp_send_failed",
+  };
 }
 
 export async function sendOutreachBatch(

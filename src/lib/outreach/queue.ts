@@ -43,6 +43,27 @@ export function writeOutreachQueue(queue: OutreachQueue): void {
   fs.writeFileSync(queuePath, JSON.stringify(normalizeQueue(queue), null, 2) + "\n");
 }
 
+export function setExcludeFromAutoSend(
+  declarationId: number,
+  exclude: boolean
+): OutreachQueue | null {
+  const queue = readOutreachQueue();
+  if (!queue) return null;
+
+  let found = false;
+  const items = queue.items.map((item) => {
+    if (item.id !== declarationId) return item;
+    found = true;
+    return { ...item, excludeFromAutoSend: exclude };
+  });
+
+  if (!found) return null;
+
+  const next = { ...queue, items };
+  writeOutreachQueue(next);
+  return next;
+}
+
 function normalizeQueue(queue: OutreachQueue): OutreachQueue {
   return {
     ...queue,
@@ -54,6 +75,7 @@ function normalizeQueue(queue: OutreachQueue): OutreachQueue {
     items: (queue.items ?? []).map((item) => ({
       ...normalizeDeclaration(item),
       emailStatus: item.emailStatus ?? "eligible",
+      excludeFromAutoSend: Boolean(item.excludeFromAutoSend),
     })),
     rejected: (queue.rejected ?? []).map((item) => ({
       ...normalizeDeclaration(item),
