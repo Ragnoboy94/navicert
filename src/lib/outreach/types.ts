@@ -82,6 +82,8 @@ export type OutreachQueue = {
   scannedAt: string;
   range: { from: string; to: string };
   category: "expiring";
+  /** 2 = пагинация с подпериодами; отсутствует/1 = legacy (весь range одним куском) */
+  paginationVersion?: number;
   /** Следующая страница API для догрузки (legacy, дублирует apiCursor.page) */
   nextApiPage: number;
   /** Позиция в API: страница, сортировка, подпериод */

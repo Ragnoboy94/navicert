@@ -74,6 +74,7 @@ function normalizeQueue(queue: OutreachQueue): OutreachQueue {
     ...queue,
     nextApiPage: apiCursor.page,
     apiCursor,
+    paginationVersion: queue.paginationVersion,
     pageSize: queue.pageSize ?? 100,
     hasMore: queue.hasMore ?? false,
     enrichQueue: (queue.enrichQueue ?? []).map(normalizeDeclaration),

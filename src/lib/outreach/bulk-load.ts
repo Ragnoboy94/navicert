@@ -10,7 +10,8 @@ import {
   isFsaPageLimitError,
   rotateFsaCursor,
   ruDateToIso,
-  splitRangeIntoSlices,
+  dateSlicesForLoad,
+  upgradeLegacyPagination,
   type FsaLoadCursor,
 } from "./fsa-pagination";
 import { getExpiringMonthRange } from "./queue";
@@ -46,6 +47,7 @@ export type BulkLoadListResult = {
   addedNew: number;
   emailsFromList: number;
   cursorLabel: string;
+  paginationVersion?: number;
 };
 
 export type EnrichBatchResult = {
@@ -202,22 +204,33 @@ export async function bulkLoadList(
   const existing = mode === "append" ? (options.existingQueue ?? null) : null;
 
   const token = await acquireFsaBearerToken();
-  const dateSlices = splitRangeIntoSlices(range);
+  let paginationVersion = existing?.paginationVersion ?? 1;
+  let dateSlices = dateSlicesForLoad(range, { mode, paginationVersion });
   let cursor = mode === "append" ? cursorFromQueue(existing) : { page: 0, sortIndex: 0, sliceIndex: 0 };
   const knownIds = collectKnownIds(existing);
 
   const rawDeclarations: FsaDeclaration[] = [];
+  let newIdsCollected = 0;
   let hasMore = true;
   let exhausted = false;
   let fetchAttempts = 0;
-  const maxFetchAttempts = Math.max(maxItems / pageSize + 8, 24);
+  const maxFetchAttempts = Math.max(maxItems / pageSize + 12, 32);
 
-  while (rawDeclarations.length < maxItems && !exhausted && fetchAttempts < maxFetchAttempts) {
+  while (newIdsCollected < maxItems && !exhausted && fetchAttempts < maxFetchAttempts) {
     fetchAttempts += 1;
 
     if (cursorNeedsRotation(cursor)) {
       const rotated = rotateFsaCursor(cursor, dateSlices.length);
       if (rotated.exhausted) {
+        if (paginationVersion < 2 && mode === "append") {
+          const upgraded = upgradeLegacyPagination(range);
+          paginationVersion = upgraded.paginationVersion;
+          dateSlices = upgraded.dateSlices;
+          cursor = upgraded.cursor;
+          exhausted = false;
+          hasMore = true;
+          continue;
+        }
         exhausted = true;
         hasMore = false;
         break;
@@ -246,6 +259,15 @@ export async function bulkLoadList(
       if (isFsaPageLimitError(error)) {
         const rotated = rotateFsaCursor(cursor, dateSlices.length);
         if (rotated.exhausted) {
+          if (paginationVersion < 2 && mode === "append") {
+            const upgraded = upgradeLegacyPagination(range);
+            paginationVersion = upgraded.paginationVersion;
+            dateSlices = upgraded.dateSlices;
+            cursor = upgraded.cursor;
+            exhausted = false;
+            hasMore = true;
+            continue;
+          }
           exhausted = true;
           hasMore = false;
           break;
@@ -259,6 +281,15 @@ export async function bulkLoadList(
     if (batch.length === 0) {
       const rotated = rotateFsaCursor(cursor, dateSlices.length);
       if (rotated.exhausted) {
+        if (paginationVersion < 2 && mode === "append") {
+          const upgraded = upgradeLegacyPagination(range);
+          paginationVersion = upgraded.paginationVersion;
+          dateSlices = upgraded.dateSlices;
+          cursor = upgraded.cursor;
+          exhausted = false;
+          hasMore = true;
+          continue;
+        }
         exhausted = true;
         hasMore = false;
         break;
@@ -267,26 +298,59 @@ export async function bulkLoadList(
       continue;
     }
 
+    const fresh = batch.filter((item) => !knownIds.has(item.id));
+    if (fresh.length === 0) {
+      const rotated = rotateFsaCursor(cursor, dateSlices.length);
+      if (rotated.exhausted) {
+        if (paginationVersion < 2 && mode === "append") {
+          const upgraded = upgradeLegacyPagination(range);
+          paginationVersion = upgraded.paginationVersion;
+          dateSlices = upgraded.dateSlices;
+          cursor = upgraded.cursor;
+          exhausted = false;
+          hasMore = true;
+          continue;
+        }
+        exhausted = true;
+        hasMore = false;
+        break;
+      }
+      cursor = rotated.cursor;
+      continue;
+    }
+
+    for (const item of batch) {
+      knownIds.add(item.id);
+    }
     rawDeclarations.push(...batch);
+    newIdsCollected += fresh.length;
     cursor = { ...cursor, page: cursor.page + 1 };
     hasMore = !exhausted;
 
     if (batch.length < pageSize) {
       const rotated = rotateFsaCursor(cursor, dateSlices.length);
       if (rotated.exhausted) {
+        if (paginationVersion < 2 && mode === "append") {
+          const upgraded = upgradeLegacyPagination(range);
+          paginationVersion = upgraded.paginationVersion;
+          dateSlices = upgraded.dateSlices;
+          cursor = upgraded.cursor;
+          exhausted = false;
+          hasMore = true;
+          continue;
+        }
         hasMore = false;
         break;
       }
       cursor = rotated.cursor;
     }
 
-    if (rawDeclarations.length >= maxItems) {
-      rawDeclarations.splice(maxItems);
+    if (newIdsCollected >= maxItems) {
       break;
     }
   }
 
-  const addedNew = rawDeclarations.filter((item) => !knownIds.has(item.id)).length;
+  const addedNew = newIdsCollected;
 
   const inRange = sortByEndDate(
     rawDeclarations.map(normalizeDeclaration).filter((item) => isEndDateInRange(item, range))
@@ -323,6 +387,7 @@ export async function bulkLoadList(
     addedNew,
     emailsFromList: withEmail.length,
     cursorLabel: describeFsaCursor(cursor, dateSlices),
+    paginationVersion,
   };
 }
 
@@ -428,6 +493,13 @@ export function listResultToQueue(
     scannedAt: new Date().toISOString(),
     range: result.range,
     category: "expiring",
+    paginationVersion:
+      mode === "reset"
+        ? 2
+        : Math.max(
+            existing?.paginationVersion ?? 1,
+            result.paginationVersion ?? existing?.paginationVersion ?? 1
+          ),
     nextApiPage: result.nextApiPage,
     apiCursor: result.apiCursor,
     pageSize: result.pageSize,

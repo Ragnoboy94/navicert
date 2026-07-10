@@ -40,6 +40,18 @@ function parseRuDate(value: string): Date | null {
 }
 
 /** Делит период на подинтервалы по дате окончания (для новых «окон» пагинации). */
+export function dateSlicesForLoad(
+  range: RuDateRange,
+  options: { mode: "reset" | "append"; paginationVersion?: number }
+): RuDateRange[] {
+  if (options.mode === "reset" || (options.paginationVersion ?? 1) >= 2) {
+    return splitRangeIntoSlices(range);
+  }
+  // Legacy-очередь: страницы считались по всему периоду, не по 14-дневным срезам
+  return [range];
+}
+
+/** Делит период на подинтервалы по дате окончания (для новых «окон» пагинации). */
 export function splitRangeIntoSlices(
   range: RuDateRange,
   daysPerSlice = 14
@@ -76,6 +88,17 @@ export function cursorFromQueue(queue: OutreachQueue | null): FsaLoadCursor {
     page: queue?.nextApiPage ?? 0,
     sortIndex: 0,
     sliceIndex: 0,
+  };
+}
+
+/** После исчерпания legacy-пагинации (один период, 4 сортировки) переходим на срезы по 14 дней. */
+export function upgradeLegacyPagination(
+  range: RuDateRange
+): { paginationVersion: 2; dateSlices: RuDateRange[]; cursor: FsaLoadCursor } {
+  return {
+    paginationVersion: 2,
+    dateSlices: splitRangeIntoSlices(range),
+    cursor: { page: 0, sortIndex: 0, sliceIndex: 0 },
   };
 }
 

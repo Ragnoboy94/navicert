@@ -527,16 +527,22 @@ export function OutreachPanel() {
         ? `${action}: новых 0 (${loadedFromApi} с API — уже были в очереди)`
         : `${action}: +${addedNew} новых из ${loadedFromApi} с API`;
 
+    const eligibleNow = Number(json.eligible ?? 0);
+    const enrichLine =
+      addedNew > 0 && pending > 0
+        ? ` · без email в списке: +${addedNew} в очередь обогащения`
+        : "";
+
     if (pending > 0) {
       setMessage(
-        `${addedLine}. Email подгружаются на сервере в фоне — можно закрыть вкладку.`
+        `${addedLine}${enrichLine}. Email подгружаются на сервере в фоне — можно закрыть вкладку.`
       );
       await refresh(true);
       return;
     }
 
     setMessage(
-      `${addedLine} · к отправке: ${json.eligible} · личные ящики: ${json.rejected}${json.hasMore ? " · в реестре ещё есть" : ""}${json.cursorLabel ? ` · ${json.cursorLabel}` : ""}`
+      `${addedLine}${enrichLine} · к отправке: ${eligibleNow} · личные ящики: ${json.rejected}${json.hasMore ? " · в реестре ещё есть" : ""}${json.cursorLabel ? ` · ${json.cursorLabel}` : ""}`
     );
     await refresh();
   }

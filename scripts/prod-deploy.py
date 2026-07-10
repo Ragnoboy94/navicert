@@ -208,6 +208,7 @@ def main() -> int:
         git checkout -- content/ 2>/dev/null || true
         test -f data/leads.json && git checkout -- data/leads.json 2>/dev/null || true
         rm -f scripts/prod-deploy.py src/lib/outreach/fsa-network.ts src/lib/outreach/fsa-proxy-shared.ts src/lib/outreach/smtp-transport.ts 2>/dev/null || true
+        rm -f scripts/outreach/fsa-proxy-shared.mjs scripts/outreach/test-fsa-access.ts scripts/outreach/test-fsa-access.mjs 2>/dev/null || true
         git reset --hard HEAD
         git pull --ff-only origin main
 

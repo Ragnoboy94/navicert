@@ -16,6 +16,7 @@ import {
   cursorNeedsRotation,
   rotateFsaCursor,
   splitRangeIntoSlices,
+  dateSlicesForLoad,
 } from "../src/lib/outreach/fsa-pagination";
 import { readOutreachQueue, writeOutreachQueue } from "../src/lib/outreach/queue";
 import type { OutreachQueue } from "../src/lib/outreach/types";
@@ -73,6 +74,22 @@ function testPaginationHelpers() {
   assert("rotate exhausted", r3.exhausted);
 
   assert("FSA_API_MAX_PAGES is 20", FSA_API_MAX_PAGES === 20);
+
+  const legacySlices = dateSlicesForLoad(
+    { from: "01.07.2026", to: "31.08.2026" },
+    { mode: "append", paginationVersion: 1 }
+  );
+  assert("legacy append uses full range", legacySlices.length === 1);
+  assert(
+    "legacy slice is full range",
+    legacySlices[0].from === "01.07.2026" && legacySlices[0].to === "31.08.2026"
+  );
+
+  const v2Slices = dateSlicesForLoad(
+    { from: "01.07.2026", to: "31.08.2026" },
+    { mode: "append", paginationVersion: 2 }
+  );
+  assert("v2 append uses sub-slices", v2Slices.length >= 2);
 }
 
 function testAddedNewAndQueue() {

@@ -7,7 +7,7 @@ import {
 import { startBackgroundEnrich } from "@/lib/outreach/enrich-runner";
 import { readOutreachQueue, writeOutreachQueue } from "@/lib/outreach/queue";
 
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 export async function POST(request: Request) {
   if (!(await isAuthenticated())) {
