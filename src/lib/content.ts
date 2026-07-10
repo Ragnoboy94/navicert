@@ -14,7 +14,8 @@ import type {
   WhyUsItem,
 } from "./types";
 
-const contentDir = path.join(process.cwd(), "content");
+const contentDir =
+  process.env.CONTENT_DIR?.trim() || path.join(process.cwd(), "content");
 
 function readJson<T>(filename: string): T {
   const filePath = path.join(contentDir, filename);

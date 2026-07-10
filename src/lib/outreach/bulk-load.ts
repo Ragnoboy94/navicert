@@ -1,4 +1,3 @@
-import { acquireFsaBearerToken } from "./bearer";
 import { classifyEmail } from "./email-filter";
 import { enrichApplicantsFromCards } from "./enrich-applicants";
 import { fetchDeclaration, normalizeDeclaration, searchExpiringDeclarations, declarationApplicantUrl } from "./fsa";
@@ -7,6 +6,7 @@ import {
   cursorNeedsRotation,
   describeFsaCursor,
   getSortField,
+  healFsaPagination,
   isFsaPageLimitError,
   rotateFsaCursor,
   ruDateToIso,
@@ -51,7 +51,10 @@ export type BulkLoadListResult = {
 };
 
 export type EnrichBatchResult = {
+  /** Карточки, окончательно убранные из очереди обогащения */
   processed: number;
+  /** Карточки, возвращённые в хвост очереди (ещё без email) */
+  requeued: number;
   emailsFound: number;
   enrichedFromCards: number;
   enrichPending: number;
@@ -157,12 +160,11 @@ async function mapWithConcurrency<T, R>(
 }
 
 async function enrichEmailFromApi(
-  declaration: FsaDeclaration,
-  token: string
+  declaration: FsaDeclaration
 ): Promise<FsaDeclaration> {
   const base = normalizeDeclaration(declaration);
   try {
-    const detail = normalizeDeclaration(await fetchDeclaration(base.id, token));
+    const detail = normalizeDeclaration(await fetchDeclaration(base.id));
     return normalizeDeclaration({
       ...base,
       ...detail,
@@ -201,12 +203,18 @@ export async function bulkLoadList(
     1000
   );
   const mode = options.mode ?? "reset";
-  const existing = mode === "append" ? (options.existingQueue ?? null) : null;
+  let existing = mode === "append" ? (options.existingQueue ?? null) : null;
+  if (existing) {
+    existing = healFsaPagination(existing).queue;
+  }
 
-  const token = await acquireFsaBearerToken();
-  let paginationVersion = existing?.paginationVersion ?? 1;
+  let paginationVersion =
+    mode === "append" ? Math.max(existing?.paginationVersion ?? 1, 2) : 2;
   let dateSlices = dateSlicesForLoad(range, { mode, paginationVersion });
-  let cursor = mode === "append" ? cursorFromQueue(existing) : { page: 0, sortIndex: 0, sliceIndex: 0 };
+  let cursor =
+    mode === "append"
+      ? cursorFromQueue(existing)
+      : { page: 0, sortIndex: 0, sliceIndex: 0 };
   const knownIds = collectKnownIds(existing);
 
   const rawDeclarations: FsaDeclaration[] = [];
@@ -214,7 +222,9 @@ export async function bulkLoadList(
   let hasMore = true;
   let exhausted = false;
   let fetchAttempts = 0;
+  let rotationSkips = 0;
   const maxFetchAttempts = Math.max(maxItems / pageSize + 12, 32);
+  const maxRotationSkips = 16;
 
   while (newIdsCollected < maxItems && !exhausted && fetchAttempts < maxFetchAttempts) {
     fetchAttempts += 1;
@@ -245,16 +255,13 @@ export async function bulkLoadList(
 
     let batch: FsaDeclaration[];
     try {
-      batch = await searchExpiringDeclarations(
-        {
-          endDateFrom,
-          endDateTo,
-          page: cursor.page,
-          size: pageSize,
-          sort: [sortField],
-        },
-        token
-      );
+      batch = await searchExpiringDeclarations({
+        endDateFrom,
+        endDateTo,
+        page: cursor.page,
+        size: pageSize,
+        sort: [sortField],
+      });
     } catch (error) {
       if (isFsaPageLimitError(error)) {
         const rotated = rotateFsaCursor(cursor, dateSlices.length);
@@ -300,6 +307,11 @@ export async function bulkLoadList(
 
     const fresh = batch.filter((item) => !knownIds.has(item.id));
     if (fresh.length === 0) {
+      rotationSkips += 1;
+      if (rotationSkips > maxRotationSkips) {
+        hasMore = true;
+        break;
+      }
       const rotated = rotateFsaCursor(cursor, dateSlices.length);
       if (rotated.exhausted) {
         if (paginationVersion < 2 && mode === "append") {
@@ -324,6 +336,7 @@ export async function bulkLoadList(
     }
     rawDeclarations.push(...batch);
     newIdsCollected += fresh.length;
+    rotationSkips = 0;
     cursor = { ...cursor, page: cursor.page + 1 };
     hasMore = !exhausted;
 
@@ -401,6 +414,7 @@ export async function enrichQueueBatch(
   if (batch.length === 0) {
     return {
       processed: 0,
+      requeued: 0,
       emailsFound: 0,
       enrichedFromCards: 0,
       enrichPending: 0,
@@ -410,18 +424,17 @@ export async function enrichQueueBatch(
     };
   }
 
-  const token = await acquireFsaBearerToken();
   let problemDeclaration: { id: number; url: string } | undefined;
 
   const apiEnriched = await mapWithConcurrency(batch, 25, async (item) => {
     try {
-      return await enrichEmailFromApi(item, token);
+      return await enrichEmailFromApi(item);
     } catch (error) {
       problemDeclaration = {
         id: item.id,
         url: item.registryUrl || declarationApplicantUrl(item.id),
       };
-      throw error;
+      return normalizeDeclaration(item);
     }
   });
 
@@ -434,8 +447,21 @@ export async function enrichQueueBatch(
     options?.shouldAbort?.() === true
       ? []
       : stillMissing.slice(0, getCardEnrichPerBatch());
-  const cardEnriched =
-    cardBatch.length > 0 ? await enrichApplicantsFromCards(cardBatch) : [];
+  let cardEnriched: FsaDeclaration[] = [];
+  if (cardBatch.length > 0) {
+    try {
+      cardEnriched = await enrichApplicantsFromCards(cardBatch);
+    } catch (error) {
+      problemDeclaration = {
+        id: cardBatch[0].id,
+        url: cardBatch[0].registryUrl || declarationApplicantUrl(cardBatch[0].id),
+      };
+      console.error(
+        "enrichApplicantsFromCards failed:",
+        error instanceof Error ? error.message : error
+      );
+    }
+  }
   const cardEnrichedIds = new Set(cardEnriched.map((item) => item.id));
 
   const resolved = [...withEmail, ...cardEnriched];
@@ -470,9 +496,12 @@ export async function enrichQueueBatch(
   );
 
   const enrichQueue = mergeEnrichQueue([], remainingQueue);
+  const requeued = stillNeedEnrich.length;
+  const processed = batch.length - requeued;
 
   return {
-    processed: batch.length,
+    processed,
+    requeued,
     emailsFound,
     enrichedFromCards: cardEnriched.length,
     enrichPending: enrichQueue.length,
@@ -489,6 +518,20 @@ export function listResultToQueue(
 ): OutreachQueue {
   const mode = options?.mode ?? "reset";
   const existing = options?.existing;
+  const enrichPending = result.enrichQueue.length;
+  const previousPending = existing?.enrichQueue?.length ?? 0;
+  const sessionInitial =
+    mode === "reset"
+      ? enrichPending > 0
+        ? enrichPending
+        : undefined
+      : existing?.enrichSessionInitialPending != null
+        ? existing.enrichSessionInitialPending +
+          Math.max(enrichPending - previousPending, 0)
+        : enrichPending > 0
+          ? enrichPending + (existing?.enrichProcessedTotal ?? 0)
+          : existing?.enrichSessionInitialPending;
+
   return {
     scannedAt: new Date().toISOString(),
     range: result.range,
@@ -496,10 +539,7 @@ export function listResultToQueue(
     paginationVersion:
       mode === "reset"
         ? 2
-        : Math.max(
-            existing?.paginationVersion ?? 1,
-            result.paginationVersion ?? existing?.paginationVersion ?? 1
-          ),
+        : Math.max(existing?.paginationVersion ?? 1, result.paginationVersion ?? 2, 2),
     nextApiPage: result.nextApiPage,
     apiCursor: result.apiCursor,
     pageSize: result.pageSize,
@@ -512,6 +552,7 @@ export function listResultToQueue(
       mode === "append" ? (existing?.enrichProcessedTotal ?? 0) : 0,
     enrichEmailsFoundTotal:
       mode === "append" ? (existing?.enrichEmailsFoundTotal ?? 0) : 0,
+    enrichSessionInitialPending: sessionInitial,
   };
 }
 

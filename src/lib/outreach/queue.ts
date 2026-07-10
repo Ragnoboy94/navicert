@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { normalizeDeclaration } from "./fsa";
 import { pruneOutreachQueue, isEndDateInRange } from "./queue-cleanup";
+import { healFsaPagination } from "./fsa-pagination";
 import type { OutreachQueue } from "./types";
 
 const queuePath = path.join(process.cwd(), "data", "outreach-queue.json");
@@ -9,7 +10,9 @@ const queuePath = path.join(process.cwd(), "data", "outreach-queue.json");
 export function readOutreachQueue(): OutreachQueue | null {
   if (!fs.existsSync(queuePath)) return null;
   const raw = JSON.parse(fs.readFileSync(queuePath, "utf-8")) as OutreachQueue;
-  return sanitizeOutreachQueue(normalizeQueue(raw));
+  const { queue: healed, changed } = healFsaPagination(raw);
+  if (changed) writeOutreachQueue(healed);
+  return sanitizeOutreachQueue(normalizeQueue(healed));
 }
 
 /** Убирает из файла отправленные и устаревшие записи; история в outreach-sent.json */
@@ -64,23 +67,41 @@ export function setExcludeFromAutoSend(
   return next;
 }
 
+function migrateEnrichCounters(queue: OutreachQueue): OutreachQueue {
+  const pending = queue.enrichQueue.length;
+  const processed = queue.enrichProcessedTotal ?? 0;
+  if (pending === 0 || queue.enrichSessionInitialPending != null) return queue;
+  // Legacy: processedTotal считал размер батча, а не завершённые карточки
+  if (processed > pending + 100) {
+    return {
+      ...queue,
+      enrichProcessedTotal: 0,
+      enrichSessionInitialPending: pending,
+    };
+  }
+  return queue;
+}
+
 function normalizeQueue(queue: OutreachQueue): OutreachQueue {
-  const apiCursor = queue.apiCursor ?? {
-    page: queue.nextApiPage ?? 0,
+  const migrated = migrateEnrichCounters(queue);
+  const { queue: healed } = healFsaPagination(migrated);
+  const apiCursor = healed.apiCursor ?? {
+    page: healed.nextApiPage ?? 0,
     sortIndex: 0,
     sliceIndex: 0,
   };
   return {
-    ...queue,
+    ...healed,
     nextApiPage: apiCursor.page,
     apiCursor,
-    paginationVersion: queue.paginationVersion,
+    paginationVersion: Math.max(healed.paginationVersion ?? 1, 2),
     pageSize: queue.pageSize ?? 100,
     hasMore: queue.hasMore ?? false,
     enrichQueue: (queue.enrichQueue ?? []).map(normalizeDeclaration),
     enrichPaused: Boolean(queue.enrichPaused),
     enrichProcessedTotal: queue.enrichProcessedTotal ?? 0,
     enrichEmailsFoundTotal: queue.enrichEmailsFoundTotal ?? 0,
+    enrichSessionInitialPending: queue.enrichSessionInitialPending,
     items: (queue.items ?? []).map((item) => ({
       ...normalizeDeclaration(item),
       emailStatus: item.emailStatus ?? "eligible",

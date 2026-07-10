@@ -9,6 +9,7 @@ export type EnrichRunnerStatus = {
   pending: number;
   processedTotal: number;
   emailsFoundTotal: number;
+  sessionInitialPending: number | null;
   lastBatchAt: string | null;
   lastError: string | null;
 };
@@ -23,9 +24,15 @@ const session = {
 };
 
 function queueStats(queue: OutreachQueue | null) {
+  const pending = queue?.enrichQueue.length ?? 0;
+  const processedTotal = queue?.enrichProcessedTotal ?? 0;
+  const sessionInitial =
+    queue?.enrichSessionInitialPending ??
+    (processedTotal > 0 || pending > 0 ? processedTotal + pending : null);
   return {
-    processedTotal: queue?.enrichProcessedTotal ?? 0,
+    processedTotal,
     emailsFoundTotal: queue?.enrichEmailsFoundTotal ?? 0,
+    sessionInitialPending: sessionInitial,
   };
 }
 
@@ -44,6 +51,7 @@ export function getEnrichRunnerStatus(): EnrichRunnerStatus {
     pending: queue?.enrichQueue.length ?? 0,
     processedTotal: stats.processedTotal,
     emailsFoundTotal: stats.emailsFoundTotal,
+    sessionInitialPending: stats.sessionInitialPending,
     lastBatchAt: session.lastBatchAt,
     lastError: session.lastError,
   };
@@ -69,6 +77,17 @@ function resetEnrichStats(queue: OutreachQueue): OutreachQueue {
     ...queue,
     enrichProcessedTotal: 0,
     enrichEmailsFoundTotal: 0,
+    enrichSessionInitialPending: queue.enrichQueue.length,
+  };
+}
+
+function ensureEnrichSession(queue: OutreachQueue): OutreachQueue {
+  if (queue.enrichSessionInitialPending != null) return queue;
+  const pending = queue.enrichQueue.length;
+  if (pending === 0) return queue;
+  return {
+    ...queue,
+    enrichSessionInitialPending: pending + (queue.enrichProcessedTotal ?? 0),
   };
 }
 
@@ -93,6 +112,8 @@ export function startBackgroundEnrich(
 
   if (options.resetCounters && queue) {
     writeOutreachQueue(resetEnrichStats(queue));
+  } else if (queue) {
+    writeOutreachQueue(ensureEnrichSession(queue));
   }
 
   session.lastBatchAt = null;
@@ -132,7 +153,7 @@ async function runLoop(): Promise<void> {
 
       if (paused) break;
       if (result.enrichPending === 0) break;
-      if (result.processed === 0) break;
+      if (result.processed === 0 && result.requeued === 0) break;
     }
   } catch (error) {
     session.lastError =

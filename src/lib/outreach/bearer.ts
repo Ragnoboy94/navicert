@@ -98,9 +98,25 @@ function captureTokenViaPlaywright(): Promise<string> {
   });
 }
 
-export async function acquireFsaBearerToken(): Promise<string> {
+export function invalidateFsaBearerToken(): void {
+  if (fs.existsSync(tokenPath)) {
+    try {
+      fs.unlinkSync(tokenPath);
+    } catch {
+      // ignore
+    }
+  }
+}
+
+export async function acquireFsaBearerToken(options?: {
+  forceRefresh?: boolean;
+}): Promise<string> {
   const fromEnv = process.env.FSA_BEARER_TOKEN?.trim();
   if (fromEnv) return fromEnv;
+
+  if (options?.forceRefresh) {
+    invalidateFsaBearerToken();
+  }
 
   const cached = readCachedToken();
   if (cached && isTokenFresh(cached)) return cached.token;
@@ -110,7 +126,7 @@ export async function acquireFsaBearerToken(): Promise<string> {
     writeCachedToken(token);
     return token;
   } catch (error) {
-    if (cached?.token) {
+    if (cached?.token && !options?.forceRefresh) {
       return cached.token;
     }
     throw error;

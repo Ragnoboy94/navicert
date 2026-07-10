@@ -100,9 +100,11 @@ export type OutreachQueue = {
   enrichQueue: FsaDeclaration[];
   /** Пользователь остановил фоновое обогащение — не возобновлять автоматически */
   enrichPaused?: boolean;
-  /** Сколько карточек уже обработано в текущем цикле обогащения (переживает перезапуск) */
+  /** Сколько карточек окончательно обработано (без повторных проходов по очереди) */
   enrichProcessedTotal?: number;
   enrichEmailsFoundTotal?: number;
+  /** Размер очереди обогащения на старте текущей сессии (для понятного прогресса) */
+  enrichSessionInitialPending?: number;
 };
 
 export type OutreachScheduleRun = {

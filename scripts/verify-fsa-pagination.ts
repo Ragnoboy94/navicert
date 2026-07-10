@@ -14,6 +14,7 @@ import {
   FSA_API_MAX_PAGES,
   FSA_SORT_FIELDS,
   cursorNeedsRotation,
+  healFsaPagination,
   rotateFsaCursor,
   splitRangeIntoSlices,
   dateSlicesForLoad,
@@ -90,6 +91,38 @@ function testPaginationHelpers() {
     { mode: "append", paginationVersion: 2 }
   );
   assert("v2 append uses sub-slices", v2Slices.length >= 2);
+}
+
+function testHealFsaPagination() {
+  console.log("\n[1b] healFsaPagination (autonomous cursor fix)");
+
+  const stuck: OutreachQueue = {
+    scannedAt: new Date().toISOString(),
+    range: { from: "01.07.2026", to: "31.08.2026" },
+    category: "expiring",
+    paginationVersion: 1,
+    nextApiPage: 20,
+    apiCursor: { page: 20, sortIndex: 0, sliceIndex: 0 },
+    pageSize: 100,
+    hasMore: true,
+    items: [],
+    rejected: [],
+    enrichQueue: [],
+  };
+  const { queue, changed } = healFsaPagination(stuck);
+  assert("heal detects stuck page 20", changed);
+  assert("heal upgrades to pagination v2", queue.paginationVersion === 2);
+  assert("heal resets page", queue.apiCursor?.page === 0);
+  assert("heal rotates sort", queue.apiCursor?.sortIndex === 1);
+
+  const alreadyOk: OutreachQueue = {
+    ...stuck,
+    paginationVersion: 2,
+    nextApiPage: 5,
+    apiCursor: { page: 5, sortIndex: 1, sliceIndex: 0 },
+  };
+  const ok = healFsaPagination(alreadyOk);
+  assert("heal no-op on healthy cursor", !ok.changed);
 }
 
 function testAddedNewAndQueue() {
@@ -322,6 +355,7 @@ async function testQueueUnchangedOnBulkLoadError() {
 async function main() {
   console.log("FSA pagination local verify (no email)\n");
   testPaginationHelpers();
+  testHealFsaPagination();
   testAddedNewAndQueue();
   await testQueueUnchangedOnBulkLoadError();
 

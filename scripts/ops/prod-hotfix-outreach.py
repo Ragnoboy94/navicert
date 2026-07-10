@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 FILES = [
     "src/lib/outreach/bulk-load.ts",
     "src/lib/outreach/fsa-pagination.ts",
+    "src/lib/outreach/queue.ts",
     "src/app/api/admin/outreach/scan/route.ts",
 ]
 

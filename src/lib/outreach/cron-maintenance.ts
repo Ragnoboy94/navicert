@@ -107,7 +107,7 @@ export async function processEnrichBacklog(
     emailsFound += batch.emailsFound;
 
     if (batch.enrichPending === 0) break;
-    if (batch.processed === 0) break;
+    if (batch.processed === 0 && batch.requeued === 0) break;
   }
 
   if (processed === 0) return empty;

@@ -186,8 +186,18 @@ def main() -> int:
         set -euo pipefail
         cd {APP_DIR}
         BK="/var/backups/navicert-$(date -u +%Y%m%d-%H%M%S)"
-        mkdir -p "$BK"
-        cp -a content "$BK/"
+        PERSIST="/var/www/navicert-persist"
+        mkdir -p "$BK" "$PERSIST/content" "$PERSIST/uploads"
+
+        # Пользовательский контент вне git (CONTENT_DIR на проде)
+        mkdir -p "$PERSIST/content"
+        if [ -L content ]; then
+          cp -a "$(readlink -f content)/." "$BK/content/"
+        elif [ -d content ]; then
+          mkdir -p "$BK/content"
+          cp -a content/. "$BK/content/"
+          rsync -a content/ "$PERSIST/content/"
+        fi
         test -f data/leads.json && cp -a data/leads.json "$BK/" || true
         test -d data && cp -a data "$BK/data-snapshot" || true
         test -d public/images/uploads && cp -a public/images/uploads "$BK/" || true
@@ -205,19 +215,29 @@ def main() -> int:
         PY
         cat "$BK/counts.txt"
 
-        git checkout -- content/ 2>/dev/null || true
-        test -f data/leads.json && git checkout -- data/leads.json 2>/dev/null || true
+        # content/ и leads — только из бэкапа, не трогаем git checkout (теряются правки с прода)
         rm -f scripts/prod-deploy.py src/lib/outreach/fsa-network.ts src/lib/outreach/fsa-proxy-shared.ts src/lib/outreach/smtp-transport.ts 2>/dev/null || true
         rm -f scripts/outreach/fsa-proxy-shared.mjs scripts/outreach/test-fsa-access.ts scripts/outreach/test-fsa-access.mjs 2>/dev/null || true
-        git reset --hard HEAD
+        git fetch origin main
+        git reset --hard origin/main
         git pull --ff-only origin main
 
+        # git pull — content/ из репо только для сборки; runtime читает CONTENT_DIR
+        rm -rf content
+        git checkout HEAD -- content/ 2>/dev/null || true
+        mkdir -p "$PERSIST/content"
+        cp -a "$BK/content/." "$PERSIST/content/"
+        rsync -a "$PERSIST/content/" content/
         cp -a "$BK/.env.local" .env.local
-        cp -a "$BK/content/." content/
+        if grep -q '^CONTENT_DIR=' .env.local; then
+          sed -i "s|^CONTENT_DIR=.*|CONTENT_DIR=$PERSIST/content|" .env.local
+        else
+          echo "CONTENT_DIR=$PERSIST/content" >> .env.local
+        fi
         test -f "$BK/leads.json" && cp -a "$BK/leads.json" data/leads.json || true
         if [ -d "$BK/data-snapshot" ]; then
           mkdir -p data
-          for f in outreach-queue.json outreach-sent.json outreach-unsubscribed.json outreach-schedule.json fsa-token.json; do
+          for f in outreach-sent.json outreach-unsubscribed.json outreach-schedule.json fsa-token.json; do
             test -f "$BK/data-snapshot/$f" && cp -a "$BK/data-snapshot/$f" "data/$f" || true
           done
         fi
@@ -242,9 +262,10 @@ def main() -> int:
                 print(f"{{name}}: backup {{count}} -> now {{now}}")
                 if str(now) != count:
                     ok = False
-                    print(f"WARNING mismatch {{name}}", file=sys.stderr)
+                    print(f"RESTORE_MISMATCH {{name}} backup={{count}} now={{now}}", file=sys.stderr)
             if not ok:
                 sys.exit(1)
+            print("content restore OK")
         PY
 
         export NODE_OPTIONS=--max-old-space-size=1536

@@ -1,4 +1,5 @@
 import type { FsaApplicant, FsaDeclaration, OutreachSearchFilter } from "./types";
+import { acquireFsaBearerToken, invalidateFsaBearerToken } from "./bearer";
 import { fsaFetch } from "./fsa-network";
 
 const FSA_BASE = "https://pub.fsa.gov.ru";
@@ -197,14 +198,25 @@ function declarationFromRecord(record: JsonRecord): FsaDeclaration | null {
   };
 }
 
-function getBearerToken(override?: string): string {
-  const token = override?.trim() || process.env.FSA_BEARER_TOKEN?.trim();
-  if (!token) {
-    throw new Error(
-      "FSA_BEARER_TOKEN не задан. Откройте pub.fsa.gov.ru в браузере, DevTools → Network → любой запрос к /api/ → скопируйте Bearer-токен из заголовка Authorization."
-    );
-  }
-  return token;
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableFsaStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500;
+}
+
+function isAuthFsaStatus(status: number): boolean {
+  return status === 401 || status === 403;
+}
+
+function isTransientFsaError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  return (
+    /timeout|timed out|abort|econnreset|econnrefused|enotfound|socket hang up|network|fetch failed|all fsa proxies failed/i.test(
+      msg
+    )
+  );
 }
 
 async function fsaRequest<T>(
@@ -213,25 +225,63 @@ async function fsaRequest<T>(
   body?: unknown,
   tokenOverride?: string
 ): Promise<T> {
-  const token = getBearerToken(tokenOverride);
-  const response = await fsaFetch(`${FSA_BASE}${path}`, {
-    method,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Origin: FSA_BASE,
-      Referer: `${FSA_BASE}/rds/declaration`,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  const maxAttempts = 4;
+  let lastError: unknown;
+  let forceRefresh = false;
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`FSA ${method} ${path} → ${response.status}: ${text.slice(0, 300)}`);
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const token =
+        tokenOverride?.trim() ||
+        (await acquireFsaBearerToken({ forceRefresh }));
+      forceRefresh = false;
+
+      const response = await fsaFetch(`${FSA_BASE}${path}`, {
+        method,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Origin: FSA_BASE,
+          Referer: `${FSA_BASE}/rds/declaration`,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        const error = new Error(
+          `FSA ${method} ${path} → ${response.status}: ${text.slice(0, 300)}`
+        );
+        if (isAuthFsaStatus(response.status) && !tokenOverride?.trim()) {
+          invalidateFsaBearerToken();
+          forceRefresh = true;
+          lastError = error;
+          await sleep(400 * (attempt + 1));
+          continue;
+        }
+        if (isRetryableFsaStatus(response.status) && attempt < maxAttempts - 1) {
+          lastError = error;
+          await sleep(600 * 2 ** attempt);
+          continue;
+        }
+        throw error;
+      }
+
+      return (await response.json()) as T;
+    } catch (error) {
+      lastError = error;
+      if (isTransientFsaError(error) && attempt < maxAttempts - 1) {
+        await sleep(600 * 2 ** attempt);
+        continue;
+      }
+      throw error;
+    }
   }
 
-  return (await response.json()) as T;
+  throw lastError instanceof Error
+    ? lastError
+    : new Error(`FSA ${method} ${path} failed after retries`);
 }
 
 function extractItems(payload: unknown): JsonRecord[] {

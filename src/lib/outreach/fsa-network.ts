@@ -29,29 +29,70 @@ function dispatcherForProxy(proxy: string) {
 
 export { getFsaProxyList, getFsaProxy, playwrightLaunchOptions } from "./fsa-proxy-shared";
 
+const DEFAULT_FSA_TIMEOUT_MS = 60_000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isTransientNetworkError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  return (
+    /timeout|timed out|abort|econnreset|econnrefused|enotfound|socket hang up|network|fetch failed|all fsa proxies failed/i.test(
+      msg
+    )
+  );
+}
+
 export async function fsaFetch(
   url: string,
-  init: RequestInit = {}
+  init: RequestInit = {},
+  options: { timeoutMs?: number; retries?: number } = {}
 ): Promise<Response> {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_FSA_TIMEOUT_MS;
+  const retries = Math.max(options.retries ?? 2, 0);
   const proxies = getFsaProxyList();
-  if (proxies.length === 0) return fetch(url, init);
 
   let lastError: unknown;
-  for (const proxy of proxies) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const attemptInit: RequestInit = {
+      ...init,
+      signal: init.signal ?? AbortSignal.timeout(timeoutMs),
+    };
+
     try {
-      const response = await undiciFetch(url, {
-        ...init,
-        dispatcher: dispatcherForProxy(proxy),
-      } as Parameters<typeof undiciFetch>[1]);
-      rememberWorkingFsaProxy(proxy);
-      return response as unknown as Response;
+      if (proxies.length === 0) {
+        return await fetch(url, attemptInit);
+      }
+
+      for (const proxy of proxies) {
+        try {
+          const response = await undiciFetch(url, {
+            ...attemptInit,
+            dispatcher: dispatcherForProxy(proxy),
+          } as Parameters<typeof undiciFetch>[1]);
+          rememberWorkingFsaProxy(proxy);
+          return response as unknown as Response;
+        } catch (error) {
+          lastError = error;
+          rememberWorkingFsaProxy("");
+        }
+      }
+
+      throw lastError instanceof Error
+        ? lastError
+        : new Error("All FSA proxies failed");
     } catch (error) {
       lastError = error;
-      rememberWorkingFsaProxy("");
+      if (attempt < retries && isTransientNetworkError(error)) {
+        await sleep(500 * 2 ** attempt);
+        continue;
+      }
+      throw error;
     }
   }
 
   throw lastError instanceof Error
     ? lastError
-    : new Error("All FSA proxies failed");
+    : new Error("FSA fetch failed");
 }

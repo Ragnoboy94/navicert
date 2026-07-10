@@ -78,6 +78,7 @@ type EnrichStatus = {
   pending: number;
   processedTotal: number;
   emailsFoundTotal: number;
+  sessionInitialPending: number | null;
   lastBatchAt: string | null;
   lastError: string | null;
 };
@@ -681,6 +682,11 @@ export function OutreachPanel() {
   const enrichPending = data?.enrichPending ?? 0;
   const enrichProcessed = data?.enrichStatus?.processedTotal ?? 0;
   const enrichEmailsFound = data?.enrichStatus?.emailsFoundTotal ?? 0;
+  const enrichSessionTotal = data?.enrichStatus?.sessionInitialPending ?? null;
+  const enrichProgressLabel =
+    enrichSessionTotal != null && enrichSessionTotal > 0
+      ? `обработано ${enrichProcessed} из ${enrichSessionTotal}`
+      : `обработано ${enrichProcessed}`;
 
   return (
     <div className="space-y-4">
@@ -722,8 +728,8 @@ export function OutreachPanel() {
                     : enrichPaused
                       ? "Обогащение остановлено"
                       : "Остались карточки без email"}{" "}
-                — просмотрено <strong>{enrichProcessed}</strong>, найдено email{" "}
-                <strong>{enrichEmailsFound}</strong>, осталось{" "}
+                — {enrichProgressLabel}, найдено email{" "}
+                <strong>{enrichEmailsFound}</strong>, в очереди{" "}
                 <strong>{enrichPending}</strong>
                 {enrichRunning && !enrichStopping
                   ? ". Можно уйти из раздела — процесс не остановится."

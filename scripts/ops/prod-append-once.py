@@ -30,10 +30,10 @@ req = urllib.request.Request(
     "http://127.0.0.1:3000/api/admin/outreach/scan",
     data=json.dumps({"mode":"append","maxItems":100,"pageSize":100}).encode(),
     headers={"content-type":"application/json","cookie":cookie}, method="POST")
-with urllib.request.urlopen(req, timeout=180) as r:
+with urllib.request.urlopen(req, timeout=300) as r:
     res = json.loads(r.read().decode())
-print("status", r.status, "loaded", res.get("loadedFromApi"), "addedNew", res.get("addedNew"),
-      "eligible", res.get("eligible"), "label", res.get("cursorLabel"))
+    print("status", r.status, "loaded", res.get("loadedFromApi"), "addedNew", res.get("addedNew"),
+          "eligible", res.get("eligible"), "label", res.get("cursorLabel"))
 
 q2 = json.loads(qpath.read_text(encoding="utf-8"))
 print("after page", q2.get("nextApiPage"), "pv", q2.get("paginationVersion"), "items", len(q2.get("items",[])), "enrich", len(q2.get("enrichQueue",[])))
