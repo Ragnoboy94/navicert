@@ -2,6 +2,17 @@ import { acquireFsaBearerToken } from "./bearer";
 import { classifyEmail } from "./email-filter";
 import { enrichApplicantsFromCards } from "./enrich-applicants";
 import { fetchDeclaration, normalizeDeclaration, searchExpiringDeclarations, declarationApplicantUrl } from "./fsa";
+import {
+  cursorFromQueue,
+  cursorNeedsRotation,
+  describeFsaCursor,
+  getSortField,
+  isFsaPageLimitError,
+  rotateFsaCursor,
+  ruDateToIso,
+  splitRangeIntoSlices,
+  type FsaLoadCursor,
+} from "./fsa-pagination";
 import { getExpiringMonthRange } from "./queue";
 import { isEndDateInRange, pruneOutreachQueue } from "./queue-cleanup";
 import type {
@@ -9,6 +20,8 @@ import type {
   OutreachQueue,
   OutreachQueueItem,
 } from "./types";
+
+export { ruDateToIso };
 
 export type BulkLoadMode = "reset" | "append";
 
@@ -23,13 +36,16 @@ export type BulkLoadListOptions = {
 export type BulkLoadListResult = {
   range: { from: string; to: string };
   nextApiPage: number;
+  apiCursor: FsaLoadCursor;
   pageSize: number;
   hasMore: boolean;
   items: OutreachQueueItem[];
   rejected: OutreachQueueItem[];
   enrichQueue: FsaDeclaration[];
   loadedFromApi: number;
+  addedNew: number;
   emailsFromList: number;
+  cursorLabel: string;
 };
 
 export type EnrichBatchResult = {
@@ -58,11 +74,6 @@ export function getCardEnrichPerBatch(): number {
     Math.max(Number(process.env.OUTREACH_CARD_BATCH || 8), 1),
     20
   );
-}
-
-export function ruDateToIso(ru: string): string {
-  const [day, month, year] = ru.split(".");
-  return `${year}-${month}-${day}`;
 }
 
 function parseAnyDate(value: string): Date | null {
@@ -165,6 +176,15 @@ async function enrichEmailFromApi(
   }
 }
 
+function collectKnownIds(queue: OutreachQueue | null): Set<number> {
+  const ids = new Set<number>();
+  if (!queue) return ids;
+  for (const item of [...queue.items, ...queue.rejected, ...queue.enrichQueue]) {
+    ids.add(item.id);
+  }
+  return ids;
+}
+
 /** Быстрая загрузка списка из API ФСА — без детального обогащения */
 export async function bulkLoadList(
   options: BulkLoadListOptions = {}
@@ -179,43 +199,94 @@ export async function bulkLoadList(
     1000
   );
   const mode = options.mode ?? "reset";
-  const existing = mode === "append" ? options.existingQueue : null;
+  const existing = mode === "append" ? (options.existingQueue ?? null) : null;
 
   const token = await acquireFsaBearerToken();
-  const endDateFrom = ruDateToIso(range.from);
-  const endDateTo = ruDateToIso(range.to);
-
-  const startPage = mode === "append" ? (existing?.nextApiPage ?? 0) : 0;
-  const maxPages = Math.ceil(maxItems / pageSize);
+  const dateSlices = splitRangeIntoSlices(range);
+  let cursor = mode === "append" ? cursorFromQueue(existing) : { page: 0, sortIndex: 0, sliceIndex: 0 };
+  const knownIds = collectKnownIds(existing);
 
   const rawDeclarations: FsaDeclaration[] = [];
-  let nextApiPage = startPage;
-  let hasMore = false;
+  let hasMore = true;
+  let exhausted = false;
+  let fetchAttempts = 0;
+  const maxFetchAttempts = Math.max(maxItems / pageSize + 8, 24);
 
-  for (let offset = 0; offset < maxPages; offset++) {
-    const page = startPage + offset;
-    const batch = await searchExpiringDeclarations(
-      { endDateFrom, endDateTo, page, size: pageSize },
-      token
-    );
+  while (rawDeclarations.length < maxItems && !exhausted && fetchAttempts < maxFetchAttempts) {
+    fetchAttempts += 1;
+
+    if (cursorNeedsRotation(cursor)) {
+      const rotated = rotateFsaCursor(cursor, dateSlices.length);
+      if (rotated.exhausted) {
+        exhausted = true;
+        hasMore = false;
+        break;
+      }
+      cursor = rotated.cursor;
+    }
+
+    const slice = dateSlices[cursor.sliceIndex] ?? dateSlices[0];
+    const endDateFrom = ruDateToIso(slice.from);
+    const endDateTo = ruDateToIso(slice.to);
+    const sortField = getSortField(cursor);
+
+    let batch: FsaDeclaration[];
+    try {
+      batch = await searchExpiringDeclarations(
+        {
+          endDateFrom,
+          endDateTo,
+          page: cursor.page,
+          size: pageSize,
+          sort: [sortField],
+        },
+        token
+      );
+    } catch (error) {
+      if (isFsaPageLimitError(error)) {
+        const rotated = rotateFsaCursor(cursor, dateSlices.length);
+        if (rotated.exhausted) {
+          exhausted = true;
+          hasMore = false;
+          break;
+        }
+        cursor = rotated.cursor;
+        continue;
+      }
+      throw error;
+    }
 
     if (batch.length === 0) {
-      hasMore = false;
-      nextApiPage = page;
-      break;
+      const rotated = rotateFsaCursor(cursor, dateSlices.length);
+      if (rotated.exhausted) {
+        exhausted = true;
+        hasMore = false;
+        break;
+      }
+      cursor = rotated.cursor;
+      continue;
     }
 
     rawDeclarations.push(...batch);
-    nextApiPage = page + 1;
-    hasMore = batch.length === pageSize;
+    cursor = { ...cursor, page: cursor.page + 1 };
+    hasMore = !exhausted;
+
+    if (batch.length < pageSize) {
+      const rotated = rotateFsaCursor(cursor, dateSlices.length);
+      if (rotated.exhausted) {
+        hasMore = false;
+        break;
+      }
+      cursor = rotated.cursor;
+    }
 
     if (rawDeclarations.length >= maxItems) {
       rawDeclarations.splice(maxItems);
       break;
     }
-
-    if (!hasMore) break;
   }
+
+  const addedNew = rawDeclarations.filter((item) => !knownIds.has(item.id)).length;
 
   const inRange = sortByEndDate(
     rawDeclarations.map(normalizeDeclaration).filter((item) => isEndDateInRange(item, range))
@@ -241,14 +312,17 @@ export async function bulkLoadList(
 
   return {
     range,
-    nextApiPage,
+    nextApiPage: cursor.page,
+    apiCursor: cursor,
     pageSize,
     hasMore,
     items: merged.items,
     rejected: merged.rejected,
     enrichQueue: mergeEnrichQueue(baseEnrichQueue, needsEnrich),
     loadedFromApi: rawDeclarations.length,
+    addedNew,
     emailsFromList: withEmail.length,
+    cursorLabel: describeFsaCursor(cursor, dateSlices),
   };
 }
 
@@ -355,6 +429,7 @@ export function listResultToQueue(
     range: result.range,
     category: "expiring",
     nextApiPage: result.nextApiPage,
+    apiCursor: result.apiCursor,
     pageSize: result.pageSize,
     hasMore: result.hasMore,
     items: result.items,

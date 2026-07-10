@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { isAuthenticated } from "@/lib/auth";
 import { emailFilterLabel } from "@/lib/outreach/email-filter";
 import {
+  describeFsaCursor,
+  splitRangeIntoSlices,
+} from "@/lib/outreach/fsa-pagination";
+import {
   buildSentLookup,
   getOutreachTestEmail,
   getRecipientCooldownUntil,
@@ -77,6 +81,13 @@ export async function GET() {
     range,
     scannedAt: queue?.scannedAt ?? null,
     nextApiPage: queue?.nextApiPage ?? 0,
+    apiCursor: queue?.apiCursor ?? null,
+    cursorLabel: queue?.apiCursor
+      ? describeFsaCursor(
+          queue.apiCursor,
+          splitRangeIntoSlices(queue.range ?? range)
+        )
+      : null,
     pageSize: queue?.pageSize ?? 100,
     hasMore: queue?.hasMore ?? false,
     enrichPending: queue?.enrichQueue?.length ?? 0,

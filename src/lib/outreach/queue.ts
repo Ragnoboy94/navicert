@@ -65,9 +65,15 @@ export function setExcludeFromAutoSend(
 }
 
 function normalizeQueue(queue: OutreachQueue): OutreachQueue {
+  const apiCursor = queue.apiCursor ?? {
+    page: queue.nextApiPage ?? 0,
+    sortIndex: 0,
+    sliceIndex: 0,
+  };
   return {
     ...queue,
-    nextApiPage: queue.nextApiPage ?? 0,
+    nextApiPage: apiCursor.page,
+    apiCursor,
     pageSize: queue.pageSize ?? 100,
     hasMore: queue.hasMore ?? false,
     enrichQueue: (queue.enrichQueue ?? []).map(normalizeDeclaration),

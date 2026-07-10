@@ -87,6 +87,8 @@ type OutreachState = {
   range: { from: string; to: string };
   scannedAt: string | null;
   nextApiPage: number;
+  apiCursor?: { page: number; sortIndex: number; sliceIndex: number };
+  cursorLabel?: string;
   pageSize: number;
   hasMore: boolean;
   enrichPending: number;
@@ -515,19 +517,26 @@ export function OutreachPanel() {
       return;
     }
 
+    const addedNew = Number(json.addedNew ?? 0);
+    const loadedFromApi = Number(json.loadedFromApi ?? 0);
     const action = mode === "append" ? "Догружено" : "Загружено";
     const pending = json.enrichPending ?? 0;
 
+    const addedLine =
+      addedNew === 0 && loadedFromApi > 0
+        ? `${action}: новых 0 (${loadedFromApi} с API — уже были в очереди)`
+        : `${action}: +${addedNew} новых из ${loadedFromApi} с API`;
+
     if (pending > 0) {
       setMessage(
-        `${action}: ${json.loadedFromApi} записей. Email подгружаются на сервере в фоне — можно закрыть вкладку или перейти в другой раздел.`
+        `${addedLine}. Email подгружаются на сервере в фоне — можно закрыть вкладку.`
       );
       await refresh(true);
       return;
     }
 
     setMessage(
-      `${action}: ${json.loadedFromApi} из API · к отправке: ${json.eligible} · личные ящики: ${json.rejected}${json.hasMore ? " · в реестре ещё есть" : ""}`
+      `${addedLine} · к отправке: ${json.eligible} · личные ящики: ${json.rejected}${json.hasMore ? " · в реестре ещё есть" : ""}${json.cursorLabel ? ` · ${json.cursorLabel}` : ""}`
     );
     await refresh();
   }
@@ -851,8 +860,8 @@ export function OutreachPanel() {
             Список обновлён:{" "}
             {new Date(data.scannedAt).toLocaleString("ru-RU")}
             {data.hasMore
-              ? ` · следующая страница API: ${data.nextApiPage + 1}`
-              : " · в выбранном периоде больше нет страниц"}
+              ? ` · следующая загрузка: ${data.cursorLabel ?? `стр. ${data.nextApiPage + 1}`}`
+              : " · в выбранном периоде больше нет данных"}
             {data.enrichPending > 0
               ? ` · осталось обогатить: ${data.enrichPending}`
               : ""}

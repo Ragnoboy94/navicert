@@ -307,7 +307,7 @@ export async function searchExpiringDeclarations(
         },
       },
       columnsSearch: [],
-      sort: ["endDate"],
+      sort: filter.sort?.length ? filter.sort : ["endDate"],
     },
     token
   );

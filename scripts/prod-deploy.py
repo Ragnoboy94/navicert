@@ -33,6 +33,7 @@ OUTREACH_DEFAULTS = {
     "OUTREACH_SENDER_NAME": "Экспертный центр сертификации Нависерт",
     "OUTREACH_FROM_NAME": "Андрей Громов",
     "OUTREACH_SEND_DELAY_MS": "3000",
+    "OUTREACH_RECIPIENT_COOLDOWN_DAYS": "7",
     "OUTREACH_ENRICH_BATCH": "50",
     "OUTREACH_CARD_BATCH": "8",
     "OUTREACH_CERT_DURATION": "до 2 месяцев",
@@ -95,11 +96,13 @@ def merge_env(existing: str, local: dict[str, str]) -> str:
     for key, default in OUTREACH_DEFAULTS.items():
         set_key(key, local.get(key) or default)
 
+    # Секреты и прод-only ключи: дописываем с локали только если на сервере пусто.
+    # OUTREACH_FSA_PROXY сюда НЕ входит — на проде (Стокгольм) прокси обязателен и
+    # настраивается только на сервере (setup-proxy6 / refresh-fsa-proxy). Локально (РФ) — не задавать.
     for key in (
         "OUTREACH_SMTP_PASS",
         "OUTREACH_UNSUBSCRIBE_SECRET",
         "OUTREACH_CRON_SECRET",
-        "OUTREACH_FSA_PROXY",
         "OUTREACH_SMTP_PROXY",
         "PROXY6_API_KEY",
         "FSA_BEARER_TOKEN",
@@ -204,8 +207,7 @@ def main() -> int:
 
         git checkout -- content/ 2>/dev/null || true
         test -f data/leads.json && git checkout -- data/leads.json 2>/dev/null || true
-        git clean -fd scripts/outreach/ 2>/dev/null || true
-        rm -f scripts/prod-deploy.py src/lib/outreach/fsa-network.ts src/lib/outreach/smtp-transport.ts 2>/dev/null || true
+        rm -f scripts/prod-deploy.py src/lib/outreach/fsa-network.ts src/lib/outreach/fsa-proxy-shared.ts src/lib/outreach/smtp-transport.ts 2>/dev/null || true
         git reset --hard HEAD
         git pull --ff-only origin main
 
@@ -283,6 +285,10 @@ def main() -> int:
 
     run(client, "curl -s -o /dev/null -w 'local:%{http_code}\\n' http://127.0.0.1:3000/")
     run(client, "curl -s -o /dev/null -w 'nginx:%{http_code}\\n' http://127.0.0.1/")
+    run(
+        client,
+        f"grep -E '^OUTREACH_FSA_PROXY=.+' {APP_DIR}/.env.local >/dev/null && echo 'FSA proxy: set (prod)' || echo 'WARNING: OUTREACH_FSA_PROXY missing on prod — FSA will fail from Stockholm'",
+    )
 
     cron_wrapper = textwrap.dedent(
         f"""

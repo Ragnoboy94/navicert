@@ -68,6 +68,7 @@ export type OutreachSearchFilter = {
   endDateTo: string;
   page?: number;
   size?: number;
+  sort?: string[];
 };
 
 export type OutreachQueueItem = FsaDeclaration & {
@@ -81,8 +82,14 @@ export type OutreachQueue = {
   scannedAt: string;
   range: { from: string; to: string };
   category: "expiring";
-  /** Следующая страница API для догрузки */
+  /** Следующая страница API для догрузки (legacy, дублирует apiCursor.page) */
   nextApiPage: number;
+  /** Позиция в API: страница, сортировка, подпериод */
+  apiCursor?: {
+    page: number;
+    sortIndex: number;
+    sliceIndex: number;
+  };
   pageSize: number;
   hasMore: boolean;
   items: OutreachQueueItem[];

@@ -56,12 +56,15 @@ export async function POST(request: Request) {
       ok: true,
       mode,
       loadedFromApi: result.loadedFromApi,
+      addedNew: result.addedNew,
       emailsFromList: result.emailsFromList,
       enrichPending: result.enrichQueue.length,
       eligible: result.items.length,
       rejected: result.rejected.length,
       hasMore: result.hasMore,
       nextApiPage: result.nextApiPage,
+      apiCursor: result.apiCursor,
+      cursorLabel: result.cursorLabel,
       range: result.range,
     });
   } catch (error) {

@@ -1,36 +1,10 @@
 import { Agent, ProxyAgent, fetch as undiciFetch } from "undici";
 import {
+  getFsaProxyList,
   isSocksProxy,
-  playwrightProxyOptions,
+  rememberWorkingFsaProxy,
   socksConnect,
 } from "./fsa-proxy-shared";
-
-let cachedWorkingProxy: string | undefined;
-
-function parseProxyList(raw: string | undefined): string[] {
-  if (!raw?.trim()) return [];
-  return [...new Set(raw.split(/[,;\s]+/).map((p) => p.trim()).filter(Boolean))];
-}
-
-export function getFsaProxyList(): string[] {
-  const fromEnv =
-    process.env.OUTREACH_FSA_PROXY?.trim() ||
-    process.env.HTTPS_PROXY?.trim() ||
-    "";
-  const list = parseProxyList(fromEnv);
-  if (cachedWorkingProxy && list.includes(cachedWorkingProxy)) {
-    return [cachedWorkingProxy, ...list.filter((p) => p !== cachedWorkingProxy)];
-  }
-  return list;
-}
-
-export function getFsaProxy(): string | undefined {
-  return getFsaProxyList()[0];
-}
-
-export function rememberWorkingFsaProxy(proxy: string): void {
-  cachedWorkingProxy = proxy;
-}
 
 function dispatcherForProxy(proxy: string) {
   if (isSocksProxy(proxy)) {
@@ -53,6 +27,8 @@ function dispatcherForProxy(proxy: string) {
   return new ProxyAgent(proxy);
 }
 
+export { getFsaProxyList, getFsaProxy, playwrightLaunchOptions } from "./fsa-proxy-shared";
+
 export async function fsaFetch(
   url: string,
   init: RequestInit = {}
@@ -71,22 +47,11 @@ export async function fsaFetch(
       return response as unknown as Response;
     } catch (error) {
       lastError = error;
-      cachedWorkingProxy = undefined;
+      rememberWorkingFsaProxy("");
     }
   }
 
   throw lastError instanceof Error
     ? lastError
     : new Error("All FSA proxies failed");
-}
-
-export function playwrightLaunchOptions(): {
-  headless: boolean;
-  proxy?: { server: string; username?: string; password?: string };
-} {
-  const proxy = getFsaProxy();
-  return {
-    headless: true,
-    ...(proxy ? { proxy: playwrightProxyOptions(proxy) } : {}),
-  };
 }
