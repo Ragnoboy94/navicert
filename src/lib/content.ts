@@ -58,6 +58,8 @@ export function getCategory(slug: string): Category | undefined {
 }
 
 export function getArticles(): Article[] {
+  const filePath = path.join(contentDir, "articles.json");
+  if (!fs.existsSync(filePath)) return [];
   return readJson<Article[]>("articles.json");
 }
 

@@ -19,6 +19,7 @@ fi
 test -f data/leads.json && cp -a data/leads.json "$BK/" || true
 test -d data && cp -a data "$BK/data-snapshot" || true
 test -d public/images/uploads && cp -a public/images/uploads "$BK/" || true
+test -d public/images/articles && cp -a public/images/articles "$BK/article-images" || true
 cp -a .env.local "$BK/"
 echo "backup: $BK"
 
@@ -48,13 +49,17 @@ cp -a "$BK/.env.local" .env.local
 test -f "$BK/leads.json" && cp -a "$BK/leads.json" data/leads.json || true
 if [ -d "$BK/data-snapshot" ]; then
   mkdir -p data
-  for f in outreach-sent.json outreach-unsubscribed.json outreach-schedule.json fsa-token.json; do
+  for f in outreach-sent.json outreach-unsubscribed.json outreach-schedule.json outreach-queue.json fsa-token.json; do
     test -f "$BK/data-snapshot/$f" && cp -a "$BK/data-snapshot/$f" "data/$f" || true
   done
 fi
 if [ -d "$BK/uploads" ]; then
   mkdir -p public/images/uploads
   cp -a "$BK/uploads/." public/images/uploads/
+fi
+if [ -d "$BK/article-images" ]; then
+  mkdir -p public/images/articles
+  cp -a "$BK/article-images/." public/images/articles/
 fi
 
 echo "=== verify restore ==="

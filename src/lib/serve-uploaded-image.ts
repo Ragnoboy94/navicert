@@ -1,8 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { NextResponse } from "next/server";
-
-const UPLOAD_DIR = path.join(process.cwd(), "public", "images", "uploads");
+import { isUploadFolder, uploadDir } from "./upload-paths";
 
 const MIME: Record<string, string> = {
   jpg: "image/jpeg",
@@ -12,19 +11,22 @@ const MIME: Record<string, string> = {
   webp: "image/webp",
 };
 
-export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ path: string[] }> }
-) {
-  const { path: segments } = await params;
-  const filename = path.basename(segments.join("/"));
+export function serveUploadedImage(
+  folder: string,
+  segments: string[]
+): NextResponse {
+  if (!isUploadFolder(folder)) {
+    return new NextResponse(null, { status: 404 });
+  }
 
+  const filename = path.basename(segments.join("/"));
   if (!filename || filename.includes("..")) {
     return new NextResponse(null, { status: 404 });
   }
 
-  const filePath = path.join(UPLOAD_DIR, filename);
-  if (!filePath.startsWith(UPLOAD_DIR) || !fs.existsSync(filePath)) {
+  const baseDir = uploadDir(folder);
+  const filePath = path.join(baseDir, filename);
+  if (!filePath.startsWith(baseDir) || !fs.existsSync(filePath)) {
     return new NextResponse(null, { status: 404 });
   }
 

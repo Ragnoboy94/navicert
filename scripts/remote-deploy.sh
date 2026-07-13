@@ -63,6 +63,8 @@ server {
     listen [::]:80 default_server;
     server_name navicert.pro www.navicert.pro 89.22.238.194 _;
 
+    client_max_body_size 10m;
+
     location / {
         proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;

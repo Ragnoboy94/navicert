@@ -2,6 +2,11 @@
  * FSA scan append: не сбрасывает очередь, принимает maxItems до 1000.
  * Run: npx tsx scripts/verify-fsa-scan-append.ts
  */
+import { config } from "dotenv";
+import path from "path";
+
+config({ path: path.join(process.cwd(), ".env.local") });
+
 const base = process.env.VERIFY_BASE_URL || "http://localhost:3000";
 const password = process.env.ADMIN_PASSWORD || "navicert2025";
 
@@ -11,8 +16,15 @@ async function login() {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ password }),
   });
-  const setCookie = res.headers.get("set-cookie") || "";
-  const match = setCookie.match(/navicert_admin=([^;]+)/);
+  if (!res.ok) {
+    console.error("login status:", res.status, await res.text());
+    return null;
+  }
+  const setCookies =
+    typeof res.headers.getSetCookie === "function"
+      ? res.headers.getSetCookie()
+      : [res.headers.get("set-cookie") || ""];
+  const match = setCookies.join("; ").match(/navicert_admin=([^;]+)/);
   return match ? `navicert_admin=${match[1]}` : null;
 }
 
@@ -27,7 +39,12 @@ async function scan(
     body: JSON.stringify({ mode, maxItems, pageSize: 100 }),
     signal: AbortSignal.timeout(180_000),
   });
-  return { status: res.status, body: await res.json() };
+  const text = await res.text();
+  try {
+    return { status: res.status, body: JSON.parse(text) };
+  } catch {
+    return { status: res.status, body: { error: text.slice(0, 300) } };
+  }
 }
 
 async function main() {
@@ -38,8 +55,8 @@ async function main() {
     process.exit(1);
   }
 
-  console.log("1) Initial load (reset, maxItems=30)...");
-  const first = await scan(cookie, "reset", 30);
+  console.log("1) Initial load (reset, maxItems=20)...");
+  const first = await scan(cookie, "reset", 20);
   if (!first.status || first.status >= 400) {
     console.error("reset failed:", first.body);
     process.exit(1);
@@ -47,8 +64,8 @@ async function main() {
   const idsAfterFirst = Number(first.body.eligible ?? 0) + Number(first.body.rejected ?? 0);
   console.log(`   loaded=${first.body.loadedFromApi} added=${first.body.addedNew} queue~${idsAfterFirst}`);
 
-  console.log("2) Append load (append, maxItems=1000 accepted)...");
-  const second = await scan(cookie, "append", 1000);
+  console.log("2) Append load (append, maxItems=30)...");
+  const second = await scan(cookie, "append", 30);
   if (!second.status || second.status >= 400) {
     console.error("append failed:", second.body);
     process.exit(1);

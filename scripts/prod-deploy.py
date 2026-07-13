@@ -166,15 +166,15 @@ def run(client: paramiko.SSHClient, cmd: str, timeout: int = 600) -> tuple[int, 
 
 
 def main() -> int:
-    if not PASSWORD:
+    local = load_local_env()
+    password = os.environ.get("DEPLOY_PASSWORD", "") or local.get("DEPLOY_PASSWORD", "")
+    if not password:
         print("Set DEPLOY_PASSWORD env var", file=sys.stderr)
         return 1
-
-    local = load_local_env()
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     print(f"Connecting to {HOST}...")
-    client.connect(HOST, username=USER, password=PASSWORD, timeout=30)
+    client.connect(HOST, username=USER, password=password, timeout=30)
 
     code, out, _ = run(client, f"test -d {APP_DIR} && echo OK || echo MISSING")
     if "MISSING" in out:
@@ -187,7 +187,7 @@ def main() -> int:
         cd {APP_DIR}
         BK="/var/backups/navicert-$(date -u +%Y%m%d-%H%M%S)"
         PERSIST="/var/www/navicert-persist"
-        mkdir -p "$BK" "$PERSIST/content" "$PERSIST/uploads"
+        mkdir -p "$BK" "$PERSIST/content" "$PERSIST/images/uploads" "$PERSIST/images/articles"
 
         # Пользовательский контент вне git (CONTENT_DIR на проде)
         mkdir -p "$PERSIST/content"
@@ -201,6 +201,7 @@ def main() -> int:
         test -f data/leads.json && cp -a data/leads.json "$BK/" || true
         test -d data && cp -a data "$BK/data-snapshot" || true
         test -d public/images/uploads && cp -a public/images/uploads "$BK/" || true
+        test -d public/images/articles && cp -a public/images/articles "$BK/article-images" || true
         cp -a .env.local "$BK/"
         echo "backup: $BK"
 
@@ -228,6 +229,8 @@ def main() -> int:
         mkdir -p "$PERSIST/content"
         cp -a "$BK/content/." "$PERSIST/content/"
         rsync -a "$PERSIST/content/" content/
+        test -f content/articles.json || printf '[]\n' > content/articles.json
+        cp -a content/articles.json "$PERSIST/content/articles.json" 2>/dev/null || true
         cp -a "$BK/.env.local" .env.local
         if grep -q '^CONTENT_DIR=' .env.local; then
           sed -i "s|^CONTENT_DIR=.*|CONTENT_DIR=$PERSIST/content|" .env.local
@@ -237,14 +240,29 @@ def main() -> int:
         test -f "$BK/leads.json" && cp -a "$BK/leads.json" data/leads.json || true
         if [ -d "$BK/data-snapshot" ]; then
           mkdir -p data
-          for f in outreach-sent.json outreach-unsubscribed.json outreach-schedule.json fsa-token.json; do
+          for f in outreach-sent.json outreach-unsubscribed.json outreach-schedule.json outreach-queue.json fsa-token.json; do
             test -f "$BK/data-snapshot/$f" && cp -a "$BK/data-snapshot/$f" "data/$f" || true
           done
         fi
         if [ -d "$BK/uploads" ]; then
-          mkdir -p public/images/uploads
-          cp -a "$BK/uploads/." public/images/uploads/
+          mkdir -p "$PERSIST/images/uploads"
+          cp -a "$BK/uploads/." "$PERSIST/images/uploads/"
         fi
+        if [ -d "$BK/article-images" ]; then
+          mkdir -p "$PERSIST/images/articles"
+          cp -a "$BK/article-images/." "$PERSIST/images/articles/"
+        fi
+        mkdir -p public/images
+        for sub in uploads articles; do
+          if [ -d "public/images/$sub" ] && [ ! -L "public/images/$sub" ]; then
+            rsync -a "public/images/$sub/" "$PERSIST/images/$sub/" 2>/dev/null || true
+            rm -rf "public/images/$sub"
+          fi
+          if [ ! -e "public/images/$sub" ]; then
+            ln -sfn "$PERSIST/images/$sub" "public/images/$sub"
+          fi
+        done
+        chmod -R u+rwX "$PERSIST/images"
 
         python3 - <<PY
         import json, pathlib, sys
@@ -311,6 +329,22 @@ def main() -> int:
         client,
         f"grep -E '^OUTREACH_FSA_PROXY=.+' {APP_DIR}/.env.local >/dev/null && echo 'FSA proxy: set (prod)' || echo 'WARNING: OUTREACH_FSA_PROXY missing on prod — FSA will fail from Stockholm'",
     )
+
+    nginx_patch = textwrap.dedent(
+        """
+        NGINX=/etc/nginx/sites-available/navicert
+        if [ -f "$NGINX" ] && ! grep -q 'client_max_body_size' "$NGINX"; then
+          sed -i '/server_name /a\\    client_max_body_size 10m;' "$NGINX"
+          nginx -t && systemctl reload nginx
+          echo "nginx: client_max_body_size 10m added"
+        elif [ -f "$NGINX" ]; then
+          echo "nginx: client_max_body_size already set"
+        else
+          echo "nginx: site config missing"
+        fi
+        """
+    ).strip()
+    run(client, nginx_patch)
 
     cron_wrapper = textwrap.dedent(
         f"""

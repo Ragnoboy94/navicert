@@ -9,6 +9,28 @@ import {
   sanitizeUploadBasename,
   sanitizeUploadFolder,
 } from "@/lib/upload";
+import {
+  isUploadFolder,
+  uploadDir,
+  uploadPublicUrl,
+} from "@/lib/upload-paths";
+
+function resolveImageMime(file: File): string | null {
+  if (isAllowedImageMime(file.type)) {
+    return file.type;
+  }
+
+  const ext = file.name.split(".").pop()?.toLowerCase();
+  const byExt: Record<string, string> = {
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    png: "image/png",
+    webp: "image/webp",
+    gif: "image/gif",
+  };
+  const mime = ext ? byExt[ext] : undefined;
+  return mime && isAllowedImageMime(mime) ? mime : null;
+}
 
 export async function POST(request: Request) {
   if (!(await isAuthenticated())) {
@@ -25,7 +47,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Файл не выбран" }, { status: 400 });
     }
 
-    if (!isAllowedImageMime(file.type)) {
+    const mime = resolveImageMime(file);
+    if (!mime) {
       return NextResponse.json(
         { error: "Допустимы JPG, PNG, WebP или GIF" },
         { status: 400 }
@@ -40,28 +63,29 @@ export async function POST(request: Request) {
     }
 
     const folder = sanitizeUploadFolder(rawFolder);
-    if (!folder) {
+    if (!folder || !isUploadFolder(folder)) {
       return NextResponse.json({ error: "Некорректная папка" }, { status: 400 });
     }
 
-    const ext = extensionForMime(file.type);
+    const ext = extensionForMime(mime);
     if (!ext) {
       return NextResponse.json({ error: "Неподдерживаемый формат" }, { status: 400 });
     }
 
     const basename = sanitizeUploadBasename(rawName);
     const filename = `${basename}-${Date.now()}.${ext}`;
-    const uploadDir = path.join(process.cwd(), "public", "images", folder);
+    const dir = uploadDir(folder);
 
-    fs.mkdirSync(uploadDir, { recursive: true });
+    fs.mkdirSync(dir, { recursive: true });
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    fs.writeFileSync(path.join(uploadDir, filename), buffer);
+    fs.writeFileSync(path.join(dir, filename), buffer);
 
     return NextResponse.json({
-      url: `/images/${folder}/${filename}`,
+      url: uploadPublicUrl(folder, filename),
     });
-  } catch {
+  } catch (error) {
+    console.error("upload failed:", error);
     return NextResponse.json({ error: "Не удалось загрузить файл" }, { status: 500 });
   }
 }

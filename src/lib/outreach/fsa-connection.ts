@@ -141,6 +141,9 @@ export function formatFsaConnectionError(error: unknown): string {
   if (/401|403/.test(msg)) {
     return "Сессия ФСА истекла — не удалось обновить токен. Проверьте прокси и Playwright (npm run outreach:setup).";
   }
+  if (/503|502|504|Service Temporarily Unavailable/i.test(msg)) {
+    return "ФСА временно перегружена — подождите минуту и повторите догрузку.";
+  }
   if (/timeout|timed out|abort|econnreset|fetch failed|all fsa proxies failed/i.test(msg)) {
     return "Нет стабильного соединения с pub.fsa.gov.ru — проверьте прокси OUTREACH_FSA_PROXY и повторите.";
   }
@@ -199,7 +202,11 @@ export async function fsaApiRequest<T>(
 
         if (isRetryableFsaStatus(response.status) && attempt < maxAttempts - 1) {
           lastError = error;
-          await sleep(600 * 2 ** attempt);
+          const delay =
+            response.status === 503 || response.status === 502
+              ? 1500 * 2 ** attempt
+              : 600 * 2 ** attempt;
+          await sleep(delay);
           continue;
         }
 

@@ -2,6 +2,10 @@ import { classifyEmail } from "./email-filter";
 import { enrichApplicantsFromCards } from "./enrich-applicants";
 import { fetchDeclaration, normalizeDeclaration, searchExpiringDeclarations, declarationApplicantUrl } from "./fsa";
 import {
+  ensureFsaSession,
+} from "./fsa-connection";
+import { invalidateFsaBearerToken } from "./bearer";
+import {
   cursorFromQueue,
   cursorNeedsRotation,
   describeFsaCursor,
@@ -23,6 +27,17 @@ import type {
 } from "./types";
 
 export { ruDateToIso };
+
+const FSA_LIST_REQUEST_GAP_MS = 500;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isFsaAuthError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  return /401|403/.test(msg);
+}
 
 export type BulkLoadMode = "reset" | "append";
 
@@ -217,6 +232,8 @@ export async function bulkLoadList(
       : { page: 0, sortIndex: 0, sliceIndex: 0 };
   const knownIds = collectKnownIds(existing);
 
+  let sessionToken = (await ensureFsaSession()).token;
+
   const rawDeclarations: FsaDeclaration[] = [];
   let newIdsCollected = 0;
   let hasMore = true;
@@ -255,13 +272,33 @@ export async function bulkLoadList(
 
     let batch: FsaDeclaration[];
     try {
-      batch = await searchExpiringDeclarations({
-        endDateFrom,
-        endDateTo,
-        page: cursor.page,
-        size: pageSize,
-        sort: [sortField],
-      });
+      let authRetries = 0;
+      while (true) {
+        try {
+          batch = await searchExpiringDeclarations(
+            {
+              endDateFrom,
+              endDateTo,
+              page: cursor.page,
+              size: pageSize,
+              sort: [sortField],
+            },
+            sessionToken
+          );
+          break;
+        } catch (error) {
+          if (authRetries < 1 && isFsaAuthError(error)) {
+            invalidateFsaBearerToken();
+            sessionToken = (
+              await ensureFsaSession({ forceTokenRefresh: true })
+            ).token;
+            authRetries += 1;
+            await sleep(500);
+            continue;
+          }
+          throw error;
+        }
+      }
     } catch (error) {
       if (isFsaPageLimitError(error)) {
         const rotated = rotateFsaCursor(cursor, dateSlices.length);
@@ -361,6 +398,8 @@ export async function bulkLoadList(
     if (newIdsCollected >= maxItems) {
       break;
     }
+
+    await sleep(FSA_LIST_REQUEST_GAP_MS);
   }
 
   const addedNew = newIdsCollected;
