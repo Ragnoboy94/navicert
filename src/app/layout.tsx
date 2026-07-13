@@ -39,6 +39,11 @@ export const metadata: Metadata = {
     images: site.ogImage ? [site.ogImage] : undefined,
   },
   robots: { index: true, follow: true },
+  alternates: {
+    types: {
+      "application/rss+xml": "/feed.xml",
+    },
+  },
   verification: {
     google: "oNSfLJdFqi5LWHaKS2gsg0qha0TeVlSZwrmYdiIPFWY",
     yandex: "b3695aa9e85374bf",

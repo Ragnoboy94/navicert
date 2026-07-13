@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { forwardRef, useState } from "react";
 import { Loader2, Check, AlertCircle } from "lucide-react";
 
 export function AdminCard({
@@ -58,14 +58,18 @@ export function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   );
 }
 
-export function TextArea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+export const TextArea = forwardRef<
+  HTMLTextAreaElement,
+  React.TextareaHTMLAttributes<HTMLTextAreaElement>
+>(function TextArea(props, ref) {
   return (
     <textarea
+      ref={ref}
       {...props}
       className={`input-field min-h-[100px] resize-y ${props.className || ""}`}
     />
   );
-}
+});
 
 export function SaveButton({
   onClick,

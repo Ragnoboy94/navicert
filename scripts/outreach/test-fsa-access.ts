@@ -2,11 +2,18 @@
 /**
  * Проверка доступа к pub.fsa.gov.ru.
  * Локально (РФ): direct. Прод (VPS за рубежом): через OUTREACH_FSA_PROXY.
- * Использует тот же fsaFetch, что и приложение.
  */
 import { config } from "dotenv";
 import path from "path";
-import { fsaFetch, getFsaProxyList } from "../../src/lib/outreach/fsa-network";
+import {
+  fsaFetch,
+  getFsaProxyList,
+  probeFsaTransport,
+} from "../../src/lib/outreach/fsa-network";
+import {
+  FsaConnectionError,
+  formatFsaConnectionError,
+} from "../../src/lib/outreach/fsa-connection";
 
 config({ path: path.join(process.cwd(), ".env.local") });
 
@@ -36,10 +43,21 @@ const proxies = getFsaProxyList();
 console.log("OUTREACH_FSA_PROXY:", proxies[0]?.replace(/:[^:@]+@/, ":***@") || "(not set)");
 
 async function main() {
+  const transport = await probeFsaTransport();
+  console.log(
+    "probeFsaTransport:",
+    transport.ok
+      ? `ok (${transport.mode}${transport.proxy ? ", proxy" : ""})`
+      : `fail — ${transport.error}`
+  );
+
   await probe("direct", fetch);
   if (proxies.length > 0) {
     await probe("via proxy (fsaFetch)", fsaFetch);
   }
+
+  const sample = new FsaConnectionError("token", "test token error");
+  console.log("formatFsaConnectionError:", formatFsaConnectionError(sample));
 }
 
 main().catch((e) => {

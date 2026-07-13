@@ -1,15 +1,25 @@
 import fs from "fs";
 import path from "path";
 import { spawn } from "child_process";
+import { probeFsaTransport } from "./fsa-network";
 import { playwrightEnv } from "./playwright-env";
 
 const tokenPath = path.join(process.cwd(), "data", "fsa-token.json");
+
+export type FsaTokenSource = "env" | "cache" | "playwright";
 
 type CachedToken = {
   token: string;
   fetchedAt: string;
   expiresAt: string | null;
 };
+
+type AcquireResult = {
+  token: string;
+  source: FsaTokenSource;
+};
+
+let refreshPromise: Promise<AcquireResult> | null = null;
 
 function decodeJwtExp(token: string): number | null {
   try {
@@ -48,6 +58,13 @@ function writeCachedToken(token: string): void {
 function isTokenFresh(cached: CachedToken): boolean {
   if (!cached.expiresAt) return true;
   return Date.parse(cached.expiresAt) > Date.now() + 60_000;
+}
+
+/** Краткий запас после exp — только если Playwright временно недоступен. */
+function isTokenGracePeriod(cached: CachedToken): boolean {
+  if (!cached.expiresAt) return false;
+  const exp = Date.parse(cached.expiresAt);
+  return exp <= Date.now() && Date.now() - exp < 5 * 60_000;
 }
 
 function captureTokenViaPlaywright(): Promise<string> {
@@ -108,27 +125,81 @@ export function invalidateFsaBearerToken(): void {
   }
 }
 
-export async function acquireFsaBearerToken(options?: {
-  forceRefresh?: boolean;
-}): Promise<string> {
-  const fromEnv = process.env.FSA_BEARER_TOKEN?.trim();
-  if (fromEnv) return fromEnv;
+async function ensureTransportReady(): Promise<void> {
+  const probe = await probeFsaTransport();
+  if (!probe.ok) {
+    const hint =
+      probe.mode === "direct"
+        ? "Прямое подключение к pub.fsa.gov.ru недоступно"
+        : probe.error || "Нет рабочего прокси (OUTREACH_FSA_PROXY)";
+    throw new Error(hint);
+  }
+}
 
-  if (options?.forceRefresh) {
-    invalidateFsaBearerToken();
+async function captureFreshToken(): Promise<string> {
+  await ensureTransportReady();
+  const token = await captureTokenViaPlaywright();
+  writeCachedToken(token);
+  return token;
+}
+
+async function acquireFsaBearerTokenInternal(options?: {
+  requireTransport?: boolean;
+}): Promise<AcquireResult> {
+  const fromEnv = process.env.FSA_BEARER_TOKEN?.trim();
+  if (fromEnv) {
+    return { token: fromEnv, source: "env" };
   }
 
   const cached = readCachedToken();
-  if (cached && isTokenFresh(cached)) return cached.token;
+
+  if (options?.requireTransport) {
+    await ensureTransportReady();
+  }
 
   try {
-    const token = await captureTokenViaPlaywright();
-    writeCachedToken(token);
-    return token;
+    const token = await captureFreshToken();
+    return { token, source: "playwright" };
   } catch (error) {
-    if (cached?.token && !options?.forceRefresh) {
-      return cached.token;
+    if (
+      cached?.token &&
+      (isTokenFresh(cached) || isTokenGracePeriod(cached))
+    ) {
+      return { token: cached.token, source: "cache" };
     }
-    throw error;
+
+    const msg = error instanceof Error ? error.message : String(error);
+    throw new Error(`Не удалось получить Bearer-токен ФСА: ${msg}`);
   }
+}
+
+export async function acquireFsaBearerToken(options?: {
+  forceRefresh?: boolean;
+  requireTransport?: boolean;
+}): Promise<AcquireResult> {
+  const fromEnv = process.env.FSA_BEARER_TOKEN?.trim();
+  if (fromEnv) {
+    return { token: fromEnv, source: "env" };
+  }
+
+  const cached = readCachedToken();
+  if (cached && isTokenFresh(cached) && !options?.forceRefresh) {
+    return { token: cached.token, source: "cache" };
+  }
+
+  if (options?.forceRefresh) {
+    invalidateFsaBearerToken();
+    if (refreshPromise) {
+      await refreshPromise.catch(() => {});
+      refreshPromise = null;
+    }
+  }
+
+  if (!refreshPromise) {
+    refreshPromise = acquireFsaBearerTokenInternal(options).finally(() => {
+      refreshPromise = null;
+    });
+  }
+
+  return refreshPromise;
 }

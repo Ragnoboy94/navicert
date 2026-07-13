@@ -60,6 +60,7 @@ type OutreachSchedule = {
   lastRunAt: string | null;
   lastRunSent: number;
   lastFsaSyncAt: string | null;
+  lastHourlyFsaAppendAt?: string | null;
 };
 
 type ScheduleStats = {
@@ -349,6 +350,94 @@ function QueueTable({
   );
 }
 
+function FsaLoadConfirmDialog({
+  open,
+  isFirstLoad,
+  queueSize,
+  onCancel,
+  onConfirm,
+}: {
+  open: boolean;
+  isFirstLoad: boolean;
+  queueSize: number;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  if (!open) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="fsa-load-title"
+    >
+      <button
+        type="button"
+        className="absolute inset-0 bg-primary-dark/45 backdrop-blur-[2px]"
+        aria-label="Закрыть"
+        onClick={onCancel}
+      />
+      <div className="relative w-full max-w-lg rounded-2xl border border-border bg-white p-6 shadow-2xl">
+        <div className="flex gap-4">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent">
+            <Search className="h-5 w-5" />
+          </div>
+          <div className="min-w-0">
+            <h3
+              id="fsa-load-title"
+              className="text-lg font-bold text-primary-dark"
+            >
+              {isFirstLoad
+                ? "Загрузить декларации из ФСА?"
+                : "Догрузить декларации из ФСА?"}
+            </h3>
+            <p className="mt-2 text-sm leading-relaxed text-muted">
+              {isFirstLoad ? (
+                <>
+                  Запросим до <strong>{INITIAL_LOAD_MAX}</strong> деклараций с
+                  истекающим сроком из реестра ФСА. Загрузка может занять
+                  несколько минут — не закрывайте вкладку до завершения.
+                </>
+              ) : (
+                <>
+                  Добавим до <strong>{INITIAL_LOAD_MAX}</strong> новых
+                  деклараций поверх текущей очереди (
+                  <strong>{queueSize}</strong> в базе). Уже загруженные
+                  компании, история отправок и отказы от рассылки{" "}
+                  <strong>сохранятся</strong>. Реестр обходится с другой
+                  сортировки — появятся новые компании, которых ещё не было.
+                </>
+              )}
+            </p>
+            <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
+              Это важная операция: идёт обращение к внешнему API ФСА и
+              фоновое обогащение email. Нажимайте только когда готовы начать
+              загрузку.
+            </p>
+          </div>
+        </div>
+        <div className="mt-6 flex flex-wrap justify-end gap-3">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="btn-ghost px-5 py-2.5 text-sm"
+          >
+            Отмена
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="btn-primary px-5 py-2.5 text-sm"
+          >
+            {isFirstLoad ? "Начать загрузку" : "Догрузить из ФСА"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SentTable({ rows }: { rows: SentRecord[] }) {
   if (rows.length === 0) {
     return <p className="py-8 text-center text-sm text-muted">Список пуст</p>;
@@ -402,6 +491,7 @@ export function OutreachPanel() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [listFilter, setListFilter] = useState<ListFilter>("pending");
+  const [showLoadConfirm, setShowLoadConfirm] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
   async function refresh(silent = false) {
@@ -496,13 +586,18 @@ export function OutreachPanel() {
     });
   }
 
-  async function runScan(mode: "reset" | "append") {
+  async function runScan(
+    mode: "reset" | "append",
+    maxItemsOverride?: number
+  ) {
     if (mode === "reset") setScanning(true);
     else setAppending(true);
     setError("");
     setMessage("");
 
-    const maxItems = mode === "reset" ? INITIAL_LOAD_MAX : APPEND_LOAD_MAX;
+    const maxItems =
+      maxItemsOverride ??
+      (mode === "reset" ? INITIAL_LOAD_MAX : APPEND_LOAD_MAX);
     const res = await fetch("/api/admin/outreach/scan", {
       method: "POST",
       credentials: "same-origin",
@@ -546,6 +641,17 @@ export function OutreachPanel() {
       `${addedLine}${enrichLine} · к отправке: ${eligibleNow} · личные ящики: ${json.rejected}${json.hasMore ? " · в реестре ещё есть" : ""}${json.cursorLabel ? ` · ${json.cursorLabel}` : ""}`
     );
     await refresh();
+  }
+
+  function requestFsaLoad() {
+    if (scanning || appending) return;
+    setShowLoadConfirm(true);
+  }
+
+  function confirmFsaLoad() {
+    setShowLoadConfirm(false);
+    const mode = data?.scannedAt ? "append" : "reset";
+    void runScan(mode, INITIAL_LOAD_MAX);
   }
 
   async function saveSchedule(
@@ -688,13 +794,27 @@ export function OutreachPanel() {
       ? `обработано ${enrichProcessed} из ${enrichSessionTotal}`
       : `обработано ${enrichProcessed}`;
 
+  const queueSize =
+    (data?.items.length ?? 0) +
+    (data?.rejected.length ?? 0) +
+    (data?.enrichPending ?? 0);
+
   return (
     <div className="space-y-4">
+      <FsaLoadConfirmDialog
+        open={showLoadConfirm}
+        isFirstLoad={!data?.scannedAt}
+        queueSize={queueSize}
+        onCancel={() => setShowLoadConfirm(false)}
+        onConfirm={confirmFsaLoad}
+      />
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted">
-          Первая загрузка — до {INITIAL_LOAD_MAX} деклараций из API ФСА за один
-          раз. Догрузка — по {APPEND_LOAD_MAX} за нажатие. Период: текущий и
-          следующий месяц по дате окончания.
+          Загрузка из ФСА — до {INITIAL_LOAD_MAX} деклараций за раз, новые
+          добавляются поверх очереди (данные и история отправок сохраняются).
+          Быстрая догрузка — по {APPEND_LOAD_MAX}. Период: текущий и следующий
+          месяц по дате окончания.
         </p>
         <button
           type="button"
@@ -817,12 +937,14 @@ export function OutreachPanel() {
         <div className="mt-5 flex flex-wrap items-end gap-3">
           <button
             type="button"
-            onClick={() => runScan("reset")}
+            onClick={requestFsaLoad}
             disabled={scanning || appending}
             className="btn-primary inline-flex gap-2 px-5 py-2.5 text-sm"
           >
-            <Search className={`h-4 w-4 ${scanning ? "animate-pulse" : ""}`} />
-            {scanning ? "Загрузка…" : `Загрузить из ФСА (до ${INITIAL_LOAD_MAX})`}
+            <Search className={`h-4 w-4 ${scanning || appending ? "animate-pulse" : ""}`} />
+            {scanning || appending
+              ? "Загрузка…"
+              : `Загрузить из ФСА (до ${INITIAL_LOAD_MAX})`}
           </button>
 
           <button
@@ -1001,14 +1123,23 @@ export function OutreachPanel() {
         </div>
 
         <p className="mt-3 text-xs text-muted">
-          Лимит применяется сразу. Чтобы изменить лимит при включённой
-          автоотправке — нажмите «Сохранить лимит». Cron в ~6:00 МСК
-          догружает список из ФСА; при нехватке адресов — дозагрузка перед
-          автоотправкой.
+          Лимит применяется сразу. Cron каждые ~20 мин: раз в час догружает
+          до 100 деклараций из ФСА (поверх очереди); в ~6:00 МСК — утренняя
+          синхронизация; при нехватке адресов — дозагрузка перед автоотправкой.
+          {data?.schedule?.lastHourlyFsaAppendAt && (
+            <>
+              {" "}
+              Последняя почасовая догрузка:{" "}
+              {new Date(data.schedule.lastHourlyFsaAppendAt).toLocaleString(
+                "ru-RU"
+              )}
+              .
+            </>
+          )}
           {data?.schedule?.lastFsaSyncAt && (
             <>
               {" "}
-              Последняя синхронизация с ФСА:{" "}
+              Утренняя синхронизация:{" "}
               {new Date(data.schedule.lastFsaSyncAt).toLocaleString("ru-RU")}.
             </>
           )}

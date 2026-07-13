@@ -4,24 +4,11 @@ import {
   bulkLoadList,
   listResultToQueue,
 } from "@/lib/outreach/bulk-load";
+import { formatFsaConnectionError } from "@/lib/outreach/fsa-connection";
 import { startBackgroundEnrich } from "@/lib/outreach/enrich-runner";
 import { readOutreachQueue, writeOutreachQueue } from "@/lib/outreach/queue";
 
 export const maxDuration = 300;
-
-function formatFsaLoadError(error: unknown): string {
-  const msg = error instanceof Error ? error.message : String(error);
-  if (/401|403/.test(msg)) {
-    return "Сессия ФСА истекла — обновите токен (npm run outreach:setup) или проверьте прокси";
-  }
-  if (/timeout|timed out|abort|econnreset|fetch failed|all fsa proxies failed/i.test(msg)) {
-    return "Нет стабильного соединения с pub.fsa.gov.ru — проверьте прокси OUTREACH_FSA_PROXY и повторите";
-  }
-  if (msg.includes("загрузке страниц")) {
-    return "ФСА временно ограничила пагинацию — попробуйте догрузку через минуту";
-  }
-  return msg || "Не удалось загрузить данные из реестра ФСА";
-}
 
 export async function POST(request: Request) {
   if (!(await isAuthenticated())) {
@@ -84,7 +71,7 @@ export async function POST(request: Request) {
   } catch (error) {
     return NextResponse.json(
       {
-        error: formatFsaLoadError(error),
+        error: formatFsaConnectionError(error),
       },
       { status: 500 }
     );

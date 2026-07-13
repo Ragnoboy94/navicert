@@ -125,4 +125,6 @@ export type OutreachSchedule = {
   /** Дата последней утренней синхронизации с ФСА (YYYY-MM-DD, МСК) */
   lastFsaSyncDate: string | null;
   lastFsaSyncAt: string | null;
+  /** Последняя почасовая догрузка из реестра ФСА (ISO) */
+  lastHourlyFsaAppendAt: string | null;
 };

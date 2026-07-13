@@ -1,6 +1,7 @@
 import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 import { isAuthenticated } from "@/lib/auth";
+import { articlesIndexPath, articlePagePath } from "@/lib/articles-routes";
 import {
   contentFiles,
   readContentFile,
@@ -11,7 +12,9 @@ function revalidateSiteContent(file: string, data: unknown) {
   revalidatePath("/", "layout");
   revalidatePath("/uslugi");
   revalidatePath("/produkciya");
+  revalidatePath(articlesIndexPath());
   revalidatePath("/privacy");
+  revalidatePath("/feed.xml");
   revalidatePath("/sitemap.xml");
 
   if (file === "services.json" && Array.isArray(data)) {
@@ -26,6 +29,14 @@ function revalidateSiteContent(file: string, data: unknown) {
     for (const item of data) {
       if (item && typeof item === "object" && "slug" in item) {
         revalidatePath(`/produkciya/${String(item.slug)}`);
+      }
+    }
+  }
+
+  if (file === "articles.json" && Array.isArray(data)) {
+    for (const item of data) {
+      if (item && typeof item === "object" && "slug" in item) {
+        revalidatePath(articlePagePath(String(item.slug)));
       }
     }
   }

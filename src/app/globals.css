@@ -256,11 +256,27 @@ p {
   color: var(--primary-dark);
 }
 
+.prose-content p:empty::before {
+  content: "\00a0";
+}
+
 .prose-content p,
 .prose-content li {
   line-height: 1.75;
   color: #334155;
   margin-bottom: 0.75rem;
+  white-space: pre-wrap;
+}
+
+.prose-content p.prose-indent,
+.article-rich-editor p.prose-indent {
+  text-indent: 1.5em;
+}
+
+.prose-content hr.prose-hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1.75rem 0;
 }
 
 .prose-content ul {
@@ -269,9 +285,90 @@ p {
   margin-bottom: 1rem;
 }
 
+.prose-content li {
+  text-indent: 0;
+}
+
 .prose-content strong {
   font-weight: 600;
   color: var(--foreground);
+}
+
+.prose-content em {
+  font-style: italic;
+}
+
+.prose-content s {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+
+.prose-content img {
+  max-width: 100%;
+  margin: 1.75rem auto;
+  display: block;
+  border-radius: 0.75rem;
+  border: 1px solid var(--border);
+}
+
+.prose-content hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1.75rem 0;
+}
+
+.article-rich-editor.prose-content h2 {
+  font-size: 1.35rem;
+  font-weight: 700;
+  margin: 1.25rem 0 0.75rem;
+  color: var(--primary-dark);
+}
+
+.article-rich-editor.prose-content h3 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin: 1rem 0 0.5rem;
+  color: var(--primary-dark);
+}
+
+.article-rich-editor.prose-content strong {
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.article-editor-shell .tiptap.article-rich-editor {
+  min-height: 14rem;
+  padding: 0.75rem 1rem;
+  font-size: 15px;
+  line-height: 1.75;
+  outline: none;
+}
+
+.article-editor-shell .tiptap.article-rich-editor > :first-child {
+  margin-top: 0;
+}
+
+.article-editor-shell .tiptap.article-rich-editor > :last-child {
+  margin-bottom: 0;
+}
+
+.article-rich-editor p.is-empty::before {
+  color: var(--muted);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+.prose-content .prose-figure {
+  margin: 1.75rem 0;
+}
+
+.prose-content .prose-figure figcaption {
+  margin-top: 0.5rem;
+  text-align: center;
+  font-size: 0.875rem;
+  color: var(--muted);
+  text-indent: 0;
 }
 
 details > summary {

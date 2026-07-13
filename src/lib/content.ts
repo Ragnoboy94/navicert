@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import type {
   Advantage,
+  Article,
   CaseStudy,
   Category,
   ClientLogo,
@@ -13,6 +14,7 @@ import type {
   Step,
   WhyUsItem,
 } from "./types";
+import { isArticlePublished } from "./article-publish";
 
 const contentDir =
   process.env.CONTENT_DIR?.trim() || path.join(process.cwd(), "content");
@@ -55,6 +57,30 @@ export function getCategory(slug: string): Category | undefined {
   return getCategories().find((c) => c.slug === slug);
 }
 
+export function getArticles(): Article[] {
+  return readJson<Article[]>("articles.json");
+}
+
+export function getPublishedArticles(): Article[] {
+  return getArticles()
+    .filter((a) => isArticlePublished(a))
+    .sort(
+      (a, b) =>
+        Date.parse(b.publishedAt) - Date.parse(a.publishedAt) ||
+        b.title.localeCompare(a.title, "ru")
+    );
+}
+
+export function getArticle(slug: string): Article | undefined {
+  const article = getArticles().find((a) => a.slug === slug);
+  if (!article || !isArticlePublished(article)) return undefined;
+  return article;
+}
+
+export function getLatestArticle(): Article | undefined {
+  return getPublishedArticles()[0];
+}
+
 export function getReviews(): Review[] {
   return readJson<Review[]>("reviews.json");
 }
@@ -95,6 +121,7 @@ export const contentFiles = [
   "why-us.json",
   "services.json",
   "categories.json",
+  "articles.json",
   "reviews.json",
   "faq.json",
   "cities.json",

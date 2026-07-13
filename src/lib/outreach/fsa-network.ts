@@ -6,6 +6,17 @@ import {
   socksConnect,
 } from "./fsa-proxy-shared";
 
+const FSA_PROBE_URL = "https://pub.fsa.gov.ru/rds/declaration";
+
+export type FsaTransportMode = "direct" | "proxy";
+
+export type FsaTransportProbe = {
+  ok: boolean;
+  mode: FsaTransportMode;
+  proxy?: string;
+  error?: string;
+};
+
 function dispatcherForProxy(proxy: string) {
   if (isSocksProxy(proxy)) {
     return new Agent({
@@ -42,6 +53,60 @@ function isTransientNetworkError(error: unknown): boolean {
       msg
     )
   );
+}
+
+async function probeWithFetch(
+  fetchImpl: typeof fetch,
+  label: string
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const response = await fetchImpl(FSA_PROBE_URL, {
+      method: "GET",
+      redirect: "follow",
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (response.ok || response.status < 500) {
+      return { ok: true };
+    }
+    return { ok: false, error: `${label}: HTTP ${response.status}` };
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    return { ok: false, error: `${label}: ${msg}` };
+  }
+}
+
+/** Проверка доступности pub.fsa.gov.ru — direct или через прокси. */
+export async function probeFsaTransport(): Promise<FsaTransportProbe> {
+  const proxies = getFsaProxyList();
+
+  if (proxies.length === 0) {
+    const direct = await probeWithFetch(fetch, "direct");
+    return direct.ok
+      ? { ok: true, mode: "direct" }
+      : { ok: false, mode: "direct", error: direct.error };
+  }
+
+  let lastError = "Все прокси недоступны";
+  for (const proxy of proxies) {
+    try {
+      const response = await undiciFetch(FSA_PROBE_URL, {
+        method: "GET",
+        redirect: "follow",
+        signal: AbortSignal.timeout(20_000),
+        dispatcher: dispatcherForProxy(proxy),
+      } as Parameters<typeof undiciFetch>[1]);
+      if (response.ok || response.status < 500) {
+        rememberWorkingFsaProxy(proxy);
+        return { ok: true, mode: "proxy", proxy };
+      }
+      lastError = `HTTP ${response.status} via proxy`;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+      rememberWorkingFsaProxy("");
+    }
+  }
+
+  return { ok: false, mode: "proxy", error: lastError };
 }
 
 export async function fsaFetch(

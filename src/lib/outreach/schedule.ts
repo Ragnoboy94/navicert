@@ -23,6 +23,7 @@ const defaultSchedule = (): OutreachSchedule => ({
   lastRunSent: 0,
   lastFsaSyncDate: null,
   lastFsaSyncAt: null,
+  lastHourlyFsaAppendAt: null,
 });
 
 export function readOutreachSchedule(): OutreachSchedule {
@@ -75,6 +76,7 @@ function normalizeSchedule(
     lastRunSent: Number(schedule.lastRunSent) || 0,
     lastFsaSyncDate: schedule.lastFsaSyncDate ?? null,
     lastFsaSyncAt: schedule.lastFsaSyncAt ?? null,
+    lastHourlyFsaAppendAt: schedule.lastHourlyFsaAppendAt ?? null,
   };
 }
 

@@ -5,6 +5,7 @@ import { SocialLinks } from "./SocialLinks";
 const footerNav = [
   { href: "/uslugi", label: "Услуги" },
   { href: "/produkciya", label: "Продукция" },
+  { href: "/blog", label: "Статьи" },
   { href: "/#preimuschestva", label: "Преимущества" },
   { href: "/#etapy", label: "Этапы" },
   { href: "/#otzyvy", label: "Отзывы" },

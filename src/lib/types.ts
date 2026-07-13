@@ -133,6 +133,26 @@ export interface Category {
   };
 }
 
+export interface Article {
+  slug: string;
+  title: string;
+  /** Краткое описание для карточек и SEO */
+  excerpt: string;
+  /** Основной текст (HTML из редактора; старые статьи могут быть в Markdown) */
+  body: string;
+  /** Обложка для карточки и Open Graph */
+  image?: string;
+  /** Дата публикации (YYYY-MM-DD). Статья появится на сайте в этот день, если не черновик */
+  publishedAt: string;
+  updatedAt?: string;
+  /** Черновик — не показывается на сайте */
+  draft?: boolean;
+  seo: {
+    title: string;
+    description: string;
+  };
+}
+
 export interface Review {
   id: string;
   category: string;

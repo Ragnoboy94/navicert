@@ -5,6 +5,7 @@ import {
   getEnrichBatchSize,
   listResultToQueue,
 } from "./bulk-load";
+import { formatFsaConnectionError } from "./fsa-connection";
 import { getEnrichRunnerStatus, startBackgroundEnrich } from "./enrich-runner";
 import { pickSendableCandidates } from "./send-selection";
 import { getExpiringMonthRange, readOutreachQueue, writeOutreachQueue } from "./queue";
@@ -21,11 +22,13 @@ const MORNING_SYNC_CENTER_MINUTES = 6 * 60;
 const MORNING_SYNC_WINDOW_MINUTES = 90;
 const INITIAL_LOAD_MAX = 1000;
 const APPEND_LOAD_MAX = 100;
+export const HOURLY_FSA_APPEND_INTERVAL_MS = 60 * 60 * 1000;
 
 export type CronSyncResult = {
   ran: boolean;
   mode?: "reset" | "append";
   loadedFromApi?: number;
+  addedNew?: number;
   enrichPending?: number;
   eligible?: number;
   reason?: string;
@@ -40,9 +43,20 @@ export type CronEnrichResult = {
 
 export type CronMaintenanceResult = {
   morningSync: CronSyncResult;
+  hourlyAppend: CronSyncResult;
   enrich: CronEnrichResult;
   queueReady: number;
 };
+
+export function isHourlyFsaAppendDue(
+  lastAt: string | null,
+  now = Date.now()
+): boolean {
+  if (!lastAt) return true;
+  const ts = Date.parse(lastAt);
+  if (!Number.isFinite(ts)) return true;
+  return now - ts >= HOURLY_FSA_APPEND_INTERVAL_MS;
+}
 
 function isMorningSyncWindow(now = new Date()): boolean {
   const { minutes } = getZonedParts(now, TIMEZONE);
@@ -63,11 +77,14 @@ function countSendable(queue: OutreachQueue | null): number {
   return pickSendableCandidates(queue.items, { forAutoSend: true }).length;
 }
 
-async function loadFromFsa(mode: "reset" | "append") {
+async function loadFromFsa(
+  mode: "reset" | "append",
+  maxItems = mode === "append" ? APPEND_LOAD_MAX : INITIAL_LOAD_MAX
+) {
   const existing = mode === "append" ? readOutreachQueue() : null;
   const result = await bulkLoadList({
     mode,
-    maxItems: mode === "append" ? APPEND_LOAD_MAX : INITIAL_LOAD_MAX,
+    maxItems,
     pageSize: 100,
     existingQueue: existing,
     range: existing?.range,
@@ -120,6 +137,43 @@ export async function processEnrichBacklog(
   };
 }
 
+/** Каждый час: +100 деклараций поверх очереди (append), без сброса данных. */
+export async function runHourlyFsaAppend(
+  now = new Date()
+): Promise<CronSyncResult> {
+  const schedule = readOutreachSchedule();
+  if (!isHourlyFsaAppendDue(schedule.lastHourlyFsaAppendAt, now.getTime())) {
+    return { ran: false, reason: "interval_not_elapsed" };
+  }
+
+  const queue = readOutreachQueue();
+  const mode: "reset" | "append" =
+    queueNeedsReset(queue) || !queue?.scannedAt ? "reset" : "append";
+
+  try {
+    const result = await loadFromFsa(mode, APPEND_LOAD_MAX);
+    if (result.enrichQueue.length > 0 && !readOutreachQueue()?.enrichPaused) {
+      startBackgroundEnrich({ resetCounters: mode === "reset" });
+    }
+    writeOutreachSchedule({
+      lastHourlyFsaAppendAt: now.toISOString(),
+    });
+    return {
+      ran: true,
+      mode,
+      loadedFromApi: result.loadedFromApi,
+      addedNew: result.addedNew,
+      enrichPending: result.enrichQueue.length,
+      eligible: result.items.length,
+    };
+  } catch (error) {
+    return {
+      ran: false,
+      reason: formatFsaConnectionError(error),
+    };
+  }
+}
+
 export async function runMorningFsaSync(): Promise<CronSyncResult> {
   const queue = readOutreachQueue();
   let mode: "reset" | "append";
@@ -140,6 +194,7 @@ export async function runMorningFsaSync(): Promise<CronSyncResult> {
     ran: true,
     mode,
     loadedFromApi: result.loadedFromApi,
+    addedNew: result.addedNew,
     enrichPending: result.enrichQueue.length,
     eligible: result.items.length,
   };
@@ -183,6 +238,7 @@ export async function topUpQueueForSend(
     ran: true,
     mode,
     loadedFromApi: loadResult.loadedFromApi,
+    addedNew: loadResult.addedNew,
     enrichPending: queue?.enrichQueue.length ?? 0,
     eligible: queue?.items.length ?? 0,
     enrich,
@@ -217,6 +273,8 @@ export async function runCronMaintenance(
     });
   }
 
+  const hourlyAppend = await runHourlyFsaAppend(now);
+
   const elapsed = Date.now() - startedAt;
   const enrichBudget = Math.max(maxMs - elapsed, 0);
   const queue = readOutreachQueue();
@@ -245,6 +303,7 @@ export async function runCronMaintenance(
 
   return {
     morningSync,
+    hourlyAppend,
     enrich,
     queueReady: countSendable(readOutreachQueue()),
   };

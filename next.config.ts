@@ -2,11 +2,16 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ["undici"],
-  // В dev картинки и так без агрессивного кропа; на проде отключаем /_next/image
   images: {
     unoptimized: process.env.NODE_ENV === "production",
   },
   allowedDevOrigins: ["l4xkq4-92-101-127-10.ru.tuna.am"],
+  async redirects() {
+    return [
+      { source: "/stati", destination: "/blog", permanent: true },
+      { source: "/stati/:slug", destination: "/blog/:slug", permanent: true },
+    ];
+  },
 };
 
 export default nextConfig;

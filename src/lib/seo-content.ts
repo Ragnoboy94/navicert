@@ -1,3 +1,5 @@
+import { htmlToPlainText, isArticleHtml } from "@/lib/article-body";
+
 const translit: Record<string, string> = {
   а: "a",
   б: "b",
@@ -115,4 +117,47 @@ export function buildServiceSeo(
       : "";
 
   return { title: seoTitle, description: seoDescription };
+}
+
+export function buildArticleSeo(title: string, excerpt: string) {
+  const name = title.trim();
+  const desc = excerpt.trim();
+
+  return {
+    title: name ? `${name} — Нависерт` : "",
+    description: desc
+      ? trimDescription(desc)
+      : name
+        ? trimDescription(
+            `Статья о сертификации: ${name}. Полезные материалы от центра сертификации Нависерт.`
+          )
+        : "",
+  };
+}
+
+/** Краткое описание из начала текста, если поле «описание» пустое */
+export function excerptFromBody(body: string, max = 160): string {
+  const plain = isArticleHtml(body)
+    ? htmlToPlainText(body)
+    : body
+        .replace(/!\[[^\]]*]\([^)]+\)/g, "")
+        .replace(/\[([^\]]+)]\([^)]+\)/g, "$1")
+        .replace(/^¶\s?/gm, "")
+        .replace(/[#*_>`~-]/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+  if (!plain) return "";
+  if (plain.length <= max) return plain;
+  const cut = plain.slice(0, max - 1);
+  const lastSpace = cut.lastIndexOf(" ");
+  return (lastSpace > 40 ? cut.slice(0, lastSpace) : cut).trimEnd() + "…";
+}
+
+export function buildArticleSeoFromContent(
+  title: string,
+  excerpt: string,
+  body: string
+) {
+  const desc = excerpt.trim() || excerptFromBody(body);
+  return buildArticleSeo(title, desc);
 }
