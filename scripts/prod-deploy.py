@@ -185,29 +185,81 @@ def main() -> int:
         f"""
         set -euo pipefail
         cd {APP_DIR}
-        BK="/var/backups/navicert-$(date -u +%Y%m%d-%H%M%S)"
         PERSIST="/var/www/navicert-persist"
+        PERSIST_CONTENT="$PERSIST/content"
+
+        # Снимок ДО любых изменений (отдельно от BK деплоя)
+        PRE="/var/backups/navicert-pre-deploy-$(date -u +%Y%m%d-%H%M%S)"
+        mkdir -p "$PRE"
+        rsync -a "$PERSIST_CONTENT/" "$PRE/content/" 2>/dev/null || true
+        rsync -a "$PERSIST/images/" "$PRE/images/" 2>/dev/null || true
+        test -d data && cp -a data "$PRE/data-snapshot" || true
+        echo "PRE_DEPLOY_SNAPSHOT: $PRE"
+        python3 -c "import json, pathlib
+p = pathlib.Path('$PRE/content/articles.json')
+if p.exists():
+    n = len(json.loads(p.read_text(encoding='utf-8')))
+    print('snapshot articles:', n)
+else:
+    print('snapshot articles: missing')
+"
+
+        BK="/var/backups/navicert-$(date -u +%Y%m%d-%H%M%S)"
         mkdir -p "$BK" "$PERSIST/content" "$PERSIST/images/uploads" "$PERSIST/images/articles"
 
-        # Пользовательский контент вне git (CONTENT_DIR на проде)
-        mkdir -p "$PERSIST/content"
-        if [ -L content ]; then
-          cp -a "$(readlink -f content)/." "$BK/content/"
-        elif [ -d content ]; then
-          mkdir -p "$BK/content"
-          cp -a content/. "$BK/content/"
-          rsync -a content/ "$PERSIST/content/"
+        # Бэкап контента: persist — источник правды; подмешать content/ если это не symlink
+        mkdir -p "$BK/content" "$PERSIST_CONTENT"
+        rsync -a "$PERSIST_CONTENT/" "$BK/content/"
+        if [ -d content ] && [ ! -L content ]; then
+          python3 -c "import json, pathlib, shutil
+persist = pathlib.Path('$PERSIST_CONTENT')
+app = pathlib.Path('content')
+bk = pathlib.Path('$BK/content')
+names = {{p.name for p in persist.glob('*.json')}} | {{p.name for p in app.glob('*.json')}}
+for fname in names:
+    pp, ap = persist / fname, app / fname
+    if pp.exists() and ap.exists():
+        try:
+            a = json.loads(pp.read_text(encoding='utf-8'))
+            b = json.loads(ap.read_text(encoding='utf-8'))
+            la = len(a) if isinstance(a, list) else 1
+            lb = len(b) if isinstance(b, list) else 1
+            src = ap if lb > la else pp
+        except Exception:
+            src = pp
+    elif ap.exists():
+        src = ap
+    elif pp.exists():
+        src = pp
+    else:
+        continue
+    shutil.copy2(src, persist / fname)
+    shutil.copy2(src, bk / fname)
+for fname in {{p.name for p in app.glob('*.md')}}:
+    ap = app / fname
+    if ap.exists():
+        shutil.copy2(ap, persist / fname)
+        shutil.copy2(ap, bk / fname)
+"
         fi
+
         test -f data/leads.json && cp -a data/leads.json "$BK/" || true
         test -d data && cp -a data "$BK/data-snapshot" || true
-        test -d public/images/uploads && cp -a public/images/uploads "$BK/" || true
-        test -d public/images/articles && cp -a public/images/articles "$BK/article-images" || true
+        if [ -e public/images/uploads ]; then
+          mkdir -p "$BK/uploads"
+          rsync -a "$(readlink -f public/images/uploads)/" "$BK/uploads/"
+        fi
+        if [ -e public/images/articles ]; then
+          mkdir -p "$BK/article-images"
+          rsync -a "$(readlink -f public/images/articles)/" "$BK/article-images/"
+        fi
         cp -a .env.local "$BK/"
         echo "backup: $BK"
 
         python3 -c "import json, pathlib
-for name in ('services.json', 'categories.json', 'site.json'):
-    p = pathlib.Path('content') / name
+root = pathlib.Path('$BK/content')
+for name in ('services.json', 'categories.json', 'site.json', 'articles.json'):
+    p = root / name
     if p.exists():
         data = json.loads(p.read_text(encoding='utf-8'))
         count = len(data) if isinstance(data, list) else 1
@@ -222,14 +274,11 @@ for name in ('services.json', 'categories.json', 'site.json'):
         git reset --hard origin/main
         git pull --ff-only origin main
 
-        # git pull — content/ из репо только для сборки; runtime читает CONTENT_DIR
+        # Контент на проде — только из бэкапа/persist. Git content/ не трогаем.
+        rsync -a "$BK/content/" "$PERSIST_CONTENT/"
+        test -f "$PERSIST_CONTENT/articles.json" || printf '[]\\n' > "$PERSIST_CONTENT/articles.json"
         rm -rf content
-        git checkout HEAD -- content/ 2>/dev/null || true
-        mkdir -p "$PERSIST/content"
-        cp -a "$BK/content/." "$PERSIST/content/"
-        rsync -a "$PERSIST/content/" content/
-        test -f content/articles.json || printf '[]\\n' > content/articles.json
-        cp -a content/articles.json "$PERSIST/content/articles.json" 2>/dev/null || true
+        ln -sfn "$PERSIST_CONTENT" content
         cp -a "$BK/.env.local" .env.local
         if grep -q '^CONTENT_DIR=' .env.local; then
           sed -i "s|^CONTENT_DIR=.*|CONTENT_DIR=$PERSIST/content|" .env.local
@@ -245,11 +294,19 @@ for name in ('services.json', 'categories.json', 'site.json'):
         fi
         if [ -d "$BK/uploads" ]; then
           mkdir -p "$PERSIST/images/uploads"
-          cp -a "$BK/uploads/." "$PERSIST/images/uploads/"
+          src="$(readlink -f "$BK/uploads")"
+          dst="$(readlink -f "$PERSIST/images/uploads")"
+          if [ "$src" != "$dst" ]; then
+            rsync -a "$src/" "$dst/"
+          fi
         fi
         if [ -d "$BK/article-images" ]; then
           mkdir -p "$PERSIST/images/articles"
-          cp -a "$BK/article-images/." "$PERSIST/images/articles/"
+          src="$(readlink -f "$BK/article-images")"
+          dst="$(readlink -f "$PERSIST/images/articles")"
+          if [ "$src" != "$dst" ]; then
+            rsync -a "$src/" "$dst/"
+          fi
         fi
         mkdir -p public/images
         for sub in uploads articles; do
@@ -264,19 +321,25 @@ for name in ('services.json', 'categories.json', 'site.json'):
         chmod -R u+rwX "$PERSIST/images"
 
         python3 -c "import json, pathlib, sys
-bk = pathlib.Path('$BK')
-counts_path = bk / 'counts.txt'
-if not counts_path.exists():
-    print('skip content verify: no counts.txt')
-else:
+bk = pathlib.Path('$BK/content')
+persist = pathlib.Path('$PERSIST_CONTENT')
+counts_path = pathlib.Path('$BK/counts.txt')
+if counts_path.exists():
     before = dict(line.split('\\t') for line in counts_path.read_text().strip().splitlines())
     ok = True
     for name, count in before.items():
-        p = pathlib.Path('content') / name
+        p = persist / name
+        if not p.exists():
+            print('MISSING', name, file=sys.stderr)
+            ok = False
+            continue
         raw = json.loads(p.read_text(encoding='utf-8'))
         now = len(raw) if isinstance(raw, list) else 1
         print('%s: backup %s -> now %s' % (name, count, now))
-        if str(now) != count:
+        if name == 'articles.json' and now < int(count):
+            print('ARTICLES_SHRANK', file=sys.stderr)
+            ok = False
+        elif name != 'articles.json' and str(now) != count:
             ok = False
             print('RESTORE_MISMATCH %s backup=%s now=%s' % (name, count, now), file=sys.stderr)
     if not ok:

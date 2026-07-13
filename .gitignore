@@ -37,6 +37,10 @@ yarn-error.log*
 # заявки с форм (персональные данные)
 /data/leads.json
 
+# статьи и загруженные фото — только на сервере / у редактора, не в git
+/content/articles.json
+/public/images/articles/
+
 # рассылка: runtime-данные, токены, история (не коммитить)
 /data/fsa-token.json
 /data/outreach-queue.json
