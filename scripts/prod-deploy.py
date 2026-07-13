@@ -210,7 +210,7 @@ else:
         # Бэкап контента: persist — источник правды; подмешать content/ если это не symlink
         mkdir -p "$BK/content" "$PERSIST_CONTENT"
         rsync -a "$PERSIST_CONTENT/" "$BK/content/"
-        if [ -d content ] && [ ! -L content ]; then
+        if [ -d content ] && [ ! -L content ] && [ "$(readlink -f content)" != "$(readlink -f "$PERSIST_CONTENT")" ]; then
           python3 -c "import json, pathlib, shutil
 persist = pathlib.Path('$PERSIST_CONTENT')
 app = pathlib.Path('content')
@@ -233,12 +233,18 @@ for fname in names:
         src = pp
     else:
         continue
-    shutil.copy2(src, persist / fname)
+    dst = persist / fname
+    if src.resolve() == dst.resolve():
+        shutil.copy2(src, bk / fname)
+        continue
+    shutil.copy2(src, dst)
     shutil.copy2(src, bk / fname)
 for fname in {{p.name for p in app.glob('*.md')}}:
     ap = app / fname
     if ap.exists():
-        shutil.copy2(ap, persist / fname)
+        dst = persist / fname
+        if ap.resolve() != dst.resolve():
+            shutil.copy2(ap, dst)
         shutil.copy2(ap, bk / fname)
 "
         fi
@@ -278,7 +284,8 @@ for name in ('services.json', 'categories.json', 'site.json', 'articles.json'):
         rsync -a "$BK/content/" "$PERSIST_CONTENT/"
         test -f "$PERSIST_CONTENT/articles.json" || printf '[]\\n' > "$PERSIST_CONTENT/articles.json"
         rm -rf content
-        ln -sfn "$PERSIST_CONTENT" content
+        mkdir -p content
+        rsync -a "$PERSIST_CONTENT/" content/
         cp -a "$BK/.env.local" .env.local
         if grep -q '^CONTENT_DIR=' .env.local; then
           sed -i "s|^CONTENT_DIR=.*|CONTENT_DIR=$PERSIST/content|" .env.local

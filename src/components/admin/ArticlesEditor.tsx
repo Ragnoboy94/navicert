@@ -54,6 +54,27 @@ function withAutoSeo(article: Article): Article {
   };
 }
 
+function normalizeArticles(list: Article[]): Article[] {
+  return list.map((a) =>
+    withAutoSeo({
+      ...a,
+      updatedAt: new Date().toISOString().slice(0, 10),
+    })
+  );
+}
+
+function nextOpenIndex(
+  current: number | null,
+  removedIndex: number,
+  remaining: number
+): number | null {
+  if (remaining === 0) return null;
+  if (current === null) return 0;
+  if (current === removedIndex) return Math.min(removedIndex, remaining - 1);
+  if (current > removedIndex) return current - 1;
+  return current;
+}
+
 export function ArticlesEditor() {
   const [articles, setArticles] = useState<Article[]>([]);
   const [openIndex, setOpenIndex] = useState<number | null>(null);
@@ -98,32 +119,37 @@ export function ArticlesEditor() {
     });
   }
 
-  function removeArticle(index: number) {
+  async function removeArticle(index: number) {
     const article = articles[index];
+    if (!article) return;
+
+    const label = article.draft ? "черновик" : "статью";
     if (
       !confirm(
-        `Удалить статью «${article.title}»? Страница ${articlePagePath(article.slug)} перестанет работать.`
+        `Удалить ${label} «${article.title}»? Это действие нельзя отменить.`
       )
     ) {
       return;
     }
 
-    setArticles((prev) => prev.filter((_, i) => i !== index));
-    setOpenIndex((current) => {
-      if (current === null) return null;
-      if (current === index) return Math.max(0, index - 1);
-      if (current > index) return current - 1;
-      return current;
+    const next = articles.filter((_, i) => i !== index);
+    const slugs = next.map((a) => a.slug);
+    if (slugs.length !== new Set(slugs).size) {
+      alert("Есть повторяющиеся адреса. Сначала исправьте названия.");
+      return;
+    }
+
+    const newOpen = nextOpenIndex(openIndex, index, next.length);
+
+    await run(async () => {
+      await saveContent("articles.json", next);
+      setArticles(next);
+      setOpenIndex(newOpen);
     });
   }
 
   async function save() {
-    const normalized = articles.map((a) =>
-      withAutoSeo({
-        ...a,
-        updatedAt: new Date().toISOString().slice(0, 10),
-      })
-    );
+    const normalized = normalizeArticles(articles);
 
     const slugs = normalized.map((a) => a.slug);
     if (slugs.length !== new Set(slugs).size) {
@@ -135,11 +161,13 @@ export function ArticlesEditor() {
       return;
     }
 
-    await run(() => saveContent("articles.json", normalized));
-    setArticles(normalized);
+    await run(async () => {
+      await saveContent("articles.json", normalized);
+      setArticles(normalized);
+    });
   }
 
-  if (articles.length === 0 && status === "idle") {
+  if (articles.length === 0) {
     return (
       <div className="space-y-4">
         <p className="text-sm text-muted">
@@ -212,11 +240,12 @@ export function ArticlesEditor() {
               )}
               <button
                 type="button"
-                onClick={() => removeArticle(openIndex)}
-                className="inline-flex items-center gap-1 text-sm text-red-600 hover:underline"
+                onClick={() => void removeArticle(openIndex)}
+                disabled={status === "saving"}
+                className="inline-flex items-center gap-1 text-sm text-red-600 hover:underline disabled:opacity-50"
               >
                 <Trash2 className="h-3.5 w-3.5" />
-                Удалить
+                {status === "saving" ? "Удаление…" : "Удалить"}
               </button>
             </div>
           </div>
