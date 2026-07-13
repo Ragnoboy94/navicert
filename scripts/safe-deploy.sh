@@ -6,7 +6,7 @@ cd /var/www/navicert
 
 BK="/var/backups/navicert-$(date -u +%Y%m%d-%H%M%S)"
 PERSIST="/var/www/navicert-persist"
-mkdir -p "$BK" "$PERSIST/content"
+mkdir -p "$BK" "$PERSIST/content" "$PERSIST/images/uploads" "$PERSIST/images/articles"
 
 # Бэкап пользовательского контента (symlink или каталог)
 if [ -L content ]; then
@@ -54,13 +54,24 @@ if [ -d "$BK/data-snapshot" ]; then
   done
 fi
 if [ -d "$BK/uploads" ]; then
-  mkdir -p public/images/uploads
-  cp -a "$BK/uploads/." public/images/uploads/
+  mkdir -p "$PERSIST/images/uploads"
+  cp -a "$BK/uploads/." "$PERSIST/images/uploads/"
 fi
 if [ -d "$BK/article-images" ]; then
-  mkdir -p public/images/articles
-  cp -a "$BK/article-images/." public/images/articles/
+  mkdir -p "$PERSIST/images/articles"
+  cp -a "$BK/article-images/." "$PERSIST/images/articles/"
 fi
+mkdir -p public/images
+for sub in uploads articles; do
+  if [ -d "public/images/$sub" ] && [ ! -L "public/images/$sub" ]; then
+    rsync -a "public/images/$sub/" "$PERSIST/images/$sub/" 2>/dev/null || true
+    rm -rf "public/images/$sub"
+  fi
+  if [ ! -e "public/images/$sub" ]; then
+    ln -sfn "$PERSIST/images/$sub" "public/images/$sub"
+  fi
+done
+chmod -R u+rwX "$PERSIST/images"
 
 echo "=== verify restore ==="
 python3 - <<PY

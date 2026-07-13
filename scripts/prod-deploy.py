@@ -205,15 +205,14 @@ def main() -> int:
         cp -a .env.local "$BK/"
         echo "backup: $BK"
 
-        python3 - <<'PY' > "$BK/counts.txt"
-        import json, pathlib
-        for name in ("services.json", "categories.json", "site.json"):
-            p = pathlib.Path("content") / name
-            if p.exists():
-                data = json.loads(p.read_text(encoding="utf-8"))
-                count = len(data) if isinstance(data, list) else 1
-                print(f"{{name}}\\t{{count}}")
-        PY
+        python3 -c "import json, pathlib
+for name in ('services.json', 'categories.json', 'site.json'):
+    p = pathlib.Path('content') / name
+    if p.exists():
+        data = json.loads(p.read_text(encoding='utf-8'))
+        count = len(data) if isinstance(data, list) else 1
+        print('%s\\t%s' % (name, count))
+" > "$BK/counts.txt"
         cat "$BK/counts.txt"
 
         # content/ и leads — только из бэкапа, не трогаем git checkout (теряются правки с прода)
@@ -229,7 +228,7 @@ def main() -> int:
         mkdir -p "$PERSIST/content"
         cp -a "$BK/content/." "$PERSIST/content/"
         rsync -a "$PERSIST/content/" content/
-        test -f content/articles.json || printf '[]\n' > content/articles.json
+        test -f content/articles.json || printf '[]\\n' > content/articles.json
         cp -a content/articles.json "$PERSIST/content/articles.json" 2>/dev/null || true
         cp -a "$BK/.env.local" .env.local
         if grep -q '^CONTENT_DIR=' .env.local; then
@@ -264,27 +263,26 @@ def main() -> int:
         done
         chmod -R u+rwX "$PERSIST/images"
 
-        python3 - <<PY
-        import json, pathlib, sys
-        bk = pathlib.Path("$BK")
-        counts_path = bk / "counts.txt"
-        if not counts_path.exists():
-            print("skip content verify: no counts.txt")
-        else:
-            before = dict(line.split("\\t") for line in counts_path.read_text().strip().splitlines())
-            ok = True
-            for name, count in before.items():
-                p = pathlib.Path("content") / name
-                raw = json.loads(p.read_text(encoding="utf-8"))
-                now = len(raw) if isinstance(raw, list) else 1
-                print(f"{{name}}: backup {{count}} -> now {{now}}")
-                if str(now) != count:
-                    ok = False
-                    print(f"RESTORE_MISMATCH {{name}} backup={{count}} now={{now}}", file=sys.stderr)
-            if not ok:
-                sys.exit(1)
-            print("content restore OK")
-        PY
+        python3 -c "import json, pathlib, sys
+bk = pathlib.Path('$BK')
+counts_path = bk / 'counts.txt'
+if not counts_path.exists():
+    print('skip content verify: no counts.txt')
+else:
+    before = dict(line.split('\\t') for line in counts_path.read_text().strip().splitlines())
+    ok = True
+    for name, count in before.items():
+        p = pathlib.Path('content') / name
+        raw = json.loads(p.read_text(encoding='utf-8'))
+        now = len(raw) if isinstance(raw, list) else 1
+        print('%s: backup %s -> now %s' % (name, count, now))
+        if str(now) != count:
+            ok = False
+            print('RESTORE_MISMATCH %s backup=%s now=%s' % (name, count, now), file=sys.stderr)
+    if not ok:
+        sys.exit(1)
+    print('content restore OK')
+"
 
         export NODE_OPTIONS=--max-old-space-size=1536
         npm ci

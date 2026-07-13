@@ -43,12 +43,12 @@ export default function HomePage() {
       <Hero site={site} />
       <ServicesSection services={services} />
       <CategoriesGrid categories={getCategories()} />
+      {latestArticle && <LatestArticle article={latestArticle} />}
       <TrustWhy advantages={getAdvantages()} whyUs={getWhyUs()} />
       <Steps steps={getSteps()} />
       <Cities cities={getCities()} />
       <Clients clients={getClients()} />
       <Cases cases={getCases()} />
-      {latestArticle && <LatestArticle article={latestArticle} />}
       <Reviews reviews={getReviews()} />
       <Faq items={getFaq()} />
       <ContactSection site={site} quiz={getQuiz()} />
