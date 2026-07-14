@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { articleLastModified } from "@/lib/article-dates";
 import { getServices, getCategories, getPublishedArticles } from "@/lib/content";
 import { articlePageUrl, articlesIndexUrl } from "@/lib/articles-routes";
 
@@ -29,7 +30,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
 
   const articlePages = getPublishedArticles().map((a) => ({
     url: articlePageUrl(a.slug),
-    lastModified: new Date(a.updatedAt ?? a.publishedAt),
+    lastModified: articleLastModified(a),
     changeFrequency: "monthly" as const,
     priority: 0.75,
   }));

@@ -36,6 +36,32 @@ function emptyArticle(slug: string, title: string): Article {
   };
 }
 
+function publishStatusHint(article: Article): { tone: string; text: string } {
+  const status = getArticlePublishStatus(article);
+  if (status === "draft") {
+    return {
+      tone: "border-amber-200 bg-amber-50 text-amber-950",
+      text: "Черновик — статья скрыта с сайта и не попадает в Google / Яндекс. Снимите галочку «Черновик» и сохраните.",
+    };
+  }
+  if (status === "scheduled") {
+    return {
+      tone: "border-sky-200 bg-sky-50 text-sky-950",
+      text: `Запланирована на ${formatPublishDateRu(article.publishedAt)} (00:00 МСК). После этой даты появится на сайте и в sitemap.`,
+    };
+  }
+  return {
+    tone: "border-green-200 bg-green-50 text-green-950",
+    text: "Опубликована на сайте и в sitemap. Появление в Google / Яндекс обычно занимает от нескольких дней до 2 недель.",
+  };
+}
+
+function saveButtonLabel(article: Article): string {
+  return getArticlePublishStatus(article) === "draft"
+    ? "Сохранить черновик"
+    : "Сохранить и обновить на сайте";
+}
+
 function articleTabLabel(article: Article): string {
   const status = getArticlePublishStatus(article);
   if (status === "draft") return `черновик · ${article.title || "Без названия"}`;
@@ -221,7 +247,9 @@ export function ArticlesEditor() {
         ))}
       </div>
 
-      {article && openIndex !== null && (
+      {article && openIndex !== null && (() => {
+        const publishHint = publishStatusHint(article);
+        return (
         <div className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm text-muted">
@@ -252,6 +280,10 @@ export function ArticlesEditor() {
 
           <AdminCard>
             <div className="grid gap-5">
+              <p className={`rounded-xl border px-4 py-3 text-sm leading-relaxed ${publishHint.tone}`}>
+                {publishHint.text}
+              </p>
+
               <Field label="Заголовок">
                 <TextInput
                   value={article.title}
@@ -346,9 +378,10 @@ export function ArticlesEditor() {
             </div>
           </AdminCard>
 
-          <SaveButton onClick={save} status={status} label="Опубликовать изменения" />
+          <SaveButton onClick={save} status={status} label={saveButtonLabel(article)} />
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

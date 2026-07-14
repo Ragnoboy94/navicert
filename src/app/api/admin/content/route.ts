@@ -1,12 +1,15 @@
 import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 import { isAuthenticated } from "@/lib/auth";
-import { articlesIndexPath, articlePagePath } from "@/lib/articles-routes";
+import { articlesIndexPath, articlePagePath, articlePageUrl, articlesIndexUrl } from "@/lib/articles-routes";
+import { isArticlePublished } from "@/lib/article-publish";
 import {
   contentFiles,
   readContentFile,
   writeContentFile,
 } from "@/lib/content";
+import { notifySearchEngines } from "@/lib/search-indexing";
+import type { Article } from "@/lib/types";
 
 function revalidateSiteContent(file: string, data: unknown) {
   revalidatePath("/", "layout");
@@ -42,6 +45,19 @@ function revalidateSiteContent(file: string, data: unknown) {
   }
 }
 
+function notifyPublishedArticles(data: unknown) {
+  if (!Array.isArray(data)) return;
+  const urls = data
+    .filter(
+      (item): item is Article =>
+        Boolean(item && typeof item === "object" && "slug" in item)
+    )
+    .filter((article) => isArticlePublished(article))
+    .map((article) => articlePageUrl(article.slug));
+  urls.push(articlesIndexUrl());
+  notifySearchEngines(urls);
+}
+
 export async function GET(request: Request) {
   if (!(await isAuthenticated())) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -74,6 +90,9 @@ export async function PUT(request: Request) {
     }
     writeContentFile(file, data);
     revalidateSiteContent(file, data);
+    if (file === "articles.json") {
+      notifyPublishedArticles(data);
+    }
     return NextResponse.json({ success: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Save failed";

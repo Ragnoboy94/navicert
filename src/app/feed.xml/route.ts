@@ -1,3 +1,4 @@
+import { parseArticleDate } from "@/lib/article-dates";
 import { getPublishedArticles, getSite } from "@/lib/content";
 import {
   articlePageUrl,
@@ -23,7 +24,7 @@ export async function GET() {
   const items = articles
     .map((article) => {
       const link = articlePageUrl(article.slug);
-      const pubDate = new Date(article.publishedAt).toUTCString();
+      const pubDate = parseArticleDate(article.publishedAt).toUTCString();
       const description =
         article.excerpt.trim() ||
         article.seo.description.trim() ||

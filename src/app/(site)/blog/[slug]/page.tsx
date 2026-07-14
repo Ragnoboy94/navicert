@@ -42,7 +42,7 @@ export async function generateMetadata({
     : undefined;
 
   return {
-    title: article.seo.title,
+    title: { absolute: article.seo.title },
     description: article.seo.description,
     alternates: { canonical: articlePagePath(slug) },
     openGraph: {
