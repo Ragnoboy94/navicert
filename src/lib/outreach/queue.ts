@@ -15,33 +15,50 @@ export function readOutreachQueue(): OutreachQueue | null {
   return sanitizeOutreachQueue(normalizeQueue(healed));
 }
 
-/** Убирает из файла отправленные и устаревшие записи; история в outreach-sent.json */
+/** Убирает отправленные и то, что вне актуального окна.
+ *  При сдвиге формулы периода обновляем range и вычищаем старьё вне окна,
+ *  но не делаем полный reset очереди с нуля через API. */
 export function sanitizeOutreachQueue(queue: OutreachQueue): OutreachQueue {
   const normalized = normalizeQueue(queue);
-  const range = isOutreachRangeStale(normalized.range)
-    ? getExpiringMonthRange()
-    : normalized.range;
+  const current = getExpiringMonthRange();
+  const rangeChanged =
+    !normalized.range ||
+    normalized.range.from !== current.from ||
+    normalized.range.to !== current.to;
+  const range = current;
+
   const { items, rejected } = pruneOutreachQueue(
     normalized.items,
     normalized.rejected,
     range
   );
 
-  const changed =
-    items.length !== normalized.items.length ||
-    rejected.length !== normalized.rejected.length ||
-    range.from !== normalized.range.from ||
-    range.to !== normalized.range.to;
+  const enrichQueue = normalized.enrichQueue.filter((item) =>
+    isEndDateInRange(item, range)
+  );
 
-  const cleaned = {
+  const cleaned: OutreachQueue = {
     ...normalized,
     range,
     items,
     rejected,
-    enrichQueue: normalized.enrichQueue.filter((item) =>
-      isEndDateInRange(item, range)
-    ),
+    enrichQueue,
+    ...(rangeChanged
+      ? {
+          apiCursor: { page: 0, sortIndex: 0, sliceIndex: 0 },
+          nextApiPage: 0,
+          hasMore: true,
+          paginationVersion: 2,
+        }
+      : {}),
   };
+
+  const changed =
+    rangeChanged ||
+    items.length !== normalized.items.length ||
+    rejected.length !== normalized.rejected.length ||
+    enrichQueue.length !== normalized.enrichQueue.length;
+
   if (changed) writeOutreachQueue(cleaned);
   return cleaned;
 }
@@ -170,13 +187,4 @@ export function getExpiringMonthRange(now = new Date()): { from: string; to: str
   const fromIso = addCalendarMonthsIso(tomorrowIso, 1);
   const toIso = addCalendarDaysIso(fromIso, OUTREACH_EXPIRY_WINDOW_DAYS);
   return { from: isoToRuDate(fromIso), to: isoToRuDate(toIso) };
-}
-
-export function isOutreachRangeStale(
-  range: { from: string; to: string } | undefined,
-  now = new Date()
-): boolean {
-  if (!range) return true;
-  const current = getExpiringMonthRange(now);
-  return range.from !== current.from || range.to !== current.to;
 }

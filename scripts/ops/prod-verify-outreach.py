@@ -60,8 +60,6 @@ def main() -> int:
         return out.strip()
 
     print("=== proxy check ===")
-    refresh = run(f"cd {APP} && OUTREACH_ENV_FILE={APP}/.env.local node scripts/outreach/refresh-fsa-proxy.mjs")
-    print(refresh)
     proxy = run(f"grep '^OUTREACH_FSA_PROXY=' {APP}/.env.local || true")
     print("PROXY:", re.sub(r":([^:@]+)@", ":***@", proxy))
 

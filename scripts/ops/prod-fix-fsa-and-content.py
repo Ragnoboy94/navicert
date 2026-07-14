@@ -62,8 +62,8 @@ fi
 mkdir -p content
 rsync -a "$PERSIST/" content/
 
-# proxy check
-OUTREACH_ENV_FILE="$ENV_FILE" node scripts/outreach/refresh-fsa-proxy.mjs
+# FSA: на проде обязателен купленный OUTREACH_FSA_PROXY в .env.local (не трогаем).
+grep -E '^OUTREACH_FSA_PROXY=.+' "$ENV_FILE" >/dev/null && echo 'FSA proxy: set' || echo 'WARNING: FSA proxy missing'
 
 export NODE_OPTIONS=--max-old-space-size=1536
 npm run build

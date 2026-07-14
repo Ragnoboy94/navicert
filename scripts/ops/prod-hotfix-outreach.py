@@ -41,8 +41,7 @@ def main() -> int:
 
     cmd = (
         f"cd {APP} && export NODE_OPTIONS=--max-old-space-size=1536 && "
-        f"npm run build && pm2 restart navicert --update-env && "
-        f"OUTREACH_ENV_FILE={APP}/.env.local node scripts/outreach/refresh-fsa-proxy.mjs"
+        f"npm run build && pm2 restart navicert --update-env"
     )
     _, o, e = c.exec_command(cmd, timeout=600)
     code = o.channel.recv_exit_status()

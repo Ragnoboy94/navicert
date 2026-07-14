@@ -6,7 +6,7 @@ import {
 } from "@/lib/outreach/bulk-load";
 import { formatFsaConnectionError } from "@/lib/outreach/fsa-connection";
 import { startBackgroundEnrich } from "@/lib/outreach/enrich-runner";
-import { readOutreachQueue, writeOutreachQueue, isOutreachRangeStale } from "@/lib/outreach/queue";
+import { readOutreachQueue, writeOutreachQueue } from "@/lib/outreach/queue";
 
 export const maxDuration = 300;
 
@@ -17,29 +17,21 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json().catch(() => ({}));
-    const requestedMode = body.mode === "append" ? "append" : "reset";
-    const defaultMaxItems = requestedMode === "append" ? 100 : 1000;
-    const minItems = requestedMode === "append" ? 10 : 50;
+    const mode = body.mode === "append" ? "append" : "reset";
+    const defaultMaxItems = mode === "append" ? 100 : 1000;
+    const minItems = mode === "append" ? 10 : 50;
     const maxItems = Math.min(
       Math.max(Number(body.maxItems) || defaultMaxItems, minItems),
       1000
     );
     const pageSize = Math.min(Math.max(Number(body.pageSize) || 100, 10), 100);
 
-    let existing =
-      requestedMode === "append" ? readOutreachQueue() : null;
-    if (requestedMode === "append" && !existing) {
+    const existing = mode === "append" ? readOutreachQueue() : null;
+    if (mode === "append" && !existing) {
       return NextResponse.json(
         { error: "Сначала выполните полную загрузку списка" },
         { status: 400 }
       );
-    }
-
-    const rangeStale = isOutreachRangeStale(existing?.range);
-    const mode =
-      requestedMode === "append" && rangeStale ? "reset" : requestedMode;
-    if (mode === "reset") {
-      existing = null;
     }
 
     const result = await bulkLoadList({
@@ -47,6 +39,7 @@ export async function POST(request: Request) {
       maxItems,
       pageSize,
       existingQueue: existing,
+      // append держит текущий range; reset берёт свежую формулу в bulkLoadList
       range: mode === "append" ? existing?.range : undefined,
     });
 

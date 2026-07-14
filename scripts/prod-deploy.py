@@ -97,14 +97,13 @@ def merge_env(existing: str, local: dict[str, str]) -> str:
         set_key(key, local.get(key) or default)
 
     # Секреты и прод-only ключи: дописываем с локали только если на сервере пусто.
-    # OUTREACH_FSA_PROXY сюда НЕ входит — на проде (Стокгольм) прокси обязателен и
-    # настраивается только на сервере (setup-proxy6 / refresh-fsa-proxy). Локально (РФ) — не задавать.
+    # OUTREACH_FSA_PROXY сюда НЕ входит — на проде задаётся только на сервере (купленный прокси).
+    # Локально (РФ) — не задавать.
     for key in (
         "OUTREACH_SMTP_PASS",
         "OUTREACH_UNSUBSCRIBE_SECRET",
         "OUTREACH_CRON_SECRET",
         "OUTREACH_SMTP_PROXY",
-        "PROXY6_API_KEY",
         "FSA_BEARER_TOKEN",
         "TELEGRAM_BOT_TOKEN",
         "TELEGRAM_CHAT_ID",
@@ -426,27 +425,10 @@ if counts_path.exists():
         EOF
         chmod +x /usr/local/bin/navicert-outreach-cron
 
-        cat > /usr/local/bin/navicert-refresh-fsa-proxy <<'EOF'
-        #!/bin/bash
-        set -euo pipefail
-        cd {APP_DIR}
-        export OUTREACH_ENV_FILE="{APP_DIR}/.env.local"
-        LOG=/var/log/navicert-refresh-proxy.log
-        node scripts/outreach/refresh-fsa-proxy.mjs >>"$LOG" 2>&1 || {{
-          code=$?
-          if [ "$code" -eq 2 ]; then
-            pm2 restart navicert --update-env >>"$LOG" 2>&1
-          elif [ "$code" -ne 0 ]; then
-            exit "$code"
-          fi
-        }}
-        EOF
-        chmod +x /usr/local/bin/navicert-refresh-fsa-proxy
-
+        rm -f /usr/local/bin/navicert-refresh-fsa-proxy
         (crontab -l 2>/dev/null | grep -v navicert-outreach-cron | grep -v navicert-refresh-fsa-proxy; \\
-         echo '*/20 * * * * /usr/local/bin/navicert-outreach-cron # navicert-outreach-cron'; \\
-         echo '15 4 * * * /usr/local/bin/navicert-refresh-fsa-proxy # navicert-refresh-fsa-proxy') | crontab -
-        crontab -l | grep -E 'navicert-outreach-cron|navicert-refresh-fsa-proxy' || true
+         echo '*/20 * * * * /usr/local/bin/navicert-outreach-cron # navicert-outreach-cron') | crontab -
+        crontab -l | grep -E 'navicert-outreach-cron' || true
         """
     ).strip()
     run(client, cron_wrapper)

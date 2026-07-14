@@ -5,6 +5,5 @@ export {
   rememberWorkingFsaProxy,
   playwrightLaunchOptions,
   playwrightProxyOptions,
-  isPaidProxy,
   isSocksProxy,
 } from "./fsa-proxy-shared.mjs";

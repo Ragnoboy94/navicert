@@ -8,7 +8,7 @@ import {
 import { formatFsaConnectionError } from "./fsa-connection";
 import { getEnrichRunnerStatus, startBackgroundEnrich } from "./enrich-runner";
 import { pickSendableCandidates } from "./send-selection";
-import { isOutreachRangeStale, readOutreachQueue, writeOutreachQueue } from "./queue";
+import { readOutreachQueue, writeOutreachQueue } from "./queue";
 import {
   getDateKey,
   getZonedParts,
@@ -64,8 +64,8 @@ function isMorningSyncWindow(now = new Date()): boolean {
   return delta <= MORNING_SYNC_WINDOW_MINUTES / 2;
 }
 
-function queueNeedsReset(queue: OutreachQueue | null): boolean {
-  return isOutreachRangeStale(queue?.range);
+function queueNeedsInitialLoad(queue: OutreachQueue | null): boolean {
+  return !queue?.scannedAt;
 }
 
 function countSendable(queue: OutreachQueue | null): number {
@@ -83,7 +83,7 @@ async function loadFromFsa(
     maxItems,
     pageSize: 100,
     existingQueue: existing,
-    range: existing?.range,
+    range: mode === "append" ? existing?.range : undefined,
   });
   writeOutreachQueue(
     listResultToQueue(result, { mode, existing: existing ?? undefined })
@@ -143,8 +143,9 @@ export async function runHourlyFsaAppend(
   }
 
   const queue = readOutreachQueue();
-  const mode: "reset" | "append" =
-    queueNeedsReset(queue) || !queue?.scannedAt ? "reset" : "append";
+  const mode: "reset" | "append" = queueNeedsInitialLoad(queue)
+    ? "reset"
+    : "append";
 
   try {
     const result = await loadFromFsa(mode, APPEND_LOAD_MAX);
@@ -172,15 +173,10 @@ export async function runHourlyFsaAppend(
 
 export async function runMorningFsaSync(): Promise<CronSyncResult> {
   const queue = readOutreachQueue();
-  let mode: "reset" | "append";
-
-  if (queueNeedsReset(queue) || !queue?.scannedAt) {
-    mode = "reset";
-  } else if (queue.hasMore) {
-    mode = "append";
-  } else {
-    mode = "reset";
-  }
+  // Утром только догрузка; полный reset — кнопка в админке.
+  const mode: "reset" | "append" = queueNeedsInitialLoad(queue)
+    ? "reset"
+    : "append";
 
   const result = await loadFromFsa(mode);
   if (result.enrichQueue.length > 0 && !readOutreachQueue()?.enrichPaused) {
@@ -222,8 +218,9 @@ export async function topUpQueueForSend(
     };
   }
 
-  const mode: "reset" | "append" =
-    queueNeedsReset(queue) || !queue?.scannedAt ? "reset" : "append";
+  const mode: "reset" | "append" = queueNeedsInitialLoad(queue)
+    ? "reset"
+    : "append";
   const loadResult = await loadFromFsa(mode);
 
   const enrich = await processEnrichBacklog(120_000);

@@ -16,17 +16,6 @@ export function isSocksProxy(proxy) {
   return protocol === "socks5:" || protocol === "socks4:";
 }
 
-export function isPaidProxy(proxy) {
-  const p = proxy.trim();
-  if (!p) return false;
-  try {
-    const u = parseFsaProxyUrl(p);
-    return Boolean(u.username || u.password);
-  } catch {
-    return p.includes("@");
-  }
-}
-
 function parseProxyList(raw) {
   if (!raw?.trim()) return [];
   return [...new Set(raw.split(/[,;\s]+/).map((p) => p.trim()).filter(Boolean))];

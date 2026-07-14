@@ -37,7 +37,6 @@ TRACKED = [
     "scripts/outreach/fsa-proxy.mjs",
     "scripts/outreach/fsa-proxy-shared.mjs",
     "scripts/outreach/get-fsa-token.mjs",
-    "scripts/outreach/refresh-fsa-proxy.mjs",
     "scripts/outreach/test-fsa-access.ts",
     "scripts/prod-deploy.py",
     "scripts/safe-deploy.sh",

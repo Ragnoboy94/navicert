@@ -46,7 +46,6 @@ cd {APP}
 export NODE_OPTIONS=--max-old-space-size=1536
 npm run build
 pm2 restart navicert --update-env
-OUTREACH_ENV_FILE={APP}/.env.local node scripts/outreach/refresh-fsa-proxy.mjs
 echo HOTFIX_OK
 """
     _, o, e = c.exec_command(cmd, timeout=600)

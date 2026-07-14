@@ -54,7 +54,6 @@ pm2 save
 
 echo "RESUME_OK $(git log -1 --oneline)"
 grep -E '^OUTREACH_FSA_PROXY=.+' .env.local >/dev/null && echo 'FSA proxy: set' || echo 'WARNING: FSA proxy missing'
-OUTREACH_ENV_FILE={APP}/.env.local node scripts/outreach/refresh-fsa-proxy.mjs || true
 """
 
     c = paramiko.SSHClient()

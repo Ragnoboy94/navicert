@@ -1,7 +1,7 @@
 import { SocksClient, type SocksProxy } from "socks";
 
 /** Keep in sync with scripts/outreach/fsa-proxy-shared.mjs
- *  OUTREACH_FSA_PROXY: required on prod VPS (Stockholm etc.), omit when running locally in Russia. */
+ *  OUTREACH_FSA_PROXY: required on prod VPS; omit when running locally in Russia. */
 
 let cachedWorkingProxy: string | undefined;
 
@@ -14,17 +14,6 @@ export function parseFsaProxyUrl(raw: string): URL {
 export function isSocksProxy(proxy: string): boolean {
   const protocol = parseFsaProxyUrl(proxy).protocol;
   return protocol === "socks5:" || protocol === "socks4:";
-}
-
-export function isPaidProxy(proxy: string): boolean {
-  const p = proxy.trim();
-  if (!p) return false;
-  try {
-    const u = parseFsaProxyUrl(p);
-    return Boolean(u.username || u.password);
-  } catch {
-    return p.includes("@");
-  }
 }
 
 function parseProxyList(raw: string | undefined): string[] {

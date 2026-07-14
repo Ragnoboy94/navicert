@@ -21,7 +21,6 @@ FILES = [
     "src/lib/outreach/fsa-proxy-shared.ts",
     "scripts/outreach/fsa-proxy.mjs",
     "scripts/outreach/fsa-proxy-shared.mjs",
-    "scripts/outreach/refresh-fsa-proxy.mjs",
     "scripts/outreach/test-fsa-access.ts",
     "scripts/prod-deploy.py",
     "scripts/safe-deploy.sh",
@@ -53,8 +52,7 @@ def main() -> int:
 
     cmd = (
         f"cd {APP} && export NODE_OPTIONS=--max-old-space-size=1536 && "
-        f"npm run build && pm2 restart navicert --update-env && "
-        f"node scripts/outreach/refresh-fsa-proxy.mjs"
+        f"npm run build && pm2 restart navicert --update-env"
     )
     print("\n> build + restart")
     _, o, e = c.exec_command(cmd, timeout=600)
