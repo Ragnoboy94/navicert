@@ -138,18 +138,37 @@ function addCalendarDaysIso(iso: string, days: number): string {
   return `${yy}-${mm}-${dd}`;
 }
 
+function addCalendarMonthsIso(iso: string, months: number): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  const date = new Date(y, m - 1 + months, d);
+  const yy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+
 function isoToRuDate(iso: string): string {
   const [year, month, day] = iso.split("-");
   return `${day}.${month}.${year}`;
 }
 
-/** Сколько дней после «завтра» включать в период окончания деклараций */
-export const OUTREACH_EXPIRY_LOOKAHEAD_DAYS = 45;
+/**
+ * Сколько дней после начала окна ещё включать (включительно по дате).
+ * Пример: from=15.08, +15 → to=30.08.
+ */
+export const OUTREACH_EXPIRY_WINDOW_DAYS = 15;
 
-/** Скользящее окно: завтра → +45 дней (МСК). Каждый день сдвигается на 1 день. */
+/**
+ * Скользящее окно по дате окончания (МСК), сдвигается на 1 день каждый день:
+ * from = завтра + 1 календарный месяц,
+ * to   = from + 15 дней.
+ *
+ * 14.07 → 15.08–30.08; 15.07 → 16.08–31.08.
+ */
 export function getExpiringMonthRange(now = new Date()): { from: string; to: string } {
-  const fromIso = addCalendarDaysIso(todayIsoMoscow(now), 1);
-  const toIso = addCalendarDaysIso(fromIso, OUTREACH_EXPIRY_LOOKAHEAD_DAYS);
+  const tomorrowIso = addCalendarDaysIso(todayIsoMoscow(now), 1);
+  const fromIso = addCalendarMonthsIso(tomorrowIso, 1);
+  const toIso = addCalendarDaysIso(fromIso, OUTREACH_EXPIRY_WINDOW_DAYS);
   return { from: isoToRuDate(fromIso), to: isoToRuDate(toIso) };
 }
 
