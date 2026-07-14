@@ -18,22 +18,28 @@ export function readOutreachQueue(): OutreachQueue | null {
 /** Убирает из файла отправленные и устаревшие записи; история в outreach-sent.json */
 export function sanitizeOutreachQueue(queue: OutreachQueue): OutreachQueue {
   const normalized = normalizeQueue(queue);
+  const range = isOutreachRangeStale(normalized.range)
+    ? getExpiringMonthRange()
+    : normalized.range;
   const { items, rejected } = pruneOutreachQueue(
     normalized.items,
     normalized.rejected,
-    normalized.range
+    range
   );
 
   const changed =
     items.length !== normalized.items.length ||
-    rejected.length !== normalized.rejected.length;
+    rejected.length !== normalized.rejected.length ||
+    range.from !== normalized.range.from ||
+    range.to !== normalized.range.to;
 
   const cleaned = {
     ...normalized,
+    range,
     items,
     rejected,
     enrichQueue: normalized.enrichQueue.filter((item) =>
-      isEndDateInRange(item, normalized.range)
+      isEndDateInRange(item, range)
     ),
   };
   if (changed) writeOutreachQueue(cleaned);
@@ -115,14 +121,43 @@ function normalizeQueue(queue: OutreachQueue): OutreachQueue {
   };
 }
 
-export function getExpiringMonthRange(): { from: string; to: string } {
-  const now = new Date();
-  const from = new Date(now.getFullYear(), now.getMonth(), 1);
-  const to = new Date(now.getFullYear(), now.getMonth() + 2, 0);
-  const fmt = (d: Date) => {
-    const day = String(d.getDate()).padStart(2, "0");
-    const month = String(d.getMonth() + 1).padStart(2, "0");
-    return `${day}.${month}.${d.getFullYear()}`;
-  };
-  return { from: fmt(from), to: fmt(to) };
+const OUTREACH_TIMEZONE = "Europe/Moscow";
+
+function todayIsoMoscow(now = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: OUTREACH_TIMEZONE,
+  }).format(now);
+}
+
+function addCalendarDaysIso(iso: string, days: number): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  const date = new Date(y, m - 1, d + days);
+  const yy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+
+function isoToRuDate(iso: string): string {
+  const [year, month, day] = iso.split("-");
+  return `${day}.${month}.${year}`;
+}
+
+/** Сколько дней после «завтра» включать в период окончания деклараций */
+export const OUTREACH_EXPIRY_LOOKAHEAD_DAYS = 45;
+
+/** Скользящее окно: завтра → +45 дней (МСК). Каждый день сдвигается на 1 день. */
+export function getExpiringMonthRange(now = new Date()): { from: string; to: string } {
+  const fromIso = addCalendarDaysIso(todayIsoMoscow(now), 1);
+  const toIso = addCalendarDaysIso(fromIso, OUTREACH_EXPIRY_LOOKAHEAD_DAYS);
+  return { from: isoToRuDate(fromIso), to: isoToRuDate(toIso) };
+}
+
+export function isOutreachRangeStale(
+  range: { from: string; to: string } | undefined,
+  now = new Date()
+): boolean {
+  if (!range) return true;
+  const current = getExpiringMonthRange(now);
+  return range.from !== current.from || range.to !== current.to;
 }

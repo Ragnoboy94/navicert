@@ -8,7 +8,7 @@ import {
 import { formatFsaConnectionError } from "./fsa-connection";
 import { getEnrichRunnerStatus, startBackgroundEnrich } from "./enrich-runner";
 import { pickSendableCandidates } from "./send-selection";
-import { getExpiringMonthRange, readOutreachQueue, writeOutreachQueue } from "./queue";
+import { isOutreachRangeStale, readOutreachQueue, writeOutreachQueue } from "./queue";
 import {
   getDateKey,
   getZonedParts,
@@ -65,11 +65,7 @@ function isMorningSyncWindow(now = new Date()): boolean {
 }
 
 function queueNeedsReset(queue: OutreachQueue | null): boolean {
-  if (!queue) return true;
-  const currentRange = getExpiringMonthRange();
-  return (
-    queue.range.from !== currentRange.from || queue.range.to !== currentRange.to
-  );
+  return isOutreachRangeStale(queue?.range);
 }
 
 function countSendable(queue: OutreachQueue | null): number {
