@@ -9,6 +9,7 @@ import {
   fsaFetch,
   getFsaProxyList,
   probeFsaTransport,
+  shouldUseFsaProxy,
 } from "../../src/lib/outreach/fsa-network";
 import {
   FsaConnectionError,
@@ -39,10 +40,16 @@ async function probe(label: string, fetchImpl: typeof fetch) {
   }
 }
 
-const proxies = getFsaProxyList();
-console.log("OUTREACH_FSA_PROXY:", proxies[0]?.replace(/:[^:@]+@/, ":***@") || "(not set)");
-
 async function main() {
+  const site = process.env.NEXT_PUBLIC_SITE_URL || "(unset)";
+  const proxies = getFsaProxyList();
+  console.log("SITE_URL:", site);
+  console.log("shouldUseFsaProxy:", shouldUseFsaProxy());
+  console.log(
+    "proxy list:",
+    proxies[0]?.replace(/:[^:@]+@/, ":***@") || "(empty → direct)"
+  );
+
   const transport = await probeFsaTransport();
   console.log(
     "probeFsaTransport:",
@@ -51,10 +58,12 @@ async function main() {
       : `fail — ${transport.error}`
   );
 
-  await probe("direct", fetch);
-  if (proxies.length > 0) {
-    await probe("via proxy (fsaFetch)", fsaFetch);
+  if (!transport.ok) {
+    process.exitCode = 1;
+    return;
   }
+
+  await probe(transport.mode === "proxy" ? "via proxy (fsaFetch)" : "direct", fsaFetch);
 
   const sample = new FsaConnectionError("token", "test token error");
   console.log("formatFsaConnectionError:", formatFsaConnectionError(sample));

@@ -293,7 +293,10 @@ test("listResultToQueue append сохраняет очередь", () => {
 
 test("FSA connection errors", () => {
   const err = new FsaConnectionError("token", "Токен не получен");
-  assert.equal(formatFsaConnectionError(err), err.message);
+  assert.equal(
+    formatFsaConnectionError(err),
+    "Не удалось получить доступ к реестру ФСА"
+  );
   assert.match(formatFsaConnectionError(new Error("FSA → 401")), /токен|сессия/i);
   ok("error formatting");
 });

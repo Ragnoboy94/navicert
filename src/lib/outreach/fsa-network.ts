@@ -3,6 +3,7 @@ import {
   getFsaProxyList,
   isSocksProxy,
   rememberWorkingFsaProxy,
+  shouldUseFsaProxy,
   socksConnect,
 } from "./fsa-proxy-shared";
 
@@ -38,7 +39,12 @@ function dispatcherForProxy(proxy: string) {
   return new ProxyAgent(proxy);
 }
 
-export { getFsaProxyList, getFsaProxy, playwrightLaunchOptions } from "./fsa-proxy-shared";
+export {
+  getFsaProxyList,
+  getFsaProxy,
+  playwrightLaunchOptions,
+  shouldUseFsaProxy,
+} from "./fsa-proxy-shared";
 
 const DEFAULT_FSA_TIMEOUT_MS = 60_000;
 
@@ -75,9 +81,12 @@ async function probeWithFetch(
   }
 }
 
-/** Проверка доступности pub.fsa.gov.ru — direct или через прокси. */
+/**
+ * localhost / без OUTREACH_FSA_PROXY → direct.
+ * Прод (SITE_URL не localhost + OUTREACH_FSA_PROXY) → ProxyAgent.
+ */
 export async function probeFsaTransport(): Promise<FsaTransportProbe> {
-  const proxies = getFsaProxyList();
+  const proxies = shouldUseFsaProxy() ? getFsaProxyList() : [];
 
   if (proxies.length === 0) {
     const direct = await probeWithFetch(fetch, "direct");
@@ -86,20 +95,20 @@ export async function probeFsaTransport(): Promise<FsaTransportProbe> {
       : { ok: false, mode: "direct", error: direct.error };
   }
 
-  let lastError = "Все прокси недоступны";
+  let lastError = "Нет связи через прокси";
   for (const proxy of proxies) {
     try {
       const response = await undiciFetch(FSA_PROBE_URL, {
         method: "GET",
         redirect: "follow",
-        signal: AbortSignal.timeout(20_000),
+        signal: AbortSignal.timeout(25_000),
         dispatcher: dispatcherForProxy(proxy),
       } as Parameters<typeof undiciFetch>[1]);
       if (response.ok || response.status < 500) {
         rememberWorkingFsaProxy(proxy);
         return { ok: true, mode: "proxy", proxy };
       }
-      lastError = `HTTP ${response.status} via proxy`;
+      lastError = `HTTP ${response.status}`;
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
       rememberWorkingFsaProxy("");
@@ -116,7 +125,7 @@ export async function fsaFetch(
 ): Promise<Response> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_FSA_TIMEOUT_MS;
   const retries = Math.max(options.retries ?? 2, 0);
-  const proxies = getFsaProxyList();
+  const proxies = shouldUseFsaProxy() ? getFsaProxyList() : [];
 
   let lastError: unknown;
   for (let attempt = 0; attempt <= retries; attempt++) {

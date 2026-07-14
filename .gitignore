@@ -47,6 +47,7 @@ yarn-error.log*
 /data/outreach-sent.json
 /data/outreach-unsubscribed.json
 /data/outreach-schedule.json
+/data/fsa-archive.json
 
 # vercel
 .vercel

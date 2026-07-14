@@ -56,20 +56,13 @@ function isTransientFsaError(error: unknown): boolean {
 
 function transportHint(probe: FsaTransportProbe): string {
   if (probe.mode === "direct") {
-    return "Прямое подключение к pub.fsa.gov.ru недоступно.";
+    return "прямой доступ к реестру сейчас недоступен";
   }
-  return (
-    probe.error ||
-    "Нет рабочего прокси для pub.fsa.gov.ru — проверьте OUTREACH_FSA_PROXY."
-  );
+  return "нет связи с реестром через прокси";
 }
 
-function tokenHint(probe: FsaTransportProbe): string {
-  const via =
-    probe.mode === "proxy"
-      ? "через прокси (как на проде)"
-      : "напрямую (как на локали)";
-  return `Не удалось получить Bearer-токен ФСА ${via}. Запустите npm run outreach:setup или проверьте прокси и Playwright.`;
+function tokenHint(): string {
+  return "Не удалось получить доступ к реестру ФСА";
 }
 
 /** Шаг 1: проверка транспорта (direct или proxy). */
@@ -126,8 +119,7 @@ export async function ensureFsaSession(options?: {
     return { transport, token, tokenSource: source };
   } catch (error) {
     if (error instanceof FsaConnectionError) throw error;
-    const msg = error instanceof Error ? error.message : String(error);
-    throw new FsaConnectionError("token", `${tokenHint(transport)} ${msg}`, {
+    throw new FsaConnectionError("token", tokenHint(), {
       cause: error,
     });
   }
@@ -135,22 +127,46 @@ export async function ensureFsaSession(options?: {
 
 export function formatFsaConnectionError(error: unknown): string {
   if (error instanceof FsaConnectionError) {
-    return error.message;
+    if (error.step === "transport") {
+      return error.message.startsWith("ФСА недоступна:")
+        ? error.message
+        : `ФСА недоступна: ${error.message}`;
+    }
+    if (error.step === "token") {
+      return "Не удалось получить доступ к реестру ФСА";
+    }
+    return humanizeFsaMessage(error.message);
   }
   const msg = error instanceof Error ? error.message : String(error);
   if (/401|403/.test(msg)) {
-    return "Сессия ФСА истекла — не удалось обновить токен. Проверьте прокси и Playwright (npm run outreach:setup).";
+    return "Сессия ФСА истекла. Обновите доступ и повторите.";
   }
   if (/503|502|504|Service Temporarily Unavailable/i.test(msg)) {
-    return "ФСА временно перегружена — подождите минуту и повторите догрузку.";
+    return "ФСА временно перегружена — подождите минуту и повторите.";
   }
-  if (/timeout|timed out|abort|econnreset|fetch failed|all fsa proxies failed/i.test(msg)) {
-    return "Нет стабильного соединения с pub.fsa.gov.ru — проверьте прокси OUTREACH_FSA_PROXY и повторите.";
+  if (
+    /timeout|timed out|abort|econnreset|fetch failed|all fsa proxies failed|прокси|proxy|playwright|outreach:setup|OUTREACH_FSA|Bearer/i.test(
+      msg
+    )
+  ) {
+    return "Нет стабильной связи с реестром ФСА. Повторите позже.";
   }
   if (msg.includes("загрузке страниц")) {
     return "ФСА временно ограничила пагинацию — попробуйте догрузку через минуту";
   }
-  return msg || "Не удалось подключиться к реестру ФСА";
+  return humanizeFsaMessage(msg) || "Не удалось подключиться к реестру ФСА";
+}
+
+function humanizeFsaMessage(msg: string): string {
+  return msg
+    .replace(/\s*Запустите npm run[^.]*\.?/gi, "")
+    .replace(/\s*проверьте прокси и Playwright\.?/gi, "")
+    .replace(/\s*\(как на проде\)/gi, "")
+    .replace(/\s*\(как на локали\)/gi, "")
+    .replace(/OUTREACH_FSA_PROXY/gi, "прокси")
+    .replace(/fetch failed/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 }
 
 /** Шаг 3: транспорт → токен → запрос, с авто-обновлением токена при 401/403. */

@@ -1,7 +1,6 @@
 import { SocksClient, type SocksProxy } from "socks";
 
-/** Keep in sync with scripts/outreach/fsa-proxy-shared.mjs
- *  OUTREACH_FSA_PROXY: required on prod VPS; omit when running locally in Russia. */
+/** Keep in sync with scripts/outreach/fsa-proxy-shared.mjs */
 
 let cachedWorkingProxy: string | undefined;
 
@@ -16,16 +15,24 @@ export function isSocksProxy(proxy: string): boolean {
   return protocol === "socks5:" || protocol === "socks4:";
 }
 
+/**
+ * Локаль (localhost / 127.0.0.1) — всегда direct.
+ * Прод — только если задан OUTREACH_FSA_PROXY.
+ */
+export function shouldUseFsaProxy(): boolean {
+  const site = process.env.NEXT_PUBLIC_SITE_URL?.trim() || "";
+  if (/localhost|127\.0\.0\.1/i.test(site)) return false;
+  return Boolean(process.env.OUTREACH_FSA_PROXY?.trim());
+}
+
 function parseProxyList(raw: string | undefined): string[] {
   if (!raw?.trim()) return [];
   return [...new Set(raw.split(/[,;\s]+/).map((p) => p.trim()).filter(Boolean))];
 }
 
 export function getFsaProxyList(): string[] {
-  const fromEnv =
-    process.env.OUTREACH_FSA_PROXY?.trim() ||
-    process.env.HTTPS_PROXY?.trim() ||
-    "";
+  if (!shouldUseFsaProxy()) return [];
+  const fromEnv = process.env.OUTREACH_FSA_PROXY?.trim() || "";
   const list = parseProxyList(fromEnv);
   if (cachedWorkingProxy && list.includes(cachedWorkingProxy)) {
     return [cachedWorkingProxy, ...list.filter((p) => p !== cachedWorkingProxy)];

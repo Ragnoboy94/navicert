@@ -107,8 +107,7 @@ function captureTokenViaPlaywright(): Promise<string> {
       }
       reject(
         new Error(
-          stderr.trim() ||
-            `get-fsa-token exited with ${code} — запустите npm run outreach:setup`
+          stderr.trim() || `get-fsa-token exited with ${code}`
         )
       );
     });
@@ -130,8 +129,8 @@ async function ensureTransportReady(): Promise<void> {
   if (!probe.ok) {
     const hint =
       probe.mode === "direct"
-        ? "Прямое подключение к pub.fsa.gov.ru недоступно"
-        : probe.error || "Нет рабочего прокси (OUTREACH_FSA_PROXY)";
+        ? "прямой доступ к реестру сейчас недоступен"
+        : "нет связи с реестром через прокси";
     throw new Error(hint);
   }
 }
@@ -169,8 +168,17 @@ async function acquireFsaBearerTokenInternal(options?: {
     }
 
     const msg = error instanceof Error ? error.message : String(error);
-    throw new Error(`Не удалось получить Bearer-токен ФСА: ${msg}`);
+    throw new Error(
+      sanitizeBearerError(msg) || "Не удалось получить доступ к реестру ФСА"
+    );
   }
+}
+
+function sanitizeBearerError(msg: string): string {
+  if (/playwright|outreach:setup|OUTREACH_FSA|fetch failed|get-fsa-token/i.test(msg)) {
+    return "Не удалось получить доступ к реестру ФСА";
+  }
+  return msg;
 }
 
 export async function acquireFsaBearerToken(options?: {

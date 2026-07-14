@@ -60,7 +60,7 @@ export function enrichApplicantsFromCards(
       reject(
         new Error(
           stderr.trim() ||
-            `enrich-applicants exited with ${code} — запустите npm run outreach:setup`
+            `enrich-applicants exited with ${code}`
         )
       );
     });

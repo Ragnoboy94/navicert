@@ -6,4 +6,5 @@ export {
   playwrightLaunchOptions,
   playwrightProxyOptions,
   isSocksProxy,
+  shouldUseFsaProxy,
 } from "./fsa-proxy-shared.mjs";
