@@ -91,8 +91,8 @@ export function getEnrichBatchSize(): number {
 
 export function getCardEnrichPerBatch(): number {
   return Math.min(
-    Math.max(Number(process.env.OUTREACH_CARD_BATCH || 8), 1),
-    20
+    Math.max(Number(process.env.OUTREACH_CARD_BATCH || 16), 1),
+    32
   );
 }
 
@@ -465,7 +465,7 @@ export async function enrichQueueBatch(
 
   let problemDeclaration: { id: number; url: string } | undefined;
 
-  const apiEnriched = await mapWithConcurrency(batch, 25, async (item) => {
+  const apiEnriched = await mapWithConcurrency(batch, 40, async (item) => {
     try {
       return await enrichEmailFromApi(item);
     } catch (error) {

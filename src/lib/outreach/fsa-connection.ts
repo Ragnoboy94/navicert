@@ -3,7 +3,12 @@ import {
   invalidateFsaBearerToken,
   type FsaTokenSource,
 } from "./bearer";
-import { fsaFetch, probeFsaTransport, type FsaTransportProbe } from "./fsa-network";
+import {
+  fsaFetch,
+  probeFsaTransport,
+  shouldUseFsaProxy,
+  type FsaTransportProbe,
+} from "./fsa-network";
 
 const FSA_BASE = "https://pub.fsa.gov.ru";
 
@@ -65,6 +70,13 @@ function tokenHint(): string {
   return "Не удалось получить доступ к реестру ФСА";
 }
 
+function inferredTransport(ok = true): FsaTransportProbe {
+  return {
+    ok,
+    mode: shouldUseFsaProxy() ? "proxy" : "direct",
+  };
+}
+
 /** Шаг 1: проверка транспорта (direct или proxy). */
 export async function ensureFsaTransport(options?: {
   force?: boolean;
@@ -94,35 +106,60 @@ export async function ensureFsaTransport(options?: {
   );
 }
 
-/** Шаг 2: транспорт + токен (кэш, env или Playwright). */
+/**
+ * Шаг 2: токен (env / cache / Playwright), без жёсткого undici-probe.
+ * Probe — только для статуса; не блокирует Playwright и кэшированный токен.
+ */
 export async function ensureFsaSession(options?: {
   forceTokenRefresh?: boolean;
   skipTransportCheck?: boolean;
 }): Promise<FsaSession> {
-  const transport = options?.skipTransportCheck
-    ? cachedTransport ?? (await probeFsaTransport())
-    : await ensureFsaTransport({ force: options?.forceTokenRefresh });
-
-  if (!transport.ok) {
-    throw new FsaConnectionError(
-      "transport",
-      `ФСА недоступна: ${transportHint(transport)}`,
-      { cause: transport.error }
-    );
-  }
-
+  let tokenResult: Awaited<ReturnType<typeof acquireFsaBearerToken>>;
   try {
-    const { token, source } = await acquireFsaBearerToken({
+    tokenResult = await acquireFsaBearerToken({
       forceRefresh: options?.forceTokenRefresh,
-      requireTransport: true,
     });
-    return { transport, token, tokenSource: source };
-  } catch (error) {
-    if (error instanceof FsaConnectionError) throw error;
-    throw new FsaConnectionError("token", tokenHint(), {
-      cause: error,
-    });
+  } catch (firstError) {
+    if (options?.forceTokenRefresh) {
+      if (firstError instanceof FsaConnectionError) throw firstError;
+      throw new FsaConnectionError("token", tokenHint(), { cause: firstError });
+    }
+    try {
+      tokenResult = await acquireFsaBearerToken({ forceRefresh: true });
+    } catch (secondError) {
+      const probe = await probeFsaTransport().catch(() => inferredTransport(false));
+      if (!probe.ok) {
+        throw new FsaConnectionError(
+          "transport",
+          `ФСА недоступна: ${transportHint(probe)}`,
+          { cause: probe.error ?? secondError }
+        );
+      }
+      if (secondError instanceof FsaConnectionError) throw secondError;
+      throw new FsaConnectionError("token", tokenHint(), { cause: secondError });
+    }
   }
+
+  let transport: FsaTransportProbe;
+  if (options?.skipTransportCheck) {
+    transport = cachedTransport?.ok ? cachedTransport : inferredTransport();
+  } else {
+    const probe = await probeFsaTransport();
+    if (probe.ok) {
+      cachedTransport = probe;
+      transportCheckedAt = Date.now();
+      transport = probe;
+    } else {
+      // undici-probe может ложно падать; токен уже есть — API проверит реально.
+      transport = inferredTransport();
+    }
+  }
+
+  return {
+    transport,
+    token: tokenResult.token,
+    tokenSource: tokenResult.source,
+  };
 }
 
 export function formatFsaConnectionError(error: unknown): string {

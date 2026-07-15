@@ -1,7 +1,6 @@
 import fs from "fs";
 import path from "path";
 import { spawn } from "child_process";
-import { probeFsaTransport } from "./fsa-network";
 import { playwrightEnv } from "./playwright-env";
 
 const tokenPath = path.join(process.cwd(), "data", "fsa-token.json");
@@ -58,13 +57,6 @@ function writeCachedToken(token: string): void {
 function isTokenFresh(cached: CachedToken): boolean {
   if (!cached.expiresAt) return true;
   return Date.parse(cached.expiresAt) > Date.now() + 60_000;
-}
-
-/** Краткий запас после exp — только если Playwright временно недоступен. */
-function isTokenGracePeriod(cached: CachedToken): boolean {
-  if (!cached.expiresAt) return false;
-  const exp = Date.parse(cached.expiresAt);
-  return exp <= Date.now() && Date.now() - exp < 5 * 60_000;
 }
 
 function captureTokenViaPlaywright(): Promise<string> {
@@ -124,26 +116,15 @@ export function invalidateFsaBearerToken(): void {
   }
 }
 
-async function ensureTransportReady(): Promise<void> {
-  const probe = await probeFsaTransport();
-  if (!probe.ok) {
-    const hint =
-      probe.mode === "direct"
-        ? "прямой доступ к реестру сейчас недоступен"
-        : "нет связи с реестром через прокси";
-    throw new Error(hint);
-  }
-}
-
 async function captureFreshToken(): Promise<string> {
-  await ensureTransportReady();
+  // Playwright сам ходит через прокси — отдельный undici-probe не нужен.
   const token = await captureTokenViaPlaywright();
   writeCachedToken(token);
   return token;
 }
 
 async function acquireFsaBearerTokenInternal(options?: {
-  requireTransport?: boolean;
+  forceRefresh?: boolean;
 }): Promise<AcquireResult> {
   const fromEnv = process.env.FSA_BEARER_TOKEN?.trim();
   if (fromEnv) {
@@ -152,18 +133,16 @@ async function acquireFsaBearerTokenInternal(options?: {
 
   const cached = readCachedToken();
 
-  if (options?.requireTransport) {
-    await ensureTransportReady();
+  if (cached?.token && isTokenFresh(cached) && !options?.forceRefresh) {
+    return { token: cached.token, source: "cache" };
   }
 
   try {
     const token = await captureFreshToken();
     return { token, source: "playwright" };
   } catch (error) {
-    if (
-      cached?.token &&
-      (isTokenFresh(cached) || isTokenGracePeriod(cached))
-    ) {
+    if (cached?.token) {
+      // Старый токен — попробуем; при 401 fsaApiRequest обновит через Playwright.
       return { token: cached.token, source: "cache" };
     }
 
@@ -183,7 +162,6 @@ function sanitizeBearerError(msg: string): string {
 
 export async function acquireFsaBearerToken(options?: {
   forceRefresh?: boolean;
-  requireTransport?: boolean;
 }): Promise<AcquireResult> {
   const fromEnv = process.env.FSA_BEARER_TOKEN?.trim();
   if (fromEnv) {

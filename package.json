@@ -11,6 +11,7 @@
     "outreach:test-fsa": "tsx scripts/outreach/test-fsa-access.ts",
     "outreach:dump-fsa": "tsx scripts/outreach/dump-fsa-range.ts",
     "outreach:apply-archive": "tsx scripts/outreach/apply-fsa-archive.ts",
+    "outreach:enrich-archive": "tsx scripts/outreach/enrich-overnight.ts",
     "ops:compare-prod": "python scripts/ops/compare-prod.py",
     "ops:sync-outreach": "python scripts/ops/sync-outreach-to-prod.py",
     "outreach:test-smtp": "node scripts/outreach/test-smtp-informal.mjs",
