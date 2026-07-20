@@ -301,9 +301,9 @@ export async function sendOutreachBatch(
     ])
   );
 
-  const delayMs = resolveBatchDelayMs(
-    options.delayMs ?? process.env.OUTREACH_SEND_DELAY_MS ?? 3000
-  );
+  const delayMs = options.manual
+    ? 0
+    : resolveBatchDelayMs(options.delayMs ?? process.env.OUTREACH_SEND_DELAY_MS ?? 3000);
   const results: SendOutreachBatchResult["results"] = [];
   let sendIndex = 0;
 
