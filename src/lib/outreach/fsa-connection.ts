@@ -107,8 +107,9 @@ export async function ensureFsaTransport(options?: {
 }
 
 /**
- * Шаг 2: токен (env / cache / Playwright), без жёсткого undici-probe.
- * Probe — только для статуса; не блокирует Playwright и кэшированный токен.
+ * Шаг 2: токен (env / cache / Playwright).
+ * undici-probe НЕ блокирует сессию — ложные fail/s зависания probe раньше
+ * рвали кнопку «Загрузить из ФСА» до токена. Реальная сеть проверяется в fsaFetch.
  */
 export async function ensureFsaSession(options?: {
   forceTokenRefresh?: boolean;
@@ -119,41 +120,18 @@ export async function ensureFsaSession(options?: {
     tokenResult = await acquireFsaBearerToken({
       forceRefresh: options?.forceTokenRefresh,
     });
-  } catch (firstError) {
-    if (options?.forceTokenRefresh) {
-      if (firstError instanceof FsaConnectionError) throw firstError;
-      throw new FsaConnectionError("token", tokenHint(), { cause: firstError });
-    }
-    try {
-      tokenResult = await acquireFsaBearerToken({ forceRefresh: true });
-    } catch (secondError) {
-      const probe = await probeFsaTransport().catch(() => inferredTransport(false));
-      if (!probe.ok) {
-        throw new FsaConnectionError(
-          "transport",
-          `ФСА недоступна: ${transportHint(probe)}`,
-          { cause: probe.error ?? secondError }
-        );
-      }
-      if (secondError instanceof FsaConnectionError) throw secondError;
-      throw new FsaConnectionError("token", tokenHint(), { cause: secondError });
-    }
+  } catch (error) {
+    if (error instanceof FsaConnectionError) throw error;
+    throw new FsaConnectionError("token", tokenHint(), { cause: error });
   }
 
-  let transport: FsaTransportProbe;
-  if (options?.skipTransportCheck) {
-    transport = cachedTransport?.ok ? cachedTransport : inferredTransport();
-  } else {
-    const probe = await probeFsaTransport();
-    if (probe.ok) {
-      cachedTransport = probe;
-      transportCheckedAt = Date.now();
-      transport = probe;
-    } else {
-      // undici-probe может ложно падать; токен уже есть — API проверит реально.
-      transport = inferredTransport();
-    }
-  }
+  // Токен есть — не гоняем undici-probe (до 25с) перед каждым сканом.
+  const transport =
+    !options?.skipTransportCheck &&
+    cachedTransport?.ok &&
+    Date.now() - transportCheckedAt < TRANSPORT_CACHE_MS
+      ? cachedTransport
+      : inferredTransport();
 
   return {
     transport,

@@ -1,3 +1,10 @@
+import {
+  detectDomainTypo,
+  normalizeEmailInput,
+  validateEmailSyntax,
+  type EmailValidationIssue,
+} from "./email-validator";
+
 const FREE_EMAIL_DOMAINS = new Set([
   "mail.ru",
   "inbox.ru",
@@ -22,8 +29,13 @@ const FREE_EMAIL_DOMAINS = new Set([
 
 export type EmailFilterStatus = "eligible" | "rejected" | "no_email";
 
+export type EmailRejectReason =
+  | "personal_email"
+  | "email_missing"
+  | EmailValidationIssue;
+
 export function isCorporateEmail(email: string): boolean {
-  const value = email.trim().toLowerCase();
+  const value = normalizeEmailInput(email);
   if (!value.includes("@")) return false;
 
   const [local, domain] = value.split("@");
@@ -38,12 +50,23 @@ export function isCorporateEmail(email: string): boolean {
 
 export function classifyEmail(email?: string): {
   status: EmailFilterStatus;
-  reason?: string;
+  reason?: EmailRejectReason;
 } {
-  const value = email?.trim();
+  const value = normalizeEmailInput(email);
   if (!value || !value.includes("@")) {
     return { status: "no_email", reason: "email_missing" };
   }
+
+  const syntaxIssue = validateEmailSyntax(value);
+  if (syntaxIssue) {
+    return { status: "rejected", reason: syntaxIssue };
+  }
+
+  const typoIssue = detectDomainTypo(value);
+  if (typoIssue) {
+    return { status: "rejected", reason: typoIssue };
+  }
+
   if (isCorporateEmail(value)) {
     return { status: "eligible" };
   }
@@ -58,6 +81,24 @@ export function emailFilterLabel(reason?: string): string {
       return "личный или служебный ящик";
     case "email_missing":
       return "email не найден при загрузке";
+    case "invalid_syntax":
+      return "некорректный формат email";
+    case "no_mx":
+      return "домен не принимает почту (нет MX)";
+    case "domain_typo_r":
+      return "опечатка: .r вместо .ru";
+    case "domain_typo_ruu":
+      return "опечатка: .ruu вместо .ru";
+    case "domain_typo_comm":
+      return "опечатка: .comm вместо .com";
+    case "domain_typo_con":
+      return "опечатка: .con вместо .com";
+    case "domain_typo_nte":
+      return "опечатка: .nte вместо .net";
+    case "domain_typo_ogr":
+      return "опечатка: .ogr вместо .org";
+    case "domain_double_ru":
+      return "опечатка: .ru.ru";
     default:
       return reason ?? "не прошёл фильтр";
   }

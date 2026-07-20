@@ -59,6 +59,8 @@ function isTokenFresh(cached: CachedToken): boolean {
   return Date.parse(cached.expiresAt) > Date.now() + 60_000;
 }
 
+const PLAYWRIGHT_TOKEN_TIMEOUT_MS = 120_000;
+
 function captureTokenViaPlaywright(): Promise<string> {
   return new Promise((resolve, reject) => {
     const script = path.join(
@@ -74,8 +76,27 @@ function captureTokenViaPlaywright(): Promise<string> {
       env: playwrightEnv(),
     });
 
+    let settled = false;
     let stdout = "";
     let stderr = "";
+
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      fn();
+    };
+
+    const timer = setTimeout(() => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // ignore
+      }
+      finish(() =>
+        reject(new Error("get-fsa-token timeout (120s)"))
+      );
+    }, PLAYWRIGHT_TOKEN_TIMEOUT_MS);
 
     child.stdout.on("data", (chunk) => {
       stdout += chunk.toString();
@@ -84,23 +105,25 @@ function captureTokenViaPlaywright(): Promise<string> {
       stderr += chunk.toString();
     });
 
+    child.on("error", (error) => {
+      finish(() => reject(error instanceof Error ? error : new Error(String(error))));
+    });
+
     child.on("close", (code) => {
       const jsonStart = stdout.indexOf("{");
       if (jsonStart >= 0) {
         try {
           const payload = JSON.parse(stdout.slice(jsonStart)) as { token: string };
           if (payload.token) {
-            resolve(payload.token);
+            finish(() => resolve(payload.token));
             return;
           }
         } catch {
           // fall through
         }
       }
-      reject(
-        new Error(
-          stderr.trim() || `get-fsa-token exited with ${code}`
-        )
+      finish(() =>
+        reject(new Error(stderr.trim() || `get-fsa-token exited with ${code}`))
       );
     });
   });

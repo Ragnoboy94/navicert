@@ -2,6 +2,10 @@ import fs from "fs";
 import path from "path";
 import { classifyEmail, isCorporateEmail } from "./email-filter";
 import {
+  prepareOutreachQueueForSending,
+  type QueueEmailValidationResult,
+} from "./queue-email-validation";
+import {
   createOutreachTransporter,
   outreachSmtpAttempts,
   smtpErrorReason,
@@ -134,8 +138,8 @@ export function getSendBlockReason(
   }
 
   if (!options.manual) {
-    const { status } = classifyEmail(declaration.applicant?.email);
-    if (status !== "eligible") return "no_corporate_email";
+    const { status, reason } = classifyEmail(declaration.applicant?.email);
+    if (status !== "eligible") return reason ?? "no_corporate_email";
   } else if (!declaration.applicant?.email?.trim()) {
     return "no_email";
   }
@@ -155,8 +159,21 @@ function resolveBatchDelayMs(rawValue: unknown): number {
 
 export async function sendOutreachEmail(
   declaration: FsaDeclaration,
-  options: { force?: boolean; manual?: boolean } = {}
+  options: {
+    force?: boolean;
+    manual?: boolean;
+    /** Внутренний флаг: очередь уже проверена в sendOutreachBatch */
+    skipQueueRefresh?: boolean;
+  } = {}
 ): Promise<{ ok: true; record: OutreachSendRecord } | { ok: false; reason: string }> {
+  if (!options.skipQueueRefresh) {
+    const { queue } = await prepareOutreachQueueForSending();
+    const stillEligible = queue?.items.some((item) => item.id === declaration.id);
+    if (!stillEligible && !options.force) {
+      return { ok: false, reason: "email_not_deliverable" };
+    }
+  }
+
   const blockReason = getSendBlockReason(declaration, options);
   if (blockReason) {
     return { ok: false, reason: blockReason };
@@ -258,25 +275,46 @@ export async function sendOutreachEmail(
   };
 }
 
-export async function sendOutreachBatch(
-  declarations: FsaDeclaration[],
-  options: { force?: boolean; manual?: boolean; delayMs?: number } = {}
-): Promise<
-  Array<{
+export type SendOutreachBatchResult = {
+  results: Array<{
     id: number;
     ok: boolean;
     reason?: string;
     record?: OutreachSendRecord;
-  }>
-> {
+  }>;
+  emailValidation: QueueEmailValidationResult | null;
+};
+
+export async function sendOutreachBatch(
+  declarations: FsaDeclaration[],
+  options: { force?: boolean; manual?: boolean; delayMs?: number } = {}
+): Promise<SendOutreachBatchResult> {
+  const { queue, stats: emailValidation } = await prepareOutreachQueueForSending();
+  const eligibleIds = new Set(queue?.items.map((item) => item.id) ?? []);
+
   const delayMs = resolveBatchDelayMs(
     options.delayMs ?? process.env.OUTREACH_SEND_DELAY_MS ?? 3000
   );
-  const results = [];
+  const results: SendOutreachBatchResult["results"] = [];
+  let sendIndex = 0;
 
-  for (const [index, declaration] of declarations.entries()) {
-    if (index > 0 && delayMs > 0) await sleep(delayMs);
-    const result = await sendOutreachEmail(declaration, options);
+  for (const declaration of declarations) {
+    if (!eligibleIds.has(declaration.id) && !options.force) {
+      results.push({
+        id: declaration.id,
+        ok: false,
+        reason: "email_not_deliverable",
+      });
+      continue;
+    }
+
+    if (sendIndex > 0 && delayMs > 0) await sleep(delayMs);
+    sendIndex += 1;
+
+    const result = await sendOutreachEmail(declaration, {
+      ...options,
+      skipQueueRefresh: true,
+    });
     results.push({
       id: declaration.id,
       ok: result.ok,
@@ -285,5 +323,5 @@ export async function sendOutreachBatch(
     });
   }
 
-  return results;
+  return { results, emailValidation };
 }

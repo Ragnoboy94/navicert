@@ -228,6 +228,7 @@ export type ScheduledSendResult = {
   remainingToday: number;
   slotKey?: string;
   run?: OutreachScheduleRun;
+  emailValidation?: import("./queue-email-validation").QueueEmailValidationResult | null;
 };
 
 export async function runScheduledOutreach(options: {
@@ -299,7 +300,7 @@ export async function runScheduledOutreach(options: {
     };
   }
 
-  const results = await sendOutreachBatch(candidates);
+  const { results, emailValidation } = await sendOutreachBatch(candidates);
   const sent = results.filter((item) => item.ok).length;
   const runAt = new Date().toISOString();
   const slotKey =
@@ -321,6 +322,7 @@ export async function runScheduledOutreach(options: {
     remainingToday: Math.max(stats.remainingToday - sent, 0),
     slotKey,
     run: { at: runAt, sent, attempted: batchSize, slotKey },
+    emailValidation,
   };
 }
 

@@ -21,6 +21,20 @@ export function sendBlockLabel(
       return "личный или неподходящий email";
     case "no_email":
       return "нет email";
+    case "email_not_deliverable":
+      return "email не прошёл проверку доставки";
+    case "invalid_syntax":
+      return "некорректный формат email";
+    case "no_mx":
+      return "домен не принимает почту";
+    case "domain_typo_r":
+    case "domain_typo_ruu":
+    case "domain_typo_comm":
+    case "domain_typo_con":
+    case "domain_typo_nte":
+    case "domain_typo_ogr":
+    case "domain_double_ru":
+      return "опечатка в домене email";
     case "smtp_timeout":
       return "таймаут SMTP — сервер не отвечает";
     case "smtp_auth_failed":

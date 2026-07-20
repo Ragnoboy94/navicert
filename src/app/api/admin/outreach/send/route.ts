@@ -96,13 +96,17 @@ export async function POST(request: Request) {
       );
     }
 
-    const results = await sendOutreachBatch(toSend, { force, manual });
+    const { results, emailValidation } = await sendOutreachBatch(toSend, {
+      force,
+      manual,
+    });
 
     return NextResponse.json({
       ok: true,
       sent: results.filter((item) => item.ok).length,
       failed: results.filter((item) => !item.ok),
       results,
+      emailValidation,
     });
   } catch (error) {
     return NextResponse.json(
