@@ -123,6 +123,10 @@ export function getSendBlockReason(
     category?: OutreachCategory;
   } = {}
 ): string | null {
+  if (options.manual) {
+    return declaration.applicant?.email?.trim() ? null : "no_email";
+  }
+
   const category = options.category ?? DEFAULT_CATEGORY;
   if (options.force) return null;
   if (wasAlreadySent(declaration.id)) return "already_sent";
@@ -137,12 +141,8 @@ export function getSendBlockReason(
     return "unsubscribed";
   }
 
-  if (!options.manual) {
-    const { status, reason } = classifyEmail(declaration.applicant?.email);
-    if (status !== "eligible") return reason ?? "no_corporate_email";
-  } else if (!declaration.applicant?.email?.trim()) {
-    return "no_email";
-  }
+  const { status, reason } = classifyEmail(declaration.applicant?.email);
+  if (status !== "eligible") return reason ?? "no_corporate_email";
 
   return null;
 }
@@ -166,7 +166,7 @@ export async function sendOutreachEmail(
     skipQueueRefresh?: boolean;
   } = {}
 ): Promise<{ ok: true; record: OutreachSendRecord } | { ok: false; reason: string }> {
-  if (!options.skipQueueRefresh) {
+  if (!options.skipQueueRefresh && !options.manual) {
     const { queue } = await prepareOutreachQueueForSending();
     const stillEligible = queue?.items.some((item) => item.id === declaration.id);
     if (!stillEligible && !options.force) {
@@ -289,8 +289,17 @@ export async function sendOutreachBatch(
   declarations: FsaDeclaration[],
   options: { force?: boolean; manual?: boolean; delayMs?: number } = {}
 ): Promise<SendOutreachBatchResult> {
-  const { queue, stats: emailValidation } = await prepareOutreachQueueForSending();
-  const eligibleIds = new Set(queue?.items.map((item) => item.id) ?? []);
+  const needsQueueValidation = !options.manual;
+  const prepared = needsQueueValidation
+    ? await prepareOutreachQueueForSending()
+    : { queue: null, stats: null };
+  const eligibleIds = new Set(prepared.queue?.items.map((item) => item.id) ?? []);
+  const rejectedReasons = new Map(
+    (prepared.queue?.rejected ?? []).map((item) => [
+      item.id,
+      item.emailRejectReason ?? "email_not_deliverable",
+    ])
+  );
 
   const delayMs = resolveBatchDelayMs(
     options.delayMs ?? process.env.OUTREACH_SEND_DELAY_MS ?? 3000
@@ -299,11 +308,11 @@ export async function sendOutreachBatch(
   let sendIndex = 0;
 
   for (const declaration of declarations) {
-    if (!eligibleIds.has(declaration.id) && !options.force) {
+    if (needsQueueValidation && !eligibleIds.has(declaration.id) && !options.force) {
       results.push({
         id: declaration.id,
         ok: false,
-        reason: "email_not_deliverable",
+        reason: rejectedReasons.get(declaration.id) ?? "email_not_deliverable",
       });
       continue;
     }
@@ -323,5 +332,5 @@ export async function sendOutreachBatch(
     });
   }
 
-  return { results, emailValidation };
+  return { results, emailValidation: prepared.stats };
 }
