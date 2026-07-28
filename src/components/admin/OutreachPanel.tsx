@@ -97,6 +97,9 @@ type OutreachState = {
   hasMore: boolean;
   enrichPending: number;
   enrichStatus: EnrichStatus;
+  dataChannel?: "fsa" | "ss_backup" | null;
+  dataChannelLabel?: string | null;
+  dataChannelRetryFsaAt?: string | null;
   testMode: boolean;
   testEmail: string | null;
   items: QueueItem[];
@@ -483,8 +486,11 @@ function SentTable({ rows }: { rows: SentRecord[] }) {
 
 export function OutreachPanel({
   category,
+  active = true,
 }: {
   category: OutreachCategory;
+  /** false = вкладка скрыта, но панель жива — не поллим и не сбрасываем данные */
+  active?: boolean;
 }) {
   const docWord = category === "expiring_certificates" ? "сертификаты" : "декларации";
   const docWordGenitive =
@@ -510,6 +516,7 @@ export function OutreachPanel({
   const [listFilter, setListFilter] = useState<ListFilter>("pending");
   const [showLoadConfirm, setShowLoadConfirm] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
+  const loadedOnce = useRef(false);
 
   async function refresh(silent = false) {
     if (!silent) setLoading(true);
@@ -525,6 +532,7 @@ export function OutreachPanel({
     }
     const json = await res.json();
     setData(json);
+    loadedOnce.current = true;
     if (json.schedule) {
       setEmailsPerDay(json.schedule.emailsPerDay ?? 50);
     }
@@ -532,17 +540,22 @@ export function OutreachPanel({
   }
 
   useEffect(() => {
+    if (loadedOnce.current) return;
     setLoading(true);
-    setData(null);
-    setMessage("");
     setError("");
-    setListFilter("pending");
     void refresh();
-    // category меняется при переключении вкладок — сбрасываем состояние
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [category]);
 
+  // Вернулись на вкладку — тихо подтянуть статус, без «Загрузка…» и сброса списка
   useEffect(() => {
+    if (!active || !loadedOnce.current) return;
+    void refresh(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
+
+  useEffect(() => {
+    if (!active) return;
     const running = data?.enrichStatus?.running;
     const stopping = data?.enrichStatus?.stopping;
     const pending = data?.enrichPending ?? 0;
@@ -555,6 +568,7 @@ export function OutreachPanel({
     return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
+    active,
     category,
     data?.enrichStatus?.running,
     data?.enrichStatus?.stopping,
@@ -665,6 +679,10 @@ export function OutreachPanel({
       const loadedFromApi = Number(json.loadedFromApi ?? 0);
       const action = mode === "append" ? "Догружено" : "Загружено";
       const pending = json.enrichPending ?? 0;
+      const channelNote =
+        typeof json.channelNote === "string" && json.channelNote.trim()
+          ? ` · ${json.channelNote.trim()}`
+          : "";
 
       const addedLine =
         addedNew === 0 && loadedFromApi > 0
@@ -679,14 +697,14 @@ export function OutreachPanel({
 
       if (pending > 0) {
         setMessage(
-          `${addedLine}${enrichLine}. Email подгружаются на сервере в фоне — можно закрыть вкладку.`
+          `${addedLine}${enrichLine}${channelNote}. Email подгружаются на сервере в фоне — можно закрыть вкладку.`
         );
         await refresh(true);
         return;
       }
 
       setMessage(
-        `${addedLine}${enrichLine} · к отправке: ${eligibleNow} · личные ящики: ${json.rejected}${json.hasMore ? " · в реестре ещё есть" : ""}${json.cursorLabel ? ` · ${json.cursorLabel}` : ""}`
+        `${addedLine}${enrichLine}${channelNote} · к отправке: ${eligibleNow} · личные ящики: ${json.rejected}${json.hasMore ? " · в реестре ещё есть" : ""}${json.cursorLabel ? ` · ${json.cursorLabel}` : ""}`
       );
       await refresh();
     } catch (err) {
@@ -1088,6 +1106,16 @@ export function OutreachPanel({
               : " · в выбранном периоде больше нет данных"}
             {data.enrichPending > 0
               ? ` · осталось обогатить: ${data.enrichPending}`
+              : ""}
+            {category === "expiring_certificates" && data.dataChannelLabel
+              ? ` · канал: ${data.dataChannelLabel}`
+              : ""}
+            {category === "expiring_certificates" &&
+            data.dataChannel === "ss_backup" &&
+            data.dataChannelRetryFsaAt
+              ? ` · повтор ФСА после ${new Date(
+                  data.dataChannelRetryFsaAt
+                ).toLocaleString("ru-RU")}`
               : ""}
           </p>
         )}

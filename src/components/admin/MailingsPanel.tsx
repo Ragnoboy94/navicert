@@ -3,11 +3,13 @@
 import { useState } from "react";
 import { Clock } from "lucide-react";
 import { OutreachPanel } from "./OutreachPanel";
+import type { OutreachCategory } from "@/lib/outreach/types";
 
 type MailingTab = "expiring" | "certificates";
 
 type TabDef = {
   id: MailingTab;
+  category: OutreachCategory;
   label: string;
   description: string;
   icon: React.ComponentType<{ className?: string }>;
@@ -17,6 +19,7 @@ type TabDef = {
 const tabs: TabDef[] = [
   {
     id: "expiring",
+    category: "expiring",
     label: "Заканчивающиеся декларации",
     description: "Декларации с истекающим сроком в реестре ФСА",
     icon: Clock,
@@ -24,6 +27,7 @@ const tabs: TabDef[] = [
   },
   {
     id: "certificates",
+    category: "expiring_certificates",
     label: "Заканчивающиеся сертификаты",
     description: "Сертификаты с истекающим сроком в реестре ФСА",
     icon: Clock,
@@ -33,7 +37,17 @@ const tabs: TabDef[] = [
 
 export function MailingsPanel() {
   const [activeTab, setActiveTab] = useState<MailingTab>("expiring");
+  /** Уже открытые вкладки не размонтируем — иначе очередь грузится заново. */
+  const [mountedTabs, setMountedTabs] = useState<Record<MailingTab, boolean>>({
+    expiring: true,
+    certificates: false,
+  });
   const current = tabs.find((tab) => tab.id === activeTab) ?? tabs[0];
+
+  function selectTab(id: MailingTab) {
+    setMountedTabs((prev) => (prev[id] ? prev : { ...prev, [id]: true }));
+    setActiveTab(id);
+  }
 
   return (
     <div className="space-y-6">
@@ -50,7 +64,7 @@ export function MailingsPanel() {
               role="tab"
               aria-selected={activeTab === tab.id}
               disabled={!tab.enabled}
-              onClick={() => tab.enabled && setActiveTab(tab.id)}
+              onClick={() => tab.enabled && selectTab(tab.id)}
               className={`inline-flex min-w-fit items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition ${
                 activeTab === tab.id
                   ? "bg-gradient-to-r from-accent-soft to-white text-primary shadow-sm"
@@ -66,9 +80,20 @@ export function MailingsPanel() {
 
       <p className="text-sm text-muted">{current.description}</p>
 
-      {activeTab === "expiring" && <OutreachPanel category="expiring" />}
-      {activeTab === "certificates" && (
-        <OutreachPanel category="expiring_certificates" />
+      {tabs.map((tab) =>
+        mountedTabs[tab.id] ? (
+          <div
+            key={tab.id}
+            role="tabpanel"
+            hidden={activeTab !== tab.id}
+            className={activeTab === tab.id ? undefined : "hidden"}
+          >
+            <OutreachPanel
+              category={tab.category}
+              active={activeTab === tab.id}
+            />
+          </div>
+        ) : null
       )}
     </div>
   );
