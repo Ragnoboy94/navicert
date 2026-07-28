@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Clock } from "lucide-react";
 import { OutreachPanel } from "./OutreachPanel";
 
-type MailingTab = "expiring";
+type MailingTab = "expiring" | "certificates";
 
 type TabDef = {
   id: MailingTab;
@@ -17,8 +17,15 @@ type TabDef = {
 const tabs: TabDef[] = [
   {
     id: "expiring",
-    label: "Заканчивающиеся",
+    label: "Заканчивающиеся декларации",
     description: "Декларации с истекающим сроком в реестре ФСА",
+    icon: Clock,
+    enabled: true,
+  },
+  {
+    id: "certificates",
+    label: "Заканчивающиеся сертификаты",
+    description: "Сертификаты с истекающим сроком в реестре ФСА",
     icon: Clock,
     enabled: true,
   },
@@ -59,7 +66,10 @@ export function MailingsPanel() {
 
       <p className="text-sm text-muted">{current.description}</p>
 
-      {activeTab === "expiring" && <OutreachPanel />}
+      {activeTab === "expiring" && <OutreachPanel category="expiring" />}
+      {activeTab === "certificates" && (
+        <OutreachPanel category="expiring_certificates" />
+      )}
     </div>
   );
 }

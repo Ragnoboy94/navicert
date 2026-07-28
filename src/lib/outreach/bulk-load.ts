@@ -1,8 +1,18 @@
 import { classifyEmail } from "./email-filter";
 import { enrichApplicantsFromCards } from "./enrich-applicants";
-import { fetchDeclaration, normalizeDeclaration, searchExpiringDeclarations, declarationApplicantUrl } from "./fsa";
+import {
+  certificateApplicantUrl,
+  fetchCertificate,
+  normalizeCertificate,
+  searchExpiringCertificates,
+  fetchDeclaration,
+  normalizeDeclaration,
+  searchExpiringDeclarations,
+  declarationApplicantUrl,
+} from "./fsa";
 import {
   ensureFsaSession,
+  formatFsaConnectionError,
 } from "./fsa-connection";
 import { invalidateFsaBearerToken } from "./bearer";
 import {
@@ -24,6 +34,7 @@ import type {
   FsaDeclaration,
   OutreachQueue,
   OutreachQueueItem,
+  OutreachCategory,
 } from "./types";
 
 export { ruDateToIso };
@@ -39,6 +50,17 @@ function isFsaAuthError(error: unknown): boolean {
   return /401|403/.test(msg);
 }
 
+function isTransientListError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  const cause =
+    error instanceof Error && error.cause instanceof Error
+      ? error.cause.message
+      : "";
+  return /timeout|timed out|abort|econnreset|econnrefused|enotfound|socket hang up|network|fetch failed|all fsa proxies failed|503|502|504|429/i.test(
+    `${msg} ${cause}`
+  );
+}
+
 export type BulkLoadMode = "reset" | "append";
 
 export type BulkLoadListOptions = {
@@ -47,6 +69,7 @@ export type BulkLoadListOptions = {
   pageSize?: number;
   range?: { from: string; to: string };
   existingQueue?: OutreachQueue | null;
+  category?: OutreachCategory;
 };
 
 export type BulkLoadListResult = {
@@ -119,8 +142,14 @@ function sortByEndDate<T extends { endDate: string }>(items: T[]): T[] {
   });
 }
 
-function toQueueItem(declaration: FsaDeclaration): OutreachQueueItem {
-  const normalized = normalizeDeclaration(declaration);
+function toQueueItem(
+  doc: FsaDeclaration,
+  category: OutreachCategory
+): OutreachQueueItem {
+  const normalize = category === "expiring_certificates"
+    ? normalizeCertificate
+    : normalizeDeclaration;
+  const normalized = normalize(doc);
   const { status, reason } = classifyEmail(normalized.applicant?.email);
   return {
     ...normalized,
@@ -142,12 +171,17 @@ function mergeUnique(
 
 function mergeEnrichQueue(
   current: FsaDeclaration[],
-  incoming: FsaDeclaration[]
+  incoming: FsaDeclaration[],
+  category: OutreachCategory
 ): FsaDeclaration[] {
   const byId = new Map(current.map((item) => [item.id, item]));
+  const normalize =
+    category === "expiring_certificates"
+      ? normalizeCertificate
+      : normalizeDeclaration;
   for (const item of incoming) {
-    if (!normalizeDeclaration(item).applicant?.email?.trim()) {
-      byId.set(item.id, normalizeDeclaration(item));
+    if (!normalize(item).applicant?.email?.trim()) {
+      byId.set(item.id, normalize(item));
     }
   }
   return sortByEndDate([...byId.values()]);
@@ -175,12 +209,26 @@ async function mapWithConcurrency<T, R>(
 }
 
 async function enrichEmailFromApi(
-  declaration: FsaDeclaration
+  declaration: FsaDeclaration,
+  category: OutreachCategory
 ): Promise<FsaDeclaration> {
-  const base = normalizeDeclaration(declaration);
+  const normalize =
+    category === "expiring_certificates"
+      ? normalizeCertificate
+      : normalizeDeclaration;
+  const base = normalize(declaration);
+
+  // RSS: list/get работает, а GET /certificates/{id} у ФСА часто не отвечает
+  // (таймауты → батч обогащения «висит», кнопка кажется мёртвой).
+  // Email для сертификатов берём со страницы заявителя через Playwright.
+  if (category === "expiring_certificates") {
+    return base;
+  }
+
+  const fetchById = fetchDeclaration;
   try {
-    const detail = normalizeDeclaration(await fetchDeclaration(base.id));
-    return normalizeDeclaration({
+    const detail = normalize(await fetchById(base.id));
+    return normalize({
       ...base,
       ...detail,
       applicant: {
@@ -209,6 +257,7 @@ export async function bulkLoadList(
   options: BulkLoadListOptions = {}
 ): Promise<BulkLoadListResult> {
   const range = options.range ?? getExpiringMonthRange();
+  const category = options.category ?? "expiring";
   const pageSize = Math.min(
     Math.max(options.pageSize ?? DEFAULT_PAGE_SIZE, 10),
     100
@@ -218,6 +267,10 @@ export async function bulkLoadList(
     1000
   );
   const mode = options.mode ?? "reset";
+  const normalize = category === "expiring_certificates" ? normalizeCertificate : normalizeDeclaration;
+  const searchExpiring = category === "expiring_certificates" ? searchExpiringCertificates : searchExpiringDeclarations;
+  const fetchById = category === "expiring_certificates" ? fetchCertificate : fetchDeclaration;
+  const declarationUrl = category === "expiring_certificates" ? certificateApplicantUrl : declarationApplicantUrl;
   let existing = mode === "append" ? (options.existingQueue ?? null) : null;
   if (existing) {
     existing = healFsaPagination(existing).queue;
@@ -273,9 +326,10 @@ export async function bulkLoadList(
     let batch: FsaDeclaration[];
     try {
       let authRetries = 0;
+      let transientRetries = 0;
       while (true) {
         try {
-          batch = await searchExpiringDeclarations(
+          batch = await searchExpiring(
             {
               endDateFrom,
               endDateTo,
@@ -294,6 +348,11 @@ export async function bulkLoadList(
             ).token;
             authRetries += 1;
             await sleep(500);
+            continue;
+          }
+          if (transientRetries < 3 && isTransientListError(error)) {
+            transientRetries += 1;
+            await sleep(800 * 2 ** (transientRetries - 1));
             continue;
           }
           throw error;
@@ -318,6 +377,15 @@ export async function bulkLoadList(
         }
         cursor = rotated.cursor;
         continue;
+      }
+      // Уже что-то собрали — сохраняем частичный результат вместо полной ошибки UI
+      if (rawDeclarations.length > 0 || newIdsCollected > 0) {
+        console.warn(
+          "bulkLoadList soft-stop after transient FSA errors:",
+          formatFsaConnectionError(error)
+        );
+        hasMore = true;
+        break;
       }
       throw error;
     }
@@ -405,15 +473,20 @@ export async function bulkLoadList(
   const addedNew = newIdsCollected;
 
   const inRange = sortByEndDate(
-    rawDeclarations.map(normalizeDeclaration).filter((item) => isEndDateInRange(item, range))
+    rawDeclarations
+      .map(normalize)
+      .filter((item) => isEndDateInRange(item, range))
   );
 
   const withEmail = inRange.filter((item) => item.applicant?.email?.trim());
   const needsEnrich = inRange.filter((item) => !item.applicant?.email?.trim());
 
-  const classified = withEmail.map(toQueueItem);
+  const classified = withEmail.map((item) => toQueueItem(item, category));
   const eligible = classified.filter((item) => item.emailStatus === "eligible");
-  const rejected = classified.filter((item) => item.emailStatus === "rejected");
+  const rejected = classified.filter(
+    (item) =>
+      item.emailStatus === "rejected" || item.emailStatus === "no_email"
+  );
 
   const baseItems = mode === "append" ? (existing?.items ?? []) : [];
   const baseRejected = mode === "append" ? (existing?.rejected ?? []) : [];
@@ -423,7 +496,8 @@ export async function bulkLoadList(
   const merged = pruneOutreachQueue(
     mergeUnique(baseItems, eligible),
     mergeUnique(baseRejected, rejected),
-    range
+    range,
+    category
   );
 
   return {
@@ -434,7 +508,7 @@ export async function bulkLoadList(
     hasMore,
     items: merged.items,
     rejected: merged.rejected,
-    enrichQueue: mergeEnrichQueue(baseEnrichQueue, needsEnrich),
+    enrichQueue: mergeEnrichQueue(baseEnrichQueue, needsEnrich, category),
     loadedFromApi: rawDeclarations.length,
     addedNew,
     emailsFromList: withEmail.length,
@@ -449,7 +523,11 @@ export async function enrichQueueBatch(
   batchSize = getEnrichBatchSize(),
   options?: { shouldAbort?: () => boolean }
 ): Promise<EnrichBatchResult> {
-  const batch = queue.enrichQueue.slice(0, batchSize).map(normalizeDeclaration);
+  const normalize =
+    queue.category === "expiring_certificates"
+      ? normalizeCertificate
+      : normalizeDeclaration;
+  const batch = queue.enrichQueue.slice(0, batchSize).map(normalize);
   if (batch.length === 0) {
     return {
       processed: 0,
@@ -467,13 +545,19 @@ export async function enrichQueueBatch(
 
   const apiEnriched = await mapWithConcurrency(batch, 40, async (item) => {
     try {
-      return await enrichEmailFromApi(item);
+      return await enrichEmailFromApi(item, queue.category);
     } catch (error) {
       problemDeclaration = {
         id: item.id,
-        url: item.registryUrl || declarationApplicantUrl(item.id),
+        url:
+          item.registryUrl ||
+          (queue.category === "expiring_certificates"
+            ? certificateApplicantUrl(item.id)
+            : declarationApplicantUrl(item.id)),
       };
-      return normalizeDeclaration(item);
+      return queue.category === "expiring_certificates"
+        ? normalizeCertificate(item)
+        : normalizeDeclaration(item);
     }
   });
 
@@ -489,11 +573,18 @@ export async function enrichQueueBatch(
   let cardEnriched: FsaDeclaration[] = [];
   if (cardBatch.length > 0) {
     try {
-      cardEnriched = await enrichApplicantsFromCards(cardBatch);
+      cardEnriched = await enrichApplicantsFromCards(
+        cardBatch,
+        queue.category
+      );
     } catch (error) {
       problemDeclaration = {
         id: cardBatch[0].id,
-        url: cardBatch[0].registryUrl || declarationApplicantUrl(cardBatch[0].id),
+        url:
+          cardBatch[0].registryUrl ||
+          (queue.category === "expiring_certificates"
+            ? certificateApplicantUrl(cardBatch[0].id)
+            : declarationApplicantUrl(cardBatch[0].id)),
       };
       console.error(
         "enrichApplicantsFromCards failed:",
@@ -508,14 +599,21 @@ export async function enrichQueueBatch(
     item.applicant?.email?.trim()
   ).length;
 
-  const classified = resolved.map(toQueueItem);
+  const classified = resolved.map((item) => toQueueItem(item, queue.category));
   const eligible = classified.filter((item) => item.emailStatus === "eligible");
-  const rejected = classified.filter((item) => item.emailStatus === "rejected");
+  const rejected = classified.filter(
+    (item) =>
+      item.emailStatus === "rejected" || item.emailStatus === "no_email"
+  );
 
   const cardNoEmail = cardEnriched.filter(
     (item) => !item.applicant?.email?.trim()
   );
-  const noEmailRejected = cardNoEmail.map((item) => toQueueItem(item));
+  // cardNoEmail items не имеют email, но карточки могли быть обогащены частично.
+  // Нормализация и классификация делаются уже здесь, с учётом категории очереди.
+  const noEmailRejected = cardNoEmail.map((item) =>
+    toQueueItem(item, queue.category)
+  );
 
   // Без email после Playwright — убираем из очереди (не крутить бесконечно).
   // Остальные без email — в хвост, чтобы дошла очередь до карточек 8–50 в батче.
@@ -531,10 +629,11 @@ export async function enrichQueueBatch(
   const merged = pruneOutreachQueue(
     mergeUnique(queue.items, eligible),
     mergeUnique(mergeUnique(queue.rejected, rejected), noEmailRejected),
-    queue.range
+    queue.range,
+    queue.category
   );
 
-  const enrichQueue = mergeEnrichQueue([], remainingQueue);
+  const enrichQueue = mergeEnrichQueue([], remainingQueue, queue.category);
   const requeued = stillNeedEnrich.length;
   const processed = batch.length - requeued;
 
@@ -553,10 +652,15 @@ export async function enrichQueueBatch(
 
 export function listResultToQueue(
   result: BulkLoadListResult,
-  options?: { mode?: "reset" | "append"; existing?: OutreachQueue | null }
+  options?: {
+    mode?: "reset" | "append";
+    existing?: OutreachQueue | null;
+    category?: OutreachCategory;
+  }
 ): OutreachQueue {
   const mode = options?.mode ?? "reset";
   const existing = options?.existing;
+  const category = options?.category ?? existing?.category ?? "expiring";
   const enrichPending = result.enrichQueue.length;
   const previousPending = existing?.enrichQueue?.length ?? 0;
   const sessionInitial =
@@ -574,7 +678,7 @@ export function listResultToQueue(
   return {
     scannedAt: new Date().toISOString(),
     range: result.range,
-    category: "expiring",
+    category,
     paginationVersion:
       mode === "reset"
         ? 2

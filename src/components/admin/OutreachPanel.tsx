@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { AdminCard } from "./ui";
 import { MAX_BATCH_SEND, MAX_DAILY_SEND } from "@/lib/outreach/limits";
+import type { OutreachCategory } from "@/lib/outreach/types";
 
 type QueueItem = {
   id: number;
@@ -82,6 +83,7 @@ type EnrichStatus = {
   sessionInitialPending: number | null;
   lastBatchAt: string | null;
   lastError: string | null;
+  activeCategory?: string | null;
 };
 
 type OutreachState = {
@@ -356,12 +358,16 @@ function FsaLoadConfirmDialog({
   queueSize,
   onCancel,
   onConfirm,
+  docWordNominative,
+  docWordGenitive,
 }: {
   open: boolean;
   isFirstLoad: boolean;
   queueSize: number;
   onCancel: () => void;
   onConfirm: () => void;
+  docWordNominative: string;
+  docWordGenitive: string;
 }) {
   if (!open) return null;
 
@@ -389,20 +395,21 @@ function FsaLoadConfirmDialog({
               className="text-lg font-bold text-primary-dark"
             >
               {isFirstLoad
-                ? "Загрузить декларации из ФСА?"
-                : "Догрузить декларации из ФСА?"}
+                ? `Загрузить ${docWordNominative} из ФСА?`
+                : `Догрузить ${docWordNominative} из ФСА?`}
             </h3>
             <p className="mt-2 text-sm leading-relaxed text-muted">
               {isFirstLoad ? (
                 <>
-                  Запросим до <strong>{INITIAL_LOAD_MAX}</strong> деклараций с
+                  Запросим до <strong>{INITIAL_LOAD_MAX}</strong>{" "}
+                  {docWordGenitive} с
                   истекающим сроком из реестра ФСА. Загрузка может занять
                   несколько минут — не закрывайте вкладку до завершения.
                 </>
               ) : (
                 <>
-                  Добавим до <strong>{INITIAL_LOAD_MAX}</strong> новых
-                  деклараций поверх текущей очереди (
+                  Добавим до <strong>{INITIAL_LOAD_MAX}</strong> новых{" "}
+                  {docWordGenitive} поверх текущей очереди (
                   <strong>{queueSize}</strong> в базе). Уже загруженные
                   компании, история отправок и отказы от рассылки{" "}
                   <strong>сохранятся</strong>. Реестр обходится с другой
@@ -474,7 +481,16 @@ function SentTable({ rows }: { rows: SentRecord[] }) {
   );
 }
 
-export function OutreachPanel() {
+export function OutreachPanel({
+  category,
+}: {
+  category: OutreachCategory;
+}) {
+  const docWord = category === "expiring_certificates" ? "сертификаты" : "декларации";
+  const docWordGenitive =
+    category === "expiring_certificates" ? "сертификатов" : "деклараций";
+  const docAccusative = category === "expiring_certificates" ? "сертификат" : "декларацию";
+  const docThisLabel = category === "expiring_certificates" ? "этому сертификату" : "этой декларации";
   const [data, setData] = useState<OutreachState | null>(null);
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
@@ -490,6 +506,7 @@ export function OutreachPanel() {
   >(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [enrichStarting, setEnrichStarting] = useState(false);
   const [listFilter, setListFilter] = useState<ListFilter>("pending");
   const [showLoadConfirm, setShowLoadConfirm] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
@@ -497,7 +514,10 @@ export function OutreachPanel() {
   async function refresh(silent = false) {
     if (!silent) setLoading(true);
     if (!silent) setError("");
-    const res = await fetch("/api/admin/outreach", { credentials: "same-origin" });
+    const res = await fetch(
+      `/api/admin/outreach?category=${encodeURIComponent(category)}`,
+      { credentials: "same-origin" }
+    );
     if (!res.ok) {
       if (!silent) setError("Не удалось загрузить данные рассылки");
       if (!silent) setLoading(false);
@@ -512,23 +532,15 @@ export function OutreachPanel() {
   }
 
   useEffect(() => {
-    void (async () => {
-      const res = await fetch("/api/admin/outreach", {
-        credentials: "same-origin",
-      });
-      if (!res.ok) {
-        setError("Не удалось загрузить данные рассылки");
-        setLoading(false);
-        return;
-      }
-      const json = await res.json();
-      setData(json);
-      if (json.schedule) {
-        setEmailsPerDay(json.schedule.emailsPerDay ?? 50);
-      }
-      setLoading(false);
-    })();
-  }, []);
+    setLoading(true);
+    setData(null);
+    setMessage("");
+    setError("");
+    setListFilter("pending");
+    void refresh();
+    // category меняется при переключении вкладок — сбрасываем состояние
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [category]);
 
   useEffect(() => {
     const running = data?.enrichStatus?.running;
@@ -541,7 +553,9 @@ export function OutreachPanel() {
     }, 10_000);
 
     return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
+    category,
     data?.enrichStatus?.running,
     data?.enrichStatus?.stopping,
     data?.enrichPending,
@@ -549,33 +563,65 @@ export function OutreachPanel() {
 
   async function startBackgroundEnrich(resetCounters = false) {
     setError("");
-    const res = await fetch("/api/admin/outreach/enrich", {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ force: true, resetCounters }),
-    });
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      setError(json.error || "Не удалось запустить фоновое обогащение");
-      return;
+    setMessage("");
+    setEnrichStarting(true);
+    try {
+      const res = await fetch(
+        `/api/admin/outreach/enrich?category=${encodeURIComponent(category)}`,
+        {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ force: true, resetCounters }),
+        }
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(json.error || "Не удалось запустить фоновое обогащение");
+        return;
+      }
+      if (json.message && !json.started && !json.alreadyRunning) {
+        setError(String(json.message));
+        await refresh(true);
+        return;
+      }
+      if (json.blockedByPause) {
+        setError("Обогащение на паузе — нажмите ещё раз");
+        await refresh(true);
+        return;
+      }
+      if (json.alreadyRunning) {
+        setMessage("Обогащение этого раздела уже запущено — статус сейчас обновится.");
+        await refresh(true);
+        return;
+      }
+      if (json.started) {
+        setMessage("Фоновое обогащение запущено.");
+      }
+      if (json.lastError) {
+        setError(json.lastError);
+      }
+      await refresh(true);
+    } finally {
+      setEnrichStarting(false);
     }
-    if (json.lastError) {
-      setError(json.lastError);
-    }
-    await refresh(true);
   }
 
   async function stopEnrich() {
     setMessage(
       "Останавливаем… текущий батч (до ~2 мин) может ещё завершиться."
     );
-    await fetch("/api/admin/outreach/enrich", {
+    await fetch(
+      `/api/admin/outreach/enrich?category=${encodeURIComponent(
+        category
+      )}`,
+      {
       method: "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "stop" }),
-    });
+      }
+    );
     await refresh(true);
   }
 
@@ -595,57 +641,79 @@ export function OutreachPanel() {
     setError("");
     setMessage("");
 
-    const maxItems =
-      maxItemsOverride ??
-      (mode === "reset" ? INITIAL_LOAD_MAX : APPEND_LOAD_MAX);
-    const res = await fetch("/api/admin/outreach/scan", {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode, maxItems, pageSize: 100 }),
-    });
-    const json = await res.json().catch(() => ({}));
-    setScanning(false);
-    setAppending(false);
-
-    if (!res.ok) {
-      setError(json.error || "Ошибка загрузки из реестра");
-      return;
-    }
-
-    const addedNew = Number(json.addedNew ?? 0);
-    const loadedFromApi = Number(json.loadedFromApi ?? 0);
-    const action = mode === "append" ? "Догружено" : "Загружено";
-    const pending = json.enrichPending ?? 0;
-
-    const addedLine =
-      addedNew === 0 && loadedFromApi > 0
-        ? `${action}: новых 0 (${loadedFromApi} с API — уже были в очереди)`
-        : `${action}: +${addedNew} новых из ${loadedFromApi} с API`;
-
-    const eligibleNow = Number(json.eligible ?? 0);
-    const enrichLine =
-      addedNew > 0 && pending > 0
-        ? ` · без email в списке: +${addedNew} в очередь обогащения`
-        : "";
-
-    if (pending > 0) {
-      setMessage(
-        `${addedLine}${enrichLine}. Email подгружаются на сервере в фоне — можно закрыть вкладку.`
+    try {
+      const maxItems =
+        maxItemsOverride ??
+        (mode === "reset" ? INITIAL_LOAD_MAX : APPEND_LOAD_MAX);
+      const res = await fetch(
+        `/api/admin/outreach/scan?category=${encodeURIComponent(category)}`,
+        {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode, maxItems, pageSize: 100, category }),
+        }
       );
-      await refresh(true);
-      return;
-    }
+      const json = await res.json().catch(() => ({}));
 
-    setMessage(
-      `${addedLine}${enrichLine} · к отправке: ${eligibleNow} · личные ящики: ${json.rejected}${json.hasMore ? " · в реестре ещё есть" : ""}${json.cursorLabel ? ` · ${json.cursorLabel}` : ""}`
-    );
-    await refresh();
+      if (!res.ok) {
+        setError(json.error || "Ошибка загрузки из реестра");
+        return;
+      }
+
+      const addedNew = Number(json.addedNew ?? 0);
+      const loadedFromApi = Number(json.loadedFromApi ?? 0);
+      const action = mode === "append" ? "Догружено" : "Загружено";
+      const pending = json.enrichPending ?? 0;
+
+      const addedLine =
+        addedNew === 0 && loadedFromApi > 0
+          ? `${action}: новых 0 (${loadedFromApi} с API — уже были в очереди)`
+          : `${action}: +${addedNew} новых из ${loadedFromApi} с API`;
+
+      const eligibleNow = Number(json.eligible ?? 0);
+      const enrichLine =
+        addedNew > 0 && pending > 0
+          ? ` · без email в списке: +${addedNew} в очередь обогащения`
+          : "";
+
+      if (pending > 0) {
+        setMessage(
+          `${addedLine}${enrichLine}. Email подгружаются на сервере в фоне — можно закрыть вкладку.`
+        );
+        await refresh(true);
+        return;
+      }
+
+      setMessage(
+        `${addedLine}${enrichLine} · к отправке: ${eligibleNow} · личные ящики: ${json.rejected}${json.hasMore ? " · в реестре ещё есть" : ""}${json.cursorLabel ? ` · ${json.cursorLabel}` : ""}`
+      );
+      await refresh();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Сеть оборвалась во время загрузки из ФСА"
+      );
+    } finally {
+      setScanning(false);
+      setAppending(false);
+    }
   }
 
   function requestFsaLoad() {
     if (scanning || appending) return;
     setShowLoadConfirm(true);
+  }
+
+  function requestAppendLoad() {
+    if (scanning || appending) return;
+    // Пустая очередь: первая догрузка = reset на 100, не disabled
+    if (!data?.scannedAt) {
+      void runScan("reset", APPEND_LOAD_MAX);
+      return;
+    }
+    void runScan("append");
   }
 
   function confirmFsaLoad() {
@@ -665,7 +733,11 @@ export function OutreachPanel() {
     setError("");
     setMessage("");
 
-    const res = await fetch("/api/admin/outreach/schedule", {
+    const res = await fetch(
+      `/api/admin/outreach/schedule?category=${encodeURIComponent(
+        category
+      )}`,
+      {
       method: "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
@@ -673,7 +745,8 @@ export function OutreachPanel() {
         enabled,
         emailsPerDay,
       }),
-    });
+      }
+    );
     const json = await res.json().catch(() => ({}));
     if (!res.ok) {
       setSavingSchedule(false);
@@ -699,12 +772,15 @@ export function OutreachPanel() {
     setSending(true);
     setError("");
     setMessage("");
-    const res = await fetch("/api/admin/outreach/send", {
+    const res = await fetch(
+      `/api/admin/outreach/send?category=${encodeURIComponent(category)}`,
+      {
       method: "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ count: sendCount }),
-    });
+        body: JSON.stringify({ count: sendCount, category }),
+      }
+    );
     const json = await res.json().catch(() => ({}));
     setSending(false);
     if (!res.ok) {
@@ -718,12 +794,15 @@ export function OutreachPanel() {
   async function toggleAutoExclude(id: number, exclude: boolean) {
     setTogglingId(id);
     setError("");
-    const res = await fetch("/api/admin/outreach/exclude", {
+    const res = await fetch(
+      `/api/admin/outreach/exclude?category=${encodeURIComponent(category)}`,
+      {
       method: "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, exclude }),
-    });
+        body: JSON.stringify({ id, exclude, category }),
+      }
+    );
     const json = await res.json().catch(() => ({}));
     setTogglingId(null);
     if (!res.ok) {
@@ -736,21 +815,24 @@ export function OutreachPanel() {
   async function sendOne(id: number, manual = false) {
     setSendingId(id);
     setError("");
-    const res = await fetch("/api/admin/outreach/send", {
+    const res = await fetch(
+      `/api/admin/outreach/send?category=${encodeURIComponent(category)}`,
+      {
       method: "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ids: [id], manual }),
-    });
+        body: JSON.stringify({ ids: [id], manual, category }),
+      }
+    );
     const json = await res.json().catch(() => ({}));
     setSendingId(null);
     if (!res.ok || !json.results?.[0]?.ok) {
       const reason = json.results?.[0]?.reason as string | undefined;
       const reasonLabel =
         reason === "recipient_already_sent"
-          ? "На этот email недавно уже писали — подождите неделю или выберите другую декларацию"
+          ? `На этот email недавно уже писали — подождите неделю или выберите другую ${docAccusative}`
           : reason === "already_sent"
-            ? "По этой декларации уже отправляли"
+            ? `По ${docThisLabel} уже отправляли`
             : reason === "smtp_timeout"
               ? "Таймаут SMTP — сервер не отвечает"
               : reason === "smtp_auth_failed"
@@ -782,7 +864,8 @@ export function OutreachPanel() {
 
   const currentFilter = filterMeta[listFilter];
   const autoSendActive = Boolean(data?.schedule?.enabled);
-  const enrichRunning = Boolean(data?.enrichStatus?.running);
+  const enrichRunning =
+    Boolean(data?.enrichStatus?.running) || enrichStarting;
   const enrichStopping = Boolean(data?.enrichStatus?.stopping);
   const enrichPaused = Boolean(data?.enrichStatus?.paused);
   const enrichPending = data?.enrichPending ?? 0;
@@ -807,11 +890,13 @@ export function OutreachPanel() {
         queueSize={queueSize}
         onCancel={() => setShowLoadConfirm(false)}
         onConfirm={confirmFsaLoad}
+        docWordNominative={docWord}
+        docWordGenitive={docWordGenitive}
       />
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted">
-          Загрузка из ФСА — до {INITIAL_LOAD_MAX} деклараций за раз, новые
+          Загрузка из ФСА — до {INITIAL_LOAD_MAX} {docWordGenitive} за раз, новые
           добавляются поверх очереди (данные и история отправок сохраняются).
           Быстрая догрузка — по {APPEND_LOAD_MAX}. Период окончания: через месяц
           от завтра и ещё 15 дней (например 14.07 → 15.08–30.08; окно сдвигается
@@ -874,9 +959,10 @@ export function OutreachPanel() {
               <button
                 type="button"
                 onClick={() => void startBackgroundEnrich()}
-                className="btn-primary px-3 py-1.5 text-xs"
+                disabled={enrichStarting}
+                className="btn-primary px-3 py-1.5 text-xs disabled:opacity-50"
               >
-                Продолжить в фоне
+                {enrichStarting ? "Запускаем…" : "Продолжить в фоне"}
               </button>
             ) : null}
           </div>
@@ -901,7 +987,10 @@ export function OutreachPanel() {
         </AdminCard>
       )}
 
-      <AdminCard title="Заканчивающиеся" description="Фильтр: дата окончания действия">
+      <AdminCard
+        title={`Заканчивающиеся ${docWord}`}
+        description="Фильтр: дата окончания действия"
+      >
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
           <div className="rounded-xl bg-background p-4">
             <p className="text-xs text-muted">Период окончания</p>
@@ -950,8 +1039,8 @@ export function OutreachPanel() {
 
           <button
             type="button"
-            onClick={() => runScan("append")}
-            disabled={scanning || appending || !data?.scannedAt}
+            onClick={requestAppendLoad}
+            disabled={scanning || appending}
             className="btn-ghost inline-flex gap-2 px-5 py-2.5 text-sm"
           >
             <ChevronDown className={`h-4 w-4 ${appending ? "animate-pulse" : ""}`} />
@@ -1125,7 +1214,7 @@ export function OutreachPanel() {
 
         <p className="mt-3 text-xs text-muted">
           Лимит применяется сразу. Cron каждые ~20 мин: раз в час догружает
-          до 100 деклараций из ФСА (поверх очереди); в ~6:00 МСК — утренняя
+          до 100 {docWordGenitive} из ФСА (поверх очереди); в ~6:00 МСК — утренняя
           синхронизация; при нехватке адресов — дозагрузка перед автоотправкой.
           {data?.schedule?.lastHourlyFsaAppendAt && (
             <>

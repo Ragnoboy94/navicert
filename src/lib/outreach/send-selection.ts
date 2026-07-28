@@ -1,5 +1,5 @@
 import { getSendBlockReason } from "./mailer";
-import type { FsaDeclaration, OutreachQueueItem } from "./types";
+import type { FsaDeclaration, OutreachCategory, OutreachQueueItem } from "./types";
 
 export function isExcludedFromAutoSend(
   item: FsaDeclaration | OutreachQueueItem
@@ -8,11 +8,14 @@ export function isExcludedFromAutoSend(
 }
 
 export function sendBlockLabel(
-  reason: string | null | undefined
+  reason: string | null | undefined,
+  category: OutreachCategory = "expiring"
 ): string | undefined {
   switch (reason) {
     case "already_sent":
-      return "письмо по этой декларации уже отправляли";
+      return category === "expiring_certificates"
+        ? "письмо по этому сертификату уже отправляли"
+        : "письмо по этой декларации уже отправляли";
     case "recipient_already_sent":
       return "на этот email недавно писали — повтор позже";
     case "unsubscribed":
@@ -52,7 +55,7 @@ export function sendBlockLabel(
 
 export function isSendable(
   item: FsaDeclaration,
-  options: { force?: boolean; manual?: boolean } = {}
+  options: { force?: boolean; manual?: boolean; category?: OutreachCategory } = {}
 ): boolean {
   return getSendBlockReason(item, options) === null;
 }
@@ -65,6 +68,7 @@ export function pickSendableCandidates(
     manual?: boolean;
     forAutoSend?: boolean;
     limit?: number;
+    category?: OutreachCategory;
   } = {}
 ): FsaDeclaration[] {
   const seenEmails = new Set<string>();
@@ -86,13 +90,16 @@ export function pickSendableCandidates(
   return result;
 }
 
-export function summarizeSendBlocks(items: FsaDeclaration[]) {
+export function summarizeSendBlocks(
+  items: FsaDeclaration[],
+  options?: { category?: OutreachCategory }
+) {
   const counts: Record<string, number> = {};
   const emailsSeen = new Set<string>();
   let duplicateEmails = 0;
 
   for (const item of items) {
-    const reason = getSendBlockReason(item);
+    const reason = getSendBlockReason(item, options);
     const key = reason ?? "eligible";
     counts[key] = (counts[key] ?? 0) + 1;
 
@@ -107,15 +114,22 @@ export function summarizeSendBlocks(items: FsaDeclaration[]) {
 
   return {
     total: items.length,
-    sendable: pickSendableCandidates(items, { forAutoSend: true }).length,
+    sendable: pickSendableCandidates(items, {
+      forAutoSend: true,
+      category: options?.category,
+    }).length,
     duplicateEmails,
     counts,
   };
 }
 
 export function formatEmptySendMessage(
-  summary: ReturnType<typeof summarizeSendBlocks>
+  summary: ReturnType<typeof summarizeSendBlocks>,
+  options?: { category?: OutreachCategory }
 ): string {
+  const category = options?.category ?? "expiring";
+  const docLabel =
+    category === "expiring_certificates" ? "сертификаты" : "декларации";
   const parts: string[] = [];
 
   if (summary.counts.recipient_already_sent) {
@@ -124,7 +138,11 @@ export function formatEmptySendMessage(
     );
   }
   if (summary.counts.already_sent) {
-    parts.push(`${summary.counts.already_sent} — декларация уже в истории`);
+    parts.push(
+      `${summary.counts.already_sent} — ${
+        category === "expiring_certificates" ? "сертификат" : "декларация"
+      } уже в истории`
+    );
   }
   if (summary.counts.unsubscribed) {
     parts.push(`${summary.counts.unsubscribed} — отписались`);
@@ -145,5 +163,5 @@ export function formatEmptySendMessage(
     return "Нет подходящих получателей для отправки";
   }
 
-  return `Сейчас 0 уникальных адресов готовы к отправке (${summary.total} в очереди): ${parts.join("; ")}. Догрузите новые декларации из ФСА.`;
+  return `Сейчас 0 уникальных адресов готовы к отправке (${summary.total} в очереди): ${parts.join("; ")}. Догрузите новые ${docLabel} из ФСА.`;
 }

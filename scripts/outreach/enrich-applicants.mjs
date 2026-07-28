@@ -4,7 +4,6 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { playwrightLaunchOptions } from "./fsa-proxy.mjs";
 
-const FSA_URL = "https://pub.fsa.gov.ru/rds/declaration";
 const __filename = fileURLToPath(import.meta.url);
 
 function cardConcurrency() {
@@ -27,14 +26,20 @@ function pickFromApiApplicant(apiApplicant) {
   };
 }
 
-async function scrapeApplicant(context, item) {
+async function scrapeApplicant(context, item, category = "expiring") {
   const id = item.id;
+  const isCertificates = category === "expiring_certificates";
+  const FSA_URL = isCertificates
+    ? "https://pub.fsa.gov.ru/rss/certificate"
+    : "https://pub.fsa.gov.ru/rds/declaration";
+  const apiDocPath = isCertificates ? "certificates" : "declarations";
+  const apiNamespace = isCertificates ? "rss" : "rds";
   const page = await context.newPage();
   let apiRecord = null;
 
   const onResponse = async (response) => {
     const url = response.url();
-    if (!url.includes(`/api/v1/rds/common/declarations/${id}`)) return;
+    if (!url.includes(`/api/v1/${apiNamespace}/common/${apiDocPath}/${id}`)) return;
     try {
       const json = await response.json();
       apiRecord = json?.data && typeof json.data === "object" ? json.data : json;
@@ -46,21 +51,30 @@ async function scrapeApplicant(context, item) {
   page.on("response", onResponse);
 
   try {
-    const apiWait = page
-      .waitForResponse(
-        (response) =>
-          response.url().includes(`/api/v1/rds/common/declarations/${id}`) &&
-          response.ok(),
-        { timeout: 35_000 }
-      )
-      .catch(() => null);
+    // Для сертификатов detail API часто не отвечает — не ждём его 35с.
+    const apiWait = isCertificates
+      ? Promise.resolve(null)
+      : page
+          .waitForResponse(
+            (response) =>
+              response.url().includes(
+                `/api/v1/${apiNamespace}/common/${apiDocPath}/${id}`
+              ) && response.ok(),
+            { timeout: 20_000 }
+          )
+          .catch(() => null);
 
     await page.goto(`${FSA_URL}/view/${id}/applicant`, {
       waitUntil: "domcontentloaded",
-      timeout: 45_000,
+      timeout: isCertificates ? 60_000 : 45_000,
     });
 
-    await apiWait;
+    if (!isCertificates) {
+      await apiWait;
+    } else {
+      // Дать SPA отрисовать блок заявителя
+      await page.waitForTimeout(2_000);
+    }
 
     const fromApi = pickFromApiApplicant(apiRecord?.applicant || {});
     if (fromApi.email) {
@@ -85,9 +99,10 @@ async function scrapeApplicant(context, item) {
     await page
       .locator("text=Адрес электронной почты")
       .first()
-      .waitFor({ state: "visible", timeout: 10_000 })
+      .waitFor({ state: "visible", timeout: isCertificates ? 15_000 : 10_000 })
       .catch(() => {});
 
+    // Запасной поиск email в тексте страницы (в т.ч. сертификаты)
     const data = await page.evaluate(() => {
       const text = document.body.innerText;
       const pick = (label) => {
@@ -105,6 +120,9 @@ async function scrapeApplicant(context, item) {
       const numberMatch = text.match(
         /(ЕАЭС|РОСС|ТС)\s+N?\s*RU[^\n]+от\s+\d{2}\.\d{2}\.\d{4}\s+действует\s+до\s+(\d{2}\.\d{2}\.\d{4})/i
       );
+      const emailMatch = text.match(
+        /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i
+      );
 
       return {
         number: numberMatch?.[0]?.split(" от ")[0]?.trim() || pick("ЕАЭС"),
@@ -112,7 +130,7 @@ async function scrapeApplicant(context, item) {
         registrationDate: text.match(/от\s+(\d{2}\.\d{2}\.\d{4})/)?.[1] || "",
         shortName: pick("Сокращенное наименование юридического лица"),
         fullName: pick("Полное наименование юридического лица"),
-        email: pick("Адрес электронной почты"),
+        email: pick("Адрес электронной почты") || emailMatch?.[0] || "",
         phone: pick("Номер телефона"),
         product: pick("Продукция") || pick("Общее наименование продукции"),
       };
@@ -196,8 +214,10 @@ async function createBrowserSession() {
 
   return {
     concurrency,
-    async enrich(items) {
-      return mapPool(items, concurrency, (item) => scrapeApplicant(context, item));
+    async enrich(items, category = "expiring") {
+      return mapPool(items, concurrency, (item) =>
+        scrapeApplicant(context, item, category)
+      );
     },
     async close() {
       await context.close().catch(() => {});
@@ -210,7 +230,9 @@ async function runOnce() {
   const chunks = [];
   for await (const chunk of process.stdin) chunks.push(chunk);
   const raw = Buffer.concat(chunks).toString("utf-8").trim();
-  const { items = [] } = raw ? JSON.parse(raw) : { items: [] };
+  const { items = [], category = "expiring" } = raw
+    ? JSON.parse(raw)
+    : { items: [], category: "expiring" };
   if (items.length === 0) {
     console.log(JSON.stringify({ declarations: [] }));
     return;
@@ -218,7 +240,7 @@ async function runOnce() {
 
   const session = await createBrowserSession();
   try {
-    const declarations = await session.enrich(items);
+    const declarations = await session.enrich(items, category);
     console.log(JSON.stringify({ declarations }));
   } finally {
     await session.close();
@@ -267,8 +289,10 @@ async function runDaemon() {
     }
 
     const items = Array.isArray(payload?.items) ? payload.items : [];
+    const category =
+      payload?.category === "expiring_certificates" ? payload.category : "expiring";
     try {
-      const declarations = await session.enrich(items);
+      const declarations = await session.enrich(items, category);
       console.log(JSON.stringify({ declarations }));
     } catch (error) {
       console.log(

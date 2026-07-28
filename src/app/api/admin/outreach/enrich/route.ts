@@ -6,13 +6,20 @@ import {
   startBackgroundEnrich,
 } from "@/lib/outreach/enrich-runner";
 import { readOutreachQueue } from "@/lib/outreach/queue";
+import type { OutreachCategory } from "@/lib/outreach/types";
 
-export async function GET() {
+function parseCategory(raw: string | null): OutreachCategory {
+  return raw === "expiring_certificates" ? "expiring_certificates" : "expiring";
+}
+
+export async function GET(request: Request) {
   if (!(await isAuthenticated())) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  return NextResponse.json(getEnrichRunnerStatus());
+  const url = new URL(request.url);
+  const category = parseCategory(url.searchParams.get("category"));
+  return NextResponse.json(getEnrichRunnerStatus(category));
 }
 
 export async function POST(request: Request) {
@@ -21,16 +28,18 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json().catch(() => ({}));
+  const url = new URL(request.url);
+  const category = parseCategory(url.searchParams.get("category"));
 
   if (body.action === "stop") {
-    pauseBackgroundEnrich();
-    return NextResponse.json(getEnrichRunnerStatus());
+    pauseBackgroundEnrich(category);
+    return NextResponse.json(getEnrichRunnerStatus(category));
   }
 
-  const queue = readOutreachQueue();
+  const queue = readOutreachQueue(category);
   if (!queue?.enrichQueue.length) {
     return NextResponse.json({
-      ...getEnrichRunnerStatus(),
+      ...getEnrichRunnerStatus(category),
       ok: true,
       message: "Очередь обогащения пуста",
     });
@@ -40,6 +49,7 @@ export async function POST(request: Request) {
     startBackgroundEnrich({
       force: Boolean(body.force),
       resetCounters: Boolean(body.resetCounters),
+      category,
     });
 
   return NextResponse.json({
@@ -47,6 +57,6 @@ export async function POST(request: Request) {
     started,
     alreadyRunning,
     blockedByPause,
-    ...getEnrichRunnerStatus(),
+    ...getEnrichRunnerStatus(category),
   });
 }

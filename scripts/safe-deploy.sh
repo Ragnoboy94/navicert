@@ -49,7 +49,16 @@ cp -a "$BK/.env.local" .env.local
 test -f "$BK/leads.json" && cp -a "$BK/leads.json" data/leads.json || true
 if [ -d "$BK/data-snapshot" ]; then
   mkdir -p data
-  for f in outreach-sent.json outreach-unsubscribed.json outreach-schedule.json outreach-queue.json fsa-token.json; do
+  for f in \
+    outreach-sent.json \
+    outreach-unsubscribed.json \
+    outreach-schedule.json \
+    outreach-queue.json \
+    outreach-certificates-sent.json \
+    outreach-certificates-schedule.json \
+    outreach-certificates-queue.json \
+    fsa-token.json
+  do
     test -f "$BK/data-snapshot/$f" && cp -a "$BK/data-snapshot/$f" "data/$f" || true
   done
 fi

@@ -98,6 +98,9 @@ function applicantFromRecord(record: JsonRecord): FsaApplicant {
     (record.applicant as JsonRecord | undefined) ||
     (record.applicantLegalEntity as JsonRecord | undefined) ||
     (record.declarant as JsonRecord | undefined) ||
+    (record.certificateApplicant as JsonRecord | undefined) ||
+    (record.certificateHolder as JsonRecord | undefined) ||
+    (record.holder as JsonRecord | undefined) ||
     {};
 
   const emailFromContacts =
@@ -206,6 +209,7 @@ function extractItems(payload: unknown): JsonRecord[] {
     record.content,
     record.data,
     record.declarations,
+    record.certificates,
     record.rows,
   ];
 
@@ -214,6 +218,68 @@ function extractItems(payload: unknown): JsonRecord[] {
   }
 
   return [];
+}
+
+function certificateFromRecord(record: JsonRecord): FsaDeclaration | null {
+  // Считаем структуру карточки сертификата максимально схожей с декларацией:
+  // отличия — пути ссылок и возможные ключи для номера/регистрационных дат.
+  const id =
+    asNumber(
+      record.id ??
+        record.certificateId ??
+        record.certId ??
+        record.certificate_number_id ??
+        record.certNumberId
+    ) ?? null;
+  if (!id) return null;
+
+  const number =
+    pickString(record, [
+      "certificateNumber",
+      "certNumber",
+      "certRegNumber",
+      "certificate_reg_number",
+      "number",
+      "declNumber",
+    ]) || `ID ${id}`;
+
+  const applicant = applicantFromRecord(record);
+
+  const productName =
+    pickString(record, [
+      "productName",
+      "productFullName",
+      "productIdentificationName",
+      "product",
+    ]) || "продукция";
+
+  return {
+    id,
+    number,
+    registrationDate: formatRuDate(
+      record.registrationDate ??
+        record.certRegistrationDate ??
+        record.certificateRegistrationDate ??
+        record.regDate
+    ),
+    endDate: formatRuDate(
+      record.endDate ??
+        record.certEndDate ??
+        record.certificateEndDate ??
+        record.validityEndDate ??
+        record.declEndDate
+    ),
+    status:
+      pickString(record, ["status", "statusName", "certStatus"]) || "unknown",
+    applicant,
+    productName,
+    productGroup: pickString(record, [
+      "productGroup",
+      "productType",
+      "tnvedGroup",
+    ]),
+    registryUrl: certificateApplicantUrl(id),
+  };
 }
 
 export function normalizeDeclaration(declaration: FsaDeclaration): FsaDeclaration {
@@ -228,6 +294,24 @@ export function normalizeDeclaration(declaration: FsaDeclaration): FsaDeclaratio
 
 export function declarationApplicantUrl(id: number): string {
   return `${FSA_BASE}/rds/declaration/view/${id}/applicant`;
+}
+
+export function normalizeCertificate(
+  certificate: FsaDeclaration
+): FsaDeclaration {
+  // Тип технически тот же (общая форма карточки), но ссылки должны вести на сертификат.
+  return {
+    ...certificate,
+    applicant: certificate.applicant ?? {},
+    registryUrl:
+      certificate.registryUrl ||
+      certificateApplicantUrl(certificate.id),
+  };
+}
+
+export function certificateApplicantUrl(id: number): string {
+  // Реестр сертификатов — RSS (не RDS, как у деклараций)
+  return `${FSA_BASE}/rss/certificate/view/${id}/applicant`;
 }
 
 export async function fetchDeclaration(
@@ -272,7 +356,13 @@ export async function searchExpiringDeclarations(
       columnsSearch: [],
       sort: filter.sort?.length ? filter.sort : ["endDate"],
     },
-    { tokenOverride: token }
+    {
+      tokenOverride: token,
+      // Список: короче таймаут, меньше вложенных ретраев — страницы крутит bulkLoadList
+      timeoutMs: 25_000,
+      fetchRetries: 1,
+      maxAttempts: 2,
+    }
   );
 
   return extractItems(payload)
@@ -306,5 +396,90 @@ export function getTestDeclaration(): FsaDeclaration {
     },
     productName: "Кокосовый сахар",
     registryUrl: `${FSA_BASE}/rds/declaration/view/15978080/applicant`,
+  };
+}
+
+export async function fetchCertificate(
+  id: number,
+  token?: string
+): Promise<FsaDeclaration> {
+  const payload = await fsaApiRequest<unknown>(
+    "GET",
+    `/api/v1/rss/common/certificates/${id}`,
+    undefined,
+    { tokenOverride: token, refererPath: "/rss/certificate" }
+  );
+
+  const record =
+    (payload as JsonRecord).data && typeof (payload as JsonRecord).data === "object"
+      ? ((payload as JsonRecord).data as JsonRecord)
+      : (payload as JsonRecord);
+
+  const certificate = certificateFromRecord(record);
+  if (!certificate) {
+    throw new Error(`Не удалось разобрать сертификат ${id}`);
+  }
+  return normalizeCertificate(certificate);
+}
+
+export async function searchExpiringCertificates(
+  filter: OutreachSearchFilter,
+  token?: string
+): Promise<FsaDeclaration[]> {
+  const payload = await fsaApiRequest<unknown>(
+    "POST",
+    "/api/v1/rss/common/certificates/get",
+    {
+      size: filter.size ?? 50,
+      page: filter.page ?? 0,
+      filter: {
+        endDate: {
+          minDate: `${filter.endDateFrom}T00:00:00.000Z`,
+          maxDate: `${filter.endDateTo}T23:59:59.999Z`,
+        },
+      },
+      columnsSearch: [],
+      sort: filter.sort?.length ? filter.sort : ["endDate"],
+    },
+    {
+      tokenOverride: token,
+      refererPath: "/rss/certificate",
+      timeoutMs: 25_000,
+      fetchRetries: 1,
+      maxAttempts: 2,
+    }
+  );
+
+  return extractItems(payload)
+    .map(certificateFromRecord)
+    .filter((item): item is FsaDeclaration => Boolean(item))
+    .map(normalizeCertificate);
+}
+
+/** Данные тестового сертификата — для отладки без токена ФСА */
+export function getTestCertificate(): FsaDeclaration {
+  return {
+    id: 2930042,
+    number: "ЕАЭС N RU С-RU.РА01.В.12345/21",
+    registrationDate: "29.07.2021",
+    endDate: "30.07.2026",
+    status: "Действует",
+    applicant: {
+      type: "Юридическое лицо",
+      ogrn: "1197746443542",
+      inn: "7743308207",
+      fullName: 'ОБЩЕСТВО С ОГРАНИЧЕННОЙ ОТВЕТСТВЕННОСТЬЮ "ВАША ДЕЛЬТА"',
+      shortName: 'ООО "ВАША ДЕЛЬТА"',
+      headLastName: "МАРКАРЯН",
+      headFirstName: "ВЛАДИМИР",
+      headPatronymic: "РАФАЭЛОВИЧ",
+      headPosition: "ГЕНЕРАЛЬНЫЙ ДИРЕКТОР",
+      address:
+        "125212, РОССИЯ, ГОРОД МОСКВА, БУЛЬВАР КРОНШТАДТСКИЙ, ДОМ 7А, СТРОЕНИЕ 1, ЭТ 3 ПОМ I КОМ 16",
+      phone: "+7 8006001859",
+      email: "info@vasha-delta.ru",
+    },
+    productName: "Кокосовый сахар",
+    registryUrl: certificateApplicantUrl(2930042),
   };
 }

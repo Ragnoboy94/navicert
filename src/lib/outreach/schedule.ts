@@ -1,12 +1,18 @@
 import fs from "fs";
 import path from "path";
 import { clampDailyCount, MAX_BATCH_SEND } from "./limits";
-import { readSentRecords, sendOutreachBatch } from "./mailer";
+import { readSentRecordsByCategory, sendOutreachBatch } from "./mailer";
 import { readOutreachQueue } from "./queue";
 import { pickSendableCandidates } from "./send-selection";
-import type { OutreachSchedule, OutreachScheduleRun } from "./types";
+import type { OutreachCategory, OutreachSchedule, OutreachScheduleRun } from "./types";
 
-const schedulePath = path.join(process.cwd(), "data", "outreach-schedule.json");
+function schedulePath(category: OutreachCategory): string {
+  const file =
+    category === "expiring_certificates"
+      ? "outreach-certificates-schedule.json"
+      : "outreach-schedule.json";
+  return path.join(process.cwd(), "data", file);
+}
 const TIMEZONE = "Europe/Moscow";
 const SLOT_WINDOW_MINUTES = 60;
 const NOON_MINUTES = 12 * 60;
@@ -26,36 +32,46 @@ const defaultSchedule = (): OutreachSchedule => ({
   lastHourlyFsaAppendAt: null,
 });
 
-export function readOutreachSchedule(): OutreachSchedule {
-  if (!fs.existsSync(schedulePath)) return ensureTodayPlan(defaultSchedule());
+export function readOutreachSchedule(
+  category: OutreachCategory = "expiring"
+): OutreachSchedule {
+  const spath = schedulePath(category);
+  if (!fs.existsSync(spath)) return ensureTodayPlan(defaultSchedule(), category);
   const parsed = JSON.parse(
-    fs.readFileSync(schedulePath, "utf-8")
+    fs.readFileSync(spath, "utf-8")
   ) as Partial<OutreachSchedule> & {
     runsPerDay?: number;
     startTime?: string;
   };
-  return ensureTodayPlan(normalizeSchedule(parsed));
+  return ensureTodayPlan(normalizeSchedule(parsed), category);
 }
 
 export function writeOutreachSchedule(
-  patch: Partial<OutreachSchedule>
+  patch: Partial<OutreachSchedule> & { category?: OutreachCategory }
 ): OutreachSchedule {
-  const current = readOutreachSchedule();
+  const category = patch.category ?? "expiring";
+  const current = readOutreachSchedule(category);
   const emailsChanged =
     patch.emailsPerDay !== undefined &&
     patch.emailsPerDay !== current.emailsPerDay;
   const next = normalizeSchedule({ ...current, ...patch });
   const planned = emailsChanged
     ? regenerateTodayPlan(next)
-    : ensureTodayPlan(next);
-  persistSchedule(planned);
+    : ensureTodayPlan(next, category);
+  persistSchedule(planned, category);
   return planned;
 }
 
-function persistSchedule(schedule: OutreachSchedule): void {
-  const dir = path.dirname(schedulePath);
+function persistSchedule(
+  schedule: OutreachSchedule,
+  category: OutreachCategory
+): void {
+  const dir = path.dirname(schedulePath(category));
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(schedulePath, JSON.stringify(schedule, null, 2) + "\n");
+  fs.writeFileSync(
+    schedulePath(category),
+    JSON.stringify(schedule, null, 2) + "\n"
+  );
 }
 
 function normalizeSchedule(
@@ -115,12 +131,15 @@ function regenerateTodayPlan(schedule: OutreachSchedule): OutreachSchedule {
   };
 }
 
-function ensureTodayPlan(schedule: OutreachSchedule): OutreachSchedule {
+function ensureTodayPlan(
+  schedule: OutreachSchedule,
+  category: OutreachCategory
+): OutreachSchedule {
   const dateKey = getDateKey(new Date());
   if (schedule.todayPlan?.date === dateKey) return schedule;
 
   const next = regenerateTodayPlan(schedule);
-  if (fs.existsSync(schedulePath)) persistSchedule(next);
+  if (fs.existsSync(schedulePath(category))) persistSchedule(next, category);
   return next;
 }
 
@@ -143,9 +162,12 @@ export function getZonedParts(date: Date, timeZone = TIMEZONE) {
   return { hour, minute, minutes: hour * 60 + minute };
 }
 
-export function countSentToday(timeZone = TIMEZONE): number {
+export function countSentToday(
+  timeZone = TIMEZONE,
+  category: OutreachCategory = "expiring"
+): number {
   const today = getDateKey(new Date(), timeZone);
-  return readSentRecords().filter(
+  return readSentRecordsByCategory(category).filter(
     (record) => getDateKey(new Date(record.sentAt), timeZone) === today
   ).length;
 }
@@ -198,9 +220,19 @@ export function getNextRunLabel(schedule: OutreachSchedule, now = new Date()) {
   return "Сегодня запуски завершены";
 }
 
-export function getScheduleStats(schedule = readOutreachSchedule()) {
-  const planned = ensureTodayPlan(schedule);
-  const sentToday = countSentToday(planned.timezone);
+export function getScheduleStats(
+  arg: OutreachSchedule | OutreachCategory = "expiring",
+  categoryWhenSchedule?: OutreachCategory
+) {
+  const category =
+    typeof arg === "string"
+      ? (arg as OutreachCategory)
+      : (categoryWhenSchedule ?? "expiring");
+  const schedule =
+    typeof arg === "string" ? readOutreachSchedule(category) : arg;
+
+  const planned = ensureTodayPlan(schedule, category);
+  const sentToday = countSentToday(planned.timezone, category);
   const remainingToday = Math.max(planned.emailsPerDay - sentToday, 0);
   const runsToday = planned.todayPlan?.times.length ?? getRunsCount(planned.emailsPerDay);
   const perRunLimit = Math.max(
@@ -233,9 +265,11 @@ export type ScheduledSendResult = {
 
 export async function runScheduledOutreach(options: {
   force?: boolean;
+  category?: OutreachCategory;
 } = {}): Promise<ScheduledSendResult> {
-  const schedule = readOutreachSchedule();
-  const stats = getScheduleStats(schedule);
+  const category = options.category ?? "expiring";
+  const schedule = readOutreachSchedule(category);
+  const stats = getScheduleStats(category);
 
   if (!schedule.enabled && !options.force) {
     return {
@@ -271,7 +305,7 @@ export async function runScheduledOutreach(options: {
     };
   }
 
-  const queue = readOutreachQueue();
+  const queue = readOutreachQueue(category);
   if (!queue?.items?.length) {
     return {
       ok: false,
@@ -286,6 +320,7 @@ export async function runScheduledOutreach(options: {
   const candidates = pickSendableCandidates(queue.items, {
     forAutoSend: true,
     limit: Math.min(stats.perRunLimit, stats.remainingToday, MAX_BATCH_SEND),
+    category,
   });
   const batchSize = candidates.length;
 
@@ -300,7 +335,9 @@ export async function runScheduledOutreach(options: {
     };
   }
 
-  const { results, emailValidation } = await sendOutreachBatch(candidates);
+  const { results, emailValidation } = await sendOutreachBatch(candidates, {
+    category,
+  });
   const sent = results.filter((item) => item.ok).length;
   const runAt = new Date().toISOString();
   const slotKey =
@@ -308,6 +345,7 @@ export async function runScheduledOutreach(options: {
     `${getDateKey(new Date(), schedule.timezone)}|manual`;
 
   writeOutreachSchedule({
+    category,
     completedSlotsToday: activeSlot
       ? [...schedule.completedSlotsToday, activeSlot.slotKey]
       : schedule.completedSlotsToday,

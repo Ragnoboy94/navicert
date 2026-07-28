@@ -16,7 +16,13 @@ import { isUnsubscribed } from "./unsubscribe";
 
 const DEFAULT_CATEGORY: OutreachCategory = "expiring";
 
-const sentPath = path.join(process.cwd(), "data", "outreach-sent.json");
+function sentPath(category: OutreachCategory): string {
+  const file =
+    category === "expiring_certificates"
+      ? "outreach-certificates-sent.json"
+      : "outreach-sent.json";
+  return path.join(process.cwd(), "data", file);
+}
 
 export function isOutreachTestMode(): boolean {
   return process.env.OUTREACH_TEST_MODE !== "false";
@@ -38,8 +44,15 @@ export function resolveRecipientEmail(
 }
 
 export function readSentRecords(): OutreachSendRecord[] {
-  if (!fs.existsSync(sentPath)) return [];
-  return JSON.parse(fs.readFileSync(sentPath, "utf-8")) as OutreachSendRecord[];
+  return readSentRecordsByCategory("expiring");
+}
+
+export function readSentRecordsByCategory(
+  category: OutreachCategory = "expiring"
+): OutreachSendRecord[] {
+  const spath = sentPath(category);
+  if (!fs.existsSync(spath)) return [];
+  return JSON.parse(fs.readFileSync(spath, "utf-8")) as OutreachSendRecord[];
 }
 
 /** Пауза перед повторным письмом на тот же корпоративный email (другая декларация). */
@@ -55,7 +68,7 @@ function getRecipientCooldownMs(): number {
 
 export function getLastSendToRecipient(
   email: string,
-  records = readSentRecords()
+  records: OutreachSendRecord[] = readSentRecordsByCategory()
 ): OutreachSendRecord | null {
   const normalized = email.trim().toLowerCase();
   if (!normalized) return null;
@@ -70,7 +83,7 @@ export function getLastSendToRecipient(
 
 export function getRecipientCooldownUntil(
   email: string,
-  records = readSentRecords()
+  records: OutreachSendRecord[] = readSentRecordsByCategory()
 ): string | null {
   const last = getLastSendToRecipient(email, records);
   if (!last) return null;
@@ -83,7 +96,7 @@ export function getRecipientCooldownUntil(
 
 export function isRecipientInCooldown(
   email: string,
-  records = readSentRecords()
+  records: OutreachSendRecord[] = readSentRecordsByCategory()
 ): boolean {
   return getRecipientCooldownUntil(email, records) !== null;
 }
@@ -98,17 +111,28 @@ export function buildSentLookup(records = readSentRecords()) {
   return { byDeclarationId, byRecipient };
 }
 
-function writeSentRecord(record: OutreachSendRecord): void {
-  const dir = path.dirname(sentPath);
+function writeSentRecord(
+  record: OutreachSendRecord,
+  category: OutreachCategory = DEFAULT_CATEGORY
+): void {
+  const dir = path.dirname(sentPath(category));
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
-  const records = readSentRecords();
+  const records = readSentRecordsByCategory(category);
   records.push(record);
-  fs.writeFileSync(sentPath, JSON.stringify(records, null, 2) + "\n");
+  fs.writeFileSync(
+    sentPath(category),
+    JSON.stringify(records, null, 2) + "\n"
+  );
 }
 
-export function wasAlreadySent(declarationId: number): boolean {
-  return readSentRecords().some((item) => item.declarationId === declarationId);
+export function wasAlreadySent(
+  declarationId: number,
+  category: OutreachCategory = DEFAULT_CATEGORY
+): boolean {
+  return readSentRecordsByCategory(category).some(
+    (item) => item.declarationId === declarationId
+  );
 }
 
 export function wasAlreadySentToRecipient(email: string): boolean {
@@ -129,7 +153,7 @@ export function getSendBlockReason(
 
   const category = options.category ?? DEFAULT_CATEGORY;
   if (options.force) return null;
-  if (wasAlreadySent(declaration.id)) return "already_sent";
+  if (wasAlreadySent(declaration.id, category)) return "already_sent";
 
   const email =
     declaration.applicant?.email?.trim().toLowerCase() ||
@@ -162,12 +186,15 @@ export async function sendOutreachEmail(
   options: {
     force?: boolean;
     manual?: boolean;
+    category?: OutreachCategory;
     /** Внутренний флаг: очередь уже проверена в sendOutreachBatch */
     skipQueueRefresh?: boolean;
   } = {}
 ): Promise<{ ok: true; record: OutreachSendRecord } | { ok: false; reason: string }> {
   if (!options.skipQueueRefresh && !options.manual) {
-    const { queue } = await prepareOutreachQueueForSending();
+    const { queue } = await prepareOutreachQueueForSending({
+      category: options.category ?? DEFAULT_CATEGORY,
+    });
     const stillEligible = queue?.items.some((item) => item.id === declaration.id);
     if (!stillEligible && !options.force) {
       return { ok: false, reason: "email_not_deliverable" };
@@ -205,7 +232,7 @@ export async function sendOutreachEmail(
     user;
   const testMode = isOutreachTestMode();
   const to = testMode ? getOutreachTestEmail() : originalRecipient;
-  const category = DEFAULT_CATEGORY;
+  const category = options.category ?? DEFAULT_CATEGORY;
   const { subject, text, html } = buildOutreachEmail(declaration, {
     recipientEmail: originalRecipient,
     category,
@@ -258,7 +285,7 @@ export async function sendOutreachEmail(
         sentAt: new Date().toISOString(),
         testMode,
       };
-      writeSentRecord(record);
+      writeSentRecord(record, category);
       return { ok: true, record };
     } catch (error) {
       lastSmtpError =
@@ -287,11 +314,18 @@ export type SendOutreachBatchResult = {
 
 export async function sendOutreachBatch(
   declarations: FsaDeclaration[],
-  options: { force?: boolean; manual?: boolean; delayMs?: number } = {}
+  options: {
+    force?: boolean;
+    manual?: boolean;
+    delayMs?: number;
+    category?: OutreachCategory;
+  } = {}
 ): Promise<SendOutreachBatchResult> {
   const needsQueueValidation = !options.manual;
   const prepared = needsQueueValidation
-    ? await prepareOutreachQueueForSending()
+    ? await prepareOutreachQueueForSending({
+        category: options.category ?? DEFAULT_CATEGORY,
+      })
     : { queue: null, stats: null };
   const eligibleIds = new Set(prepared.queue?.items.map((item) => item.id) ?? []);
   const rejectedReasons = new Map(

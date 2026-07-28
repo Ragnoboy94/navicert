@@ -17,6 +17,11 @@ const MONTHS_RU = [
   "декабре",
 ];
 
+type BodyBlock =
+  | { type: "p"; text: string }
+  | { type: "label"; text: string }
+  | { type: "ul"; items: string[] };
+
 function parseRuDate(value: string): Date | null {
   const match = value.trim().match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
   if (!match) return null;
@@ -30,6 +35,10 @@ function monthLabelRu(endDate: string): string {
   const parsed = parseRuDate(endDate);
   if (!parsed) return endDate;
   return MONTHS_RU[parsed.getMonth()] ?? endDate;
+}
+
+function endYear(endDate: string): number {
+  return parseRuDate(endDate)?.getFullYear() ?? new Date().getFullYear();
 }
 
 function companyName(declaration: FsaDeclaration): string {
@@ -55,32 +64,141 @@ export function getOutreachFromName(): string {
   return process.env.OUTREACH_FROM_NAME?.trim() || "Андрей Громов";
 }
 
-export function buildOutreachSubject(declaration: FsaDeclaration): string {
-  return `Мониторинг реестра ФСА: истечение сроков действия документации ${companyName(declaration)}`;
+function documentNoun(category: OutreachCategory): string {
+  switch (category) {
+    case "expiring_certificates":
+      return "сертификатов";
+    case "expiring":
+    default:
+      return "деклараций";
+  }
+}
+
+export function buildOutreachSubject(
+  declaration: FsaDeclaration,
+  options?: { category?: OutreachCategory }
+): string {
+  const category = options?.category ?? "expiring";
+  const company = companyName(declaration);
+  if (category === "expiring_certificates") {
+    return `Мониторинг реестра ФСА: завершение срока действия документации ${company}`;
+  }
+  return `Мониторинг реестра ФСА: истечение сроков действия ${documentNoun(category)} ${company}`;
 }
 
 function certDurationLabel(): string {
   return process.env.OUTREACH_CERT_DURATION?.trim() || "до 2 месяцев";
 }
 
-function bodyParagraphs(declaration: FsaDeclaration): string[] {
+function declarationBodyBlocks(declaration: FsaDeclaration): BodyBlock[] {
   const senderName = getOutreachSenderName();
   const recipient = companyName(declaration);
   const month = monthLabelRu(declaration.endDate);
   const productCat = productCategory(declaration);
-  const year = new Date().getFullYear();
+  const year = endYear(declaration.endDate);
 
   return [
-    `Уважаемые руководители компании ${recipient}!`,
-    `${senderName} в рамках планового мониторинга открытых данных реестра Росаккредитации зафиксировал, что у вашей организации в ближайшее время завершается период действия разрешительной документации.`,
-    "Статус документов:",
-    `В ${month} ${year} года истекает срок действия документов товарной группы: ${productCat}.`,
-    `Напоминаем, что процедура сертификации или декларирования (включая отбор образцов, проведение лабораторных испытаний и регистрацию в реестре) может занимать ${certDurationLabel()}.`,
-    "Во избежание рисков привлечения к административной ответственности по ст. 14.43 КоАП РФ («Нарушение требований технических регламентов»), задержки поставок или блокировок карточек на маркетплейсах, рекомендуем заблаговременно запустить процедуру переоформления.",
-    "Мы готовы предоставить информацию по актуальным срокам и схемам сертификации под ваш ассортимент. Направьте ответ на данное уведомление для связи с профильным техническим специалистом.",
-    "С уважением,",
-    senderName,
+    { type: "p", text: `Уважаемые руководители компании ${recipient}!` },
+    {
+      type: "p",
+      text: `${senderName} в рамках планового мониторинга открытых данных реестра Росаккредитации зафиксировал, что у вашей организации в ближайшее время завершается период действия разрешительной документации.`,
+    },
+    { type: "label", text: "Статус документов:" },
+    {
+      type: "p",
+      text: `В ${month} ${year} года истекает срок действия документов товарной группы: ${productCat}.`,
+    },
+    {
+      type: "p",
+      text: `Напоминаем, что процедура сертификации или декларирования (включая отбор образцов, проведение лабораторных испытаний и регистрацию в реестре) может занимать ${certDurationLabel()}.`,
+    },
+    {
+      type: "p",
+      text: "Во избежание рисков привлечения к административной ответственности по ст. 14.43 КоАП РФ («Нарушение требований технических регламентов»), задержки поставок или блокировок карточек на маркетплейсах, рекомендуем заблаговременно запустить процедуру переоформления.",
+    },
+    {
+      type: "p",
+      text: "Мы готовы предоставить информацию по актуальным срокам и схемам сертификации под ваш ассортимент. Направьте ответ на данное уведомление для связи с профильным техническим специалистом.",
+    },
+    { type: "p", text: "С уважением," },
+    { type: "p", text: senderName },
   ];
+}
+
+/** Шаблон «Заканчивающиеся СС» — только для сертификатов. */
+function certificateBodyBlocks(declaration: FsaDeclaration): BodyBlock[] {
+  const recipient = companyName(declaration);
+  const month = monthLabelRu(declaration.endDate);
+  const year = endYear(declaration.endDate);
+  const number = declaration.number?.trim() || "—";
+  const productCat = productCategory(declaration);
+
+  return [
+    { type: "p", text: `Уважаемые руководители компании ${recipient}!` },
+    {
+      type: "p",
+      text: "Центр сертификации «Нависерт» в рамках планового мониторинга открытых данных реестра Росаккредитации зафиксировал, что у Вас в ближайшее время заканчивается срок действия разрешительной документации.",
+    },
+    { type: "label", text: "Статус документов:" },
+    {
+      type: "ul",
+      items: [
+        `В ${month} ${year} года истекает срок действия сертификата соответствия № ${number} оформленного на: ${productCat}.`,
+      ],
+    },
+    {
+      type: "p",
+      text: "Ответьте на данное уведомление, и технический специалист вышлет вам ссылку на заканчивающийся документ.",
+    },
+    {
+      type: "p",
+      text: `Также хотим напомнить, что процедура сертификации (включая отбор образцов, проведение лабораторных испытаний и регистрацию в реестре) может занимать ${certDurationLabel()}.`,
+    },
+    {
+      type: "p",
+      text: "Мы готовы предоставить информацию по актуальным срокам и схемам сертификации вашего ассортимента продукции.",
+    },
+    { type: "p", text: "С уважением," },
+    { type: "p", text: "Экспертный центр Нависерт" },
+  ];
+}
+
+function bodyBlocks(
+  declaration: FsaDeclaration,
+  category: OutreachCategory
+): BodyBlock[] {
+  return category === "expiring_certificates"
+    ? certificateBodyBlocks(declaration)
+    : declarationBodyBlocks(declaration);
+}
+
+function blocksToText(blocks: BodyBlock[]): string {
+  const parts: string[] = [];
+  for (const block of blocks) {
+    if (block.type === "ul") {
+      parts.push(block.items.map((item) => `• ${item}`).join("\n"));
+    } else {
+      parts.push(block.text);
+    }
+  }
+  return parts.join("\n\n");
+}
+
+function blocksToHtml(blocks: BodyBlock[]): string {
+  return blocks
+    .map((block) => {
+      if (block.type === "ul") {
+        const items = block.items
+          .map((item) => `<li>${escapeHtml(item)}</li>`)
+          .join("");
+        return `<ul style="margin: 0 0 1em; padding-left: 1.25em;">${items}</ul>`;
+      }
+      if (block.type === "label") {
+        return `<p><strong>${escapeHtml(block.text)}</strong></p>`;
+      }
+      return `<p>${escapeHtml(block.text)}</p>`;
+    })
+    .join("\n");
 }
 
 function footerLine(): { text: string; html: string } {
@@ -119,7 +237,7 @@ export function buildOutreachBody(
     ? unsubscribeBlock(recipientEmail, outreachCategory, companyName(declaration))
     : null;
 
-  const lines = bodyParagraphs(declaration).join("\n\n");
+  const lines = blocksToText(bodyBlocks(declaration, outreachCategory));
 
   if (unsub) {
     return `${lines}\n\n${footer.text}\n\n${unsub.text}`;
@@ -143,9 +261,7 @@ export function buildOutreachHtml(
       )
     : null;
 
-  const htmlBody = bodyParagraphs(declaration)
-    .map((line) => `<p>${escapeHtml(line)}</p>`)
-    .join("\n");
+  const htmlBody = blocksToHtml(bodyBlocks(declaration, outreachCategory));
 
   return `<!DOCTYPE html>
 <html lang="ru">
@@ -173,9 +289,10 @@ export function buildOutreachEmail(
   text: string;
   html: string;
 } {
+  const category = options?.category ?? "expiring";
   return {
-    subject: buildOutreachSubject(declaration),
-    text: buildOutreachBody(declaration, options),
-    html: buildOutreachHtml(declaration, options),
+    subject: buildOutreachSubject(declaration, { category }),
+    text: buildOutreachBody(declaration, { ...options, category }),
+    html: buildOutreachHtml(declaration, { ...options, category }),
   };
 }

@@ -141,32 +141,43 @@ export async function ensureFsaSession(options?: {
 }
 
 export function formatFsaConnectionError(error: unknown): string {
-  if (error instanceof FsaConnectionError) {
-    if (error.step === "transport") {
-      return error.message.startsWith("ФСА недоступна:")
-        ? error.message
-        : `ФСА недоступна: ${error.message}`;
-    }
-    if (error.step === "token") {
-      return "Не удалось получить доступ к реестру ФСА";
-    }
-    return humanizeFsaMessage(error.message);
+  const msg =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : String(error);
+  const causeMsg =
+    error instanceof Error &&
+    error.cause instanceof Error
+      ? error.cause.message
+      : error instanceof Error && error.cause
+        ? String(error.cause)
+        : "";
+  const haystack = `${msg} ${causeMsg}`;
+
+  if (error instanceof FsaConnectionError && error.step === "transport") {
+    return error.message.startsWith("ФСА недоступна:")
+      ? error.message
+      : `ФСА недоступна: ${error.message}`;
   }
-  const msg = error instanceof Error ? error.message : String(error);
-  if (/401|403/.test(msg)) {
+  if (error instanceof FsaConnectionError && error.step === "token") {
+    return "Не удалось получить доступ к реестру ФСА";
+  }
+  if (/401|403/.test(haystack)) {
     return "Сессия ФСА истекла. Обновите доступ и повторите.";
   }
-  if (/503|502|504|Service Temporarily Unavailable/i.test(msg)) {
+  if (/503|502|504|Service Temporarily Unavailable/i.test(haystack)) {
     return "ФСА временно перегружена — подождите минуту и повторите.";
   }
   if (
-    /timeout|timed out|abort|econnreset|fetch failed|all fsa proxies failed|прокси|proxy|playwright|outreach:setup|OUTREACH_FSA|Bearer/i.test(
-      msg
+    /timeout|timed out|abort|econnreset|econnrefused|enotfound|socket hang up|network|fetch failed|all fsa proxies failed|прокси|proxy|playwright|outreach:setup|OUTREACH_FSA|Bearer|транспорт/i.test(
+      haystack
     )
   ) {
     return "Нет стабильной связи с реестром ФСА. Повторите позже.";
   }
-  if (msg.includes("загрузке страниц")) {
+  if (haystack.includes("загрузке страниц")) {
     return "ФСА временно ограничила пагинацию — попробуйте догрузку через минуту";
   }
   return humanizeFsaMessage(msg) || "Не удалось подключиться к реестру ФСА";
@@ -189,7 +200,13 @@ export async function fsaApiRequest<T>(
   method: "GET" | "POST",
   path: string,
   body?: unknown,
-  options?: { tokenOverride?: string; maxAttempts?: number }
+  options?: {
+    tokenOverride?: string;
+    maxAttempts?: number;
+    refererPath?: string;
+    timeoutMs?: number;
+    fetchRetries?: number;
+  }
 ): Promise<T> {
   const maxAttempts = options?.maxAttempts ?? 4;
   let lastError: unknown;
@@ -203,17 +220,26 @@ export async function fsaApiRequest<T>(
         (await ensureFsaSession({ forceTokenRefresh })).token;
       forceTokenRefresh = false;
 
-      const response = await fsaFetch(`${FSA_BASE}${path}`, {
-        method,
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Origin: FSA_BASE,
-          Referer: `${FSA_BASE}/rds/declaration`,
-          "Content-Type": "application/json",
-          Accept: "application/json",
+      const response = await fsaFetch(
+        `${FSA_BASE}${path}`,
+        {
+          method,
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Origin: FSA_BASE,
+            Referer: `${FSA_BASE}${
+              options?.refererPath ?? "/rds/declaration"
+            }`,
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: body ? JSON.stringify(body) : undefined,
         },
-        body: body ? JSON.stringify(body) : undefined,
-      });
+        {
+          timeoutMs: options?.timeoutMs,
+          retries: options?.fetchRetries,
+        }
+      );
 
       if (!response.ok) {
         const text = await response.text();

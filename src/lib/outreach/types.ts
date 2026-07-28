@@ -1,7 +1,8 @@
-export type OutreachCategory = "expiring";
+export type OutreachCategory = "expiring" | "expiring_certificates";
 
 export const OUTREACH_CATEGORY_LABELS: Record<OutreachCategory, string> = {
   expiring: "уведомления о заканчивающихся декларациях",
+  expiring_certificates: "уведомления о заканчивающихся сертификатах",
 };
 
 export type OutreachUnsubscribeRecord = {
@@ -81,7 +82,7 @@ export type OutreachQueueItem = FsaDeclaration & {
 export type OutreachQueue = {
   scannedAt: string;
   range: { from: string; to: string };
-  category: "expiring";
+  category: OutreachCategory;
   /** 2 = пагинация с подпериодами; отсутствует/1 = legacy (весь range одним куском) */
   paginationVersion?: number;
   /** Следующая страница API для догрузки (legacy, дублирует apiCursor.page) */

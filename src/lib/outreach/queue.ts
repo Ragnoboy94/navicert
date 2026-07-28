@@ -1,18 +1,31 @@
 import fs from "fs";
 import path from "path";
-import { normalizeDeclaration } from "./fsa";
+import { normalizeCertificate, normalizeDeclaration } from "./fsa";
 import { pruneOutreachQueue, isEndDateInRange } from "./queue-cleanup";
 import { healFsaPagination } from "./fsa-pagination";
 import type { OutreachQueue } from "./types";
+import type { OutreachCategory } from "./types";
 
-const queuePath = path.join(process.cwd(), "data", "outreach-queue.json");
+function queuePath(category: OutreachCategory): string {
+  const file =
+    category === "expiring_certificates"
+      ? "outreach-certificates-queue.json"
+      : "outreach-queue.json";
+  return path.join(process.cwd(), "data", file);
+}
 
-export function readOutreachQueue(): OutreachQueue | null {
-  if (!fs.existsSync(queuePath)) return null;
-  const raw = JSON.parse(fs.readFileSync(queuePath, "utf-8")) as OutreachQueue;
-  const { queue: healed, changed } = healFsaPagination(raw);
-  if (changed) writeOutreachQueue(healed);
-  return sanitizeOutreachQueue(normalizeQueue(healed));
+export function readOutreachQueue(
+  category: OutreachCategory = "expiring"
+): OutreachQueue | null {
+  const qpath = queuePath(category);
+  if (!fs.existsSync(qpath)) return null;
+  const raw = JSON.parse(fs.readFileSync(qpath, "utf-8")) as OutreachQueue;
+  // Категория берётся из пути файла — иначе запись может уйти в чужой контур
+  const stamped: OutreachQueue = { ...raw, category };
+  const { queue: healed, changed } = healFsaPagination(stamped);
+  const withCategory: OutreachQueue = { ...healed, category };
+  if (changed || raw.category !== category) writeOutreachQueue(withCategory);
+  return sanitizeOutreachQueue(normalizeQueue(withCategory));
 }
 
 /** Убирает отправленные и то, что вне актуального окна.
@@ -30,7 +43,8 @@ export function sanitizeOutreachQueue(queue: OutreachQueue): OutreachQueue {
   const { items, rejected } = pruneOutreachQueue(
     normalized.items,
     normalized.rejected,
-    range
+    range,
+    normalized.category
   );
 
   const enrichQueue = normalized.enrichQueue.filter((item) =>
@@ -64,16 +78,22 @@ export function sanitizeOutreachQueue(queue: OutreachQueue): OutreachQueue {
 }
 
 export function writeOutreachQueue(queue: OutreachQueue): void {
-  const dir = path.dirname(queuePath);
+  const category = queue.category ?? "expiring";
+  const qpath = queuePath(category);
+  const dir = path.dirname(qpath);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(queuePath, JSON.stringify(normalizeQueue(queue), null, 2) + "\n");
+  fs.writeFileSync(
+    qpath,
+    JSON.stringify(normalizeQueue(queue), null, 2) + "\n"
+  );
 }
 
 export function setExcludeFromAutoSend(
   declarationId: number,
-  exclude: boolean
+  exclude: boolean,
+  category: OutreachCategory = "expiring"
 ): OutreachQueue | null {
-  const queue = readOutreachQueue();
+  const queue = readOutreachQueue(category);
   if (!queue) return null;
 
   let found = false;
@@ -113,25 +133,32 @@ function normalizeQueue(queue: OutreachQueue): OutreachQueue {
     sortIndex: 0,
     sliceIndex: 0,
   };
+  const normalize =
+    queue.category === "expiring_certificates"
+      ? (x: Parameters<typeof normalizeCertificate>[0]) =>
+          normalizeCertificate(x)
+      : (x: Parameters<typeof normalizeDeclaration>[0]) =>
+          normalizeDeclaration(x);
   return {
     ...healed,
+    category: queue.category ?? "expiring",
     nextApiPage: apiCursor.page,
     apiCursor,
     paginationVersion: Math.max(healed.paginationVersion ?? 1, 2),
     pageSize: queue.pageSize ?? 100,
     hasMore: queue.hasMore ?? false,
-    enrichQueue: (queue.enrichQueue ?? []).map(normalizeDeclaration),
+    enrichQueue: (queue.enrichQueue ?? []).map(normalize),
     enrichPaused: Boolean(queue.enrichPaused),
     enrichProcessedTotal: queue.enrichProcessedTotal ?? 0,
     enrichEmailsFoundTotal: queue.enrichEmailsFoundTotal ?? 0,
     enrichSessionInitialPending: queue.enrichSessionInitialPending,
     items: (queue.items ?? []).map((item) => ({
-      ...normalizeDeclaration(item),
+      ...normalize(item),
       emailStatus: item.emailStatus ?? "eligible",
       excludeFromAutoSend: Boolean(item.excludeFromAutoSend),
     })),
     rejected: (queue.rejected ?? []).map((item) => ({
-      ...normalizeDeclaration(item),
+      ...normalize(item),
       emailStatus: item.emailStatus ?? "eligible",
       emailRejectReason: item.emailRejectReason,
     })),

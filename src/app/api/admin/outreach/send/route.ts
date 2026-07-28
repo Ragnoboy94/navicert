@@ -8,9 +8,15 @@ import {
   pickSendableCandidates,
   summarizeSendBlocks,
 } from "@/lib/outreach/send-selection";
-import type { FsaDeclaration, OutreachQueueItem } from "@/lib/outreach/types";
+import type { FsaDeclaration, OutreachQueueItem, OutreachCategory } from "@/lib/outreach/types";
 
 export const maxDuration = 300;
+
+function parseCategory(raw: string | null | undefined): OutreachCategory {
+  return raw === "expiring_certificates"
+    ? "expiring_certificates"
+    : "expiring";
+}
 
 function findQueueItem(
   queue: NonNullable<ReturnType<typeof readOutreachQueue>>,
@@ -29,6 +35,8 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
+    const url = new URL(request.url);
+    const category = parseCategory(body.category ?? url.searchParams.get("category"));
     const count = clampBatchCount(body.count);
     const force = Boolean(body.force);
     const manual = Boolean(body.manual);
@@ -36,7 +44,7 @@ export async function POST(request: Request) {
       ? body.ids.map((id: unknown) => Number(id)).filter(Boolean)
       : null;
 
-    const queue = readOutreachQueue();
+    const queue = readOutreachQueue(category);
     if (!queue?.items?.length && !queue?.rejected?.length) {
       return NextResponse.json(
         { error: "Сначала обновите список из реестра ФСА" },
@@ -59,11 +67,20 @@ export async function POST(request: Request) {
       const item = findQueueItem(queue, ids[0]);
       if (!item) {
         return NextResponse.json(
-          { error: "Декларация не найдена" },
+          {
+            error:
+              category === "expiring_certificates"
+                ? "Сертификат не найден"
+                : "Декларация не найдена",
+          },
           { status: 404 }
         );
       }
-      const result = await sendOutreachEmail(item, { force, manual: true });
+      const result = await sendOutreachEmail(item, {
+        force,
+        manual: true,
+        category,
+      });
       return NextResponse.json({
         ok: result.ok,
         sent: result.ok ? 1 : 0,
@@ -83,13 +100,15 @@ export async function POST(request: Request) {
       manual,
       forAutoSend: !manual,
       limit: count,
+      // category прокидывается на блокировки/отписки
+      category,
     });
 
     if (toSend.length === 0) {
-      const summary = summarizeSendBlocks(pool);
+      const summary = summarizeSendBlocks(pool, { category });
       return NextResponse.json(
         {
-          error: formatEmptySendMessage(summary),
+          error: formatEmptySendMessage(summary, { category }),
           summary,
         },
         { status: 400 }
@@ -99,6 +118,7 @@ export async function POST(request: Request) {
     const { results, emailValidation } = await sendOutreachBatch(toSend, {
       force,
       manual,
+      category,
     });
 
     return NextResponse.json({

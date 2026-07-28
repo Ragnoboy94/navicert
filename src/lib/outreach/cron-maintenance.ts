@@ -15,7 +15,7 @@ import {
   readOutreachSchedule,
   writeOutreachSchedule,
 } from "./schedule";
-import type { OutreachQueue } from "./types";
+import type { OutreachCategory, OutreachQueue } from "./types";
 
 const TIMEZONE = "Europe/Moscow";
 const MORNING_SYNC_CENTER_MINUTES = 6 * 60;
@@ -68,37 +68,50 @@ function queueNeedsInitialLoad(queue: OutreachQueue | null): boolean {
   return !queue?.scannedAt;
 }
 
-function countSendable(queue: OutreachQueue | null): number {
+function countSendable(
+  queue: OutreachQueue | null,
+  category: OutreachCategory
+): number {
   if (!queue) return 0;
-  return pickSendableCandidates(queue.items, { forAutoSend: true }).length;
+  return pickSendableCandidates(queue.items, {
+    forAutoSend: true,
+    category,
+  }).length;
 }
 
 async function loadFromFsa(
+  category: OutreachCategory,
   mode: "reset" | "append",
   maxItems = mode === "append" ? APPEND_LOAD_MAX : INITIAL_LOAD_MAX
 ) {
-  const existing = mode === "append" ? readOutreachQueue() : null;
+  const existing = mode === "append" ? readOutreachQueue(category) : null;
   const result = await bulkLoadList({
     mode,
     maxItems,
     pageSize: 100,
     existingQueue: existing,
     range: mode === "append" ? existing?.range : undefined,
+    category,
   });
   writeOutreachQueue(
-    listResultToQueue(result, { mode, existing: existing ?? undefined })
+    listResultToQueue(result, {
+      mode,
+      existing: existing ?? undefined,
+      category,
+    })
   );
   return result;
 }
 
 export async function processEnrichBacklog(
-  maxMs: number
+  maxMs: number,
+  category: OutreachCategory = "expiring"
 ): Promise<CronEnrichResult> {
   const empty: CronEnrichResult = {
     ran: false,
     processed: 0,
     emailsFound: 0,
-    enrichPending: readOutreachQueue()?.enrichQueue.length ?? 0,
+    enrichPending: readOutreachQueue(category)?.enrichQueue.length ?? 0,
   };
 
   const deadline = Date.now() + maxMs;
@@ -106,7 +119,7 @@ export async function processEnrichBacklog(
   let emailsFound = 0;
 
   while (Date.now() < deadline) {
-    const queue = readOutreachQueue();
+    const queue = readOutreachQueue(category);
     if (!queue?.enrichQueue.length) break;
 
     const batch = await enrichQueueBatch(queue, getEnrichBatchSize());
@@ -129,30 +142,38 @@ export async function processEnrichBacklog(
     ran: true,
     processed,
     emailsFound,
-    enrichPending: readOutreachQueue()?.enrichQueue.length ?? 0,
+    enrichPending: readOutreachQueue(category)?.enrichQueue.length ?? 0,
   };
 }
 
-/** Каждый час: +100 деклараций поверх очереди (append), без сброса данных. */
+/** Каждый час: +100 документов поверх очереди (append), без сброса данных. */
 export async function runHourlyFsaAppend(
-  now = new Date()
+  now = new Date(),
+  category: OutreachCategory = "expiring"
 ): Promise<CronSyncResult> {
-  const schedule = readOutreachSchedule();
+  const schedule = readOutreachSchedule(category);
   if (!isHourlyFsaAppendDue(schedule.lastHourlyFsaAppendAt, now.getTime())) {
     return { ran: false, reason: "interval_not_elapsed" };
   }
 
-  const queue = readOutreachQueue();
+  const queue = readOutreachQueue(category);
   const mode: "reset" | "append" = queueNeedsInitialLoad(queue)
     ? "reset"
     : "append";
 
   try {
-    const result = await loadFromFsa(mode, APPEND_LOAD_MAX);
-    if (result.enrichQueue.length > 0 && !readOutreachQueue()?.enrichPaused) {
-      startBackgroundEnrich({ resetCounters: mode === "reset" });
+    const result = await loadFromFsa(category, mode, APPEND_LOAD_MAX);
+    if (
+      result.enrichQueue.length > 0 &&
+      !readOutreachQueue(category)?.enrichPaused
+    ) {
+      startBackgroundEnrich({
+        resetCounters: mode === "reset",
+        category,
+      });
     }
     writeOutreachSchedule({
+      category,
       lastHourlyFsaAppendAt: now.toISOString(),
     });
     return {
@@ -171,16 +192,24 @@ export async function runHourlyFsaAppend(
   }
 }
 
-export async function runMorningFsaSync(): Promise<CronSyncResult> {
-  const queue = readOutreachQueue();
+export async function runMorningFsaSync(
+  category: OutreachCategory = "expiring"
+): Promise<CronSyncResult> {
+  const queue = readOutreachQueue(category);
   // Утром только догрузка; полный reset — кнопка в админке.
   const mode: "reset" | "append" = queueNeedsInitialLoad(queue)
     ? "reset"
     : "append";
 
-  const result = await loadFromFsa(mode);
-  if (result.enrichQueue.length > 0 && !readOutreachQueue()?.enrichPaused) {
-    startBackgroundEnrich({ resetCounters: mode === "reset" });
+  const result = await loadFromFsa(category, mode);
+  if (
+    result.enrichQueue.length > 0 &&
+    !readOutreachQueue(category)?.enrichPaused
+  ) {
+    startBackgroundEnrich({
+      resetCounters: mode === "reset",
+      category,
+    });
   }
   return {
     ran: true,
@@ -199,10 +228,11 @@ export type CronTopUpResult = CronSyncResult & {
 
 /** Дозагрузка из ФСА, когда для автоотправки не хватает кандидатов */
 export async function topUpQueueForSend(
-  minReady: number
+  minReady: number,
+  category: OutreachCategory = "expiring"
 ): Promise<CronTopUpResult> {
-  let queue = readOutreachQueue();
-  let ready = countSendable(queue);
+  let queue = readOutreachQueue(category);
+  let ready = countSendable(queue, category);
 
   if (ready >= minReady) {
     return {
@@ -221,11 +251,11 @@ export async function topUpQueueForSend(
   const mode: "reset" | "append" = queueNeedsInitialLoad(queue)
     ? "reset"
     : "append";
-  const loadResult = await loadFromFsa(mode);
+  const loadResult = await loadFromFsa(category, mode);
 
-  const enrich = await processEnrichBacklog(120_000);
-  queue = readOutreachQueue();
-  ready = countSendable(queue);
+  const enrich = await processEnrichBacklog(120_000, category);
+  queue = readOutreachQueue(category);
+  ready = countSendable(queue, category);
 
   return {
     ran: true,
@@ -240,52 +270,56 @@ export async function topUpQueueForSend(
 }
 
 export async function ensureQueueForScheduledSend(
-  perRunLimit: number
+  perRunLimit: number,
+  category: OutreachCategory = "expiring"
 ): Promise<CronTopUpResult | null> {
-  const ready = countSendable(readOutreachQueue());
+  const ready = countSendable(readOutreachQueue(category), category);
   if (ready >= perRunLimit) return null;
-  return topUpQueueForSend(perRunLimit);
+  return topUpQueueForSend(perRunLimit, category);
 }
 
 export async function runCronMaintenance(
-  options: { maxMs?: number } = {}
+  options: { maxMs?: number; category?: OutreachCategory } = {}
 ): Promise<CronMaintenanceResult> {
+  const category = options.category ?? "expiring";
   const maxMs = options.maxMs ?? 240_000;
   const startedAt = Date.now();
   const now = new Date();
   const dateKey = getDateKey(now, TIMEZONE);
-  const schedule = readOutreachSchedule();
+  const schedule = readOutreachSchedule(category);
 
   let morningSync: CronSyncResult = { ran: false, reason: "outside_window" };
 
   if (isMorningSyncWindow(now) && schedule.lastFsaSyncDate !== dateKey) {
-    morningSync = await runMorningFsaSync();
+    morningSync = await runMorningFsaSync(category);
     writeOutreachSchedule({
+      category,
       lastFsaSyncDate: dateKey,
       lastFsaSyncAt: new Date().toISOString(),
     });
   }
 
-  const hourlyAppend = await runHourlyFsaAppend(now);
+  const hourlyAppend = await runHourlyFsaAppend(now, category);
 
   const elapsed = Date.now() - startedAt;
   const enrichBudget = Math.max(maxMs - elapsed, 0);
-  const queue = readOutreachQueue();
+  const queue = readOutreachQueue(category);
+  const enrichStatus = getEnrichRunnerStatus(category);
   if (
     enrichBudget > 30_000 &&
     (queue?.enrichQueue.length ?? 0) > 0 &&
     !queue?.enrichPaused &&
-    !getEnrichRunnerStatus().running
+    !enrichStatus.running
   ) {
-    startBackgroundEnrich();
+    startBackgroundEnrich({ category });
   }
   const enrich =
-    getEnrichRunnerStatus().running || (queue?.enrichQueue.length ?? 0) > 0
+    enrichStatus.running || (queue?.enrichQueue.length ?? 0) > 0
       ? {
           ran: true,
-          processed: getEnrichRunnerStatus().processedTotal,
-          emailsFound: getEnrichRunnerStatus().emailsFoundTotal,
-          enrichPending: getEnrichRunnerStatus().pending,
+          processed: getEnrichRunnerStatus(category).processedTotal,
+          emailsFound: getEnrichRunnerStatus(category).emailsFoundTotal,
+          enrichPending: getEnrichRunnerStatus(category).pending,
         }
       : {
           ran: false,
@@ -298,6 +332,6 @@ export async function runCronMaintenance(
     morningSync,
     hourlyAppend,
     enrich,
-    queueReady: countSendable(readOutreachQueue()),
+    queueReady: countSendable(readOutreachQueue(category), category),
   };
 }

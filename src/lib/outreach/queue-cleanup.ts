@@ -1,5 +1,5 @@
-import { readSentRecords } from "./mailer";
-import type { FsaDeclaration, OutreachQueueItem } from "./types";
+import { readSentRecordsByCategory } from "./mailer";
+import type { FsaDeclaration, OutreachCategory, OutreachQueueItem } from "./types";
 import { ruDateToIso } from "./bulk-load";
 
 function parseAnyDate(value: string): Date | null {
@@ -41,9 +41,12 @@ function sortByEndDate(items: OutreachQueueItem[]): OutreachQueueItem[] {
 export function pruneOutreachQueue(
   items: OutreachQueueItem[],
   rejected: OutreachQueueItem[],
-  range: { from: string; to: string }
+  range: { from: string; to: string },
+  category: OutreachCategory = "expiring"
 ): { items: OutreachQueueItem[]; rejected: OutreachQueueItem[] } {
-  const sentIds = new Set(readSentRecords().map((record) => record.declarationId));
+  const sentIds = new Set(
+    readSentRecordsByCategory(category).map((record) => record.declarationId)
+  );
 
   const keep = (item: OutreachQueueItem) => {
     if (sentIds.has(item.id)) return false;

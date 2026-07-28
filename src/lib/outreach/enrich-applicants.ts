@@ -1,7 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
 import path from "path";
 import { playwrightEnv } from "./playwright-env";
-import type { FsaDeclaration } from "./types";
+import type { FsaDeclaration, OutreachCategory } from "./types";
 
 export function getEnrichLimit(): number {
   return Math.min(
@@ -12,44 +12,86 @@ export function getEnrichLimit(): number {
 
 type Job = {
   items: FsaDeclaration[];
+  category: OutreachCategory;
   resolve: (value: FsaDeclaration[]) => void;
   reject: (error: Error) => void;
 };
 
-let worker: ChildProcessWithoutNullStreams | null = null;
-let bootPromise: Promise<void> | null = null;
-let lineBuf = "";
-let jobs: Job[] = [];
-let active: Job | null = null;
+type CategoryWorker = {
+  worker: ChildProcessWithoutNullStreams | null;
+  bootPromise: Promise<void> | null;
+  lineBuf: string;
+  jobs: Job[];
+  active: Job | null;
+};
+
+type WorkersRuntime = {
+  byCategory: Record<OutreachCategory, CategoryWorker>;
+};
+
+const globalKey = "__navicert_outreach_enrich_workers_v2__";
+
+function emptyWorker(): CategoryWorker {
+  return {
+    worker: null,
+    bootPromise: null,
+    lineBuf: "",
+    jobs: [],
+    active: null,
+  };
+}
+
+function workersRuntime(): WorkersRuntime {
+  const g = globalThis as typeof globalThis & {
+    [globalKey]?: WorkersRuntime;
+  };
+  if (!g[globalKey]) {
+    g[globalKey] = {
+      byCategory: {
+        expiring: emptyWorker(),
+        expiring_certificates: emptyWorker(),
+      },
+    };
+  }
+  return g[globalKey]!;
+}
+
+function slot(category: OutreachCategory): CategoryWorker {
+  return workersRuntime().byCategory[category];
+}
 
 function scriptPath() {
   return path.join(process.cwd(), "scripts", "outreach", "enrich-applicants.mjs");
 }
 
-function failAll(error: Error) {
-  if (active) {
-    active.reject(error);
-    active = null;
+function failAll(category: OutreachCategory, error: Error) {
+  const s = slot(category);
+  if (s.active) {
+    s.active.reject(error);
+    s.active = null;
   }
-  for (const job of jobs) job.reject(error);
-  jobs = [];
+  for (const job of s.jobs) job.reject(error);
+  s.jobs = [];
 }
 
-function sendNext() {
-  if (!worker || active || jobs.length === 0) return;
-  active = jobs.shift() ?? null;
-  if (!active) return;
+function sendNext(category: OutreachCategory) {
+  const s = slot(category);
+  if (!s.worker || s.active || s.jobs.length === 0) return;
+  s.active = s.jobs.shift() ?? null;
+  if (!s.active) return;
   try {
-    worker.stdin.write(`${JSON.stringify({ items: active.items })}\n`);
+    s.worker.stdin.write(
+      `${JSON.stringify({ items: s.active.items, category: s.active.category })}\n`
+    );
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
-    active.reject(err);
-    active = null;
-    sendNext();
+    s.active.reject(err);
+    s.active = null;
+    sendNext(category);
   }
 }
 
-function onLine(line: string) {
+function onLine(category: OutreachCategory, line: string) {
   const trimmed = line.trim();
   if (!trimmed) return;
 
@@ -65,34 +107,39 @@ function onLine(line: string) {
   }
 
   if (payload.ready) return;
-  if (!active) return;
+  const s = slot(category);
+  if (!s.active) return;
 
-  const job = active;
-  active = null;
+  const job = s.active;
+  s.active = null;
 
   if (payload.error && !Array.isArray(payload.declarations)) {
     job.reject(new Error(payload.error));
   } else {
     job.resolve(payload.declarations ?? []);
   }
-  sendNext();
+  sendNext(category);
 }
 
-function wireWorker(child: ChildProcessWithoutNullStreams) {
-  worker = child;
-  lineBuf = "";
+function wireWorker(
+  category: OutreachCategory,
+  child: ChildProcessWithoutNullStreams
+) {
+  const s = slot(category);
+  s.worker = child;
+  s.lineBuf = "";
 
   child.stdout.setEncoding("utf8");
   child.stderr.setEncoding("utf8");
 
   child.stdout.on("data", (chunk: string) => {
-    lineBuf += chunk;
-    let nl = lineBuf.indexOf("\n");
+    s.lineBuf += chunk;
+    let nl = s.lineBuf.indexOf("\n");
     while (nl >= 0) {
-      const line = lineBuf.slice(0, nl);
-      lineBuf = lineBuf.slice(nl + 1);
-      onLine(line);
-      nl = lineBuf.indexOf("\n");
+      const line = s.lineBuf.slice(0, nl);
+      s.lineBuf = s.lineBuf.slice(nl + 1);
+      onLine(category, line);
+      nl = s.lineBuf.indexOf("\n");
     }
   });
 
@@ -103,22 +150,24 @@ function wireWorker(child: ChildProcessWithoutNullStreams) {
   });
 
   child.on("exit", (code) => {
-    worker = null;
-    bootPromise = null;
+    s.worker = null;
+    s.bootPromise = null;
     failAll(
+      category,
       new Error(stderr.trim() || `enrich-applicants daemon exited with ${code}`)
     );
   });
 }
 
-async function startWorker(): Promise<void> {
-  if (worker && !worker.killed) return;
-  if (bootPromise) {
-    await bootPromise;
+async function startWorker(category: OutreachCategory): Promise<void> {
+  const s = slot(category);
+  if (s.worker && !s.worker.killed) return;
+  if (s.bootPromise) {
+    await s.bootPromise;
     return;
   }
 
-  bootPromise = new Promise<void>((resolve, reject) => {
+  s.bootPromise = new Promise<void>((resolve, reject) => {
     const child = spawn(process.execPath, [scriptPath(), "--daemon"], {
       cwd: process.cwd(),
       shell: false,
@@ -151,14 +200,14 @@ async function startWorker(): Promise<void> {
         if (!payload.ready) return;
         child.stdout.off("data", onBootData);
         settled = true;
-        wireWorker(child);
-        lineBuf = rest;
-        let idx = lineBuf.indexOf("\n");
+        wireWorker(category, child);
+        s.lineBuf = rest;
+        let idx = s.lineBuf.indexOf("\n");
         while (idx >= 0) {
-          const line = lineBuf.slice(0, idx);
-          lineBuf = lineBuf.slice(idx + 1);
-          onLine(line);
-          idx = lineBuf.indexOf("\n");
+          const line = s.lineBuf.slice(0, idx);
+          s.lineBuf = s.lineBuf.slice(idx + 1);
+          onLine(category, line);
+          idx = s.lineBuf.indexOf("\n");
         }
         resolve();
       } catch {
@@ -176,50 +225,59 @@ async function startWorker(): Promise<void> {
     });
     setTimeout(() => fail(new Error("daemon start timeout")), 60_000);
   }).finally(() => {
-    bootPromise = null;
+    slot(category).bootPromise = null;
   });
 
-  await bootPromise;
+  await s.bootPromise;
 }
 
 /**
- * Карточное обогащение через persistent Chromium daemon
- * (один браузер на всю сессию, без перезапуска на каждый батч).
+ * Карточное обогащение через persistent Chromium daemon.
+ * Отдельный процесс на категорию — декларации и сертификаты параллельно.
  */
 export async function enrichApplicantsFromCards(
-  declarations: FsaDeclaration[]
+  declarations: FsaDeclaration[],
+  category: OutreachCategory = "expiring"
 ): Promise<FsaDeclaration[]> {
   if (declarations.length === 0) return Promise.resolve([]);
-  await startWorker();
+  await startWorker(category);
 
   return new Promise<FsaDeclaration[]>((resolve, reject) => {
-    jobs.push({ items: declarations, resolve, reject });
-    sendNext();
+    const s = slot(category);
+    s.jobs.push({ items: declarations, category, resolve, reject });
+    sendNext(category);
   });
 }
 
-/** Закрыть демон Chromium (после ночного прогона / тестов). */
+/** Закрыть демоны Chromium (после ночного прогона / тестов). */
 export async function closeEnrichCardsWorker(): Promise<void> {
-  const child = worker;
-  worker = null;
-  if (!child) return;
-  try {
-    child.stdin.write(`${JSON.stringify({ cmd: "shutdown" })}\n`);
-  } catch {
-    // ignore
-  }
-  await new Promise<void>((resolve) => {
-    const timer = setTimeout(() => {
+  const rt = workersRuntime();
+  const categories: OutreachCategory[] = ["expiring", "expiring_certificates"];
+  await Promise.all(
+    categories.map(async (category) => {
+      const s = rt.byCategory[category];
+      const child = s.worker;
+      s.worker = null;
+      if (!child) return;
       try {
-        child.kill();
+        child.stdin.write(`${JSON.stringify({ cmd: "shutdown" })}\n`);
       } catch {
         // ignore
       }
-      resolve();
-    }, 5_000);
-    child.once("exit", () => {
-      clearTimeout(timer);
-      resolve();
-    });
-  });
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(() => {
+          try {
+            child.kill();
+          } catch {
+            // ignore
+          }
+          resolve();
+        }, 5_000);
+        child.once("exit", () => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
+    })
+  );
 }

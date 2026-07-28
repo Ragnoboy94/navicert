@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { isAuthenticated } from "@/lib/auth";
 import { setExcludeFromAutoSend } from "@/lib/outreach/queue";
+import type { OutreachCategory } from "@/lib/outreach/types";
+
+function parseCategory(raw: string | null | undefined): OutreachCategory {
+  return raw === "expiring_certificates" ? "expiring_certificates" : "expiring";
+}
 
 export async function POST(request: Request) {
   if (!(await isAuthenticated())) {
@@ -9,6 +14,8 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
+    const url = new URL(request.url);
+    const category = parseCategory(body.category ?? url.searchParams.get("category"));
     const id = Number(body.id);
     const exclude = Boolean(body.exclude);
 
@@ -16,7 +23,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Некорректный ID" }, { status: 400 });
     }
 
-    const queue = setExcludeFromAutoSend(id, exclude);
+    const queue = setExcludeFromAutoSend(id, exclude, category);
     if (!queue) {
       return NextResponse.json(
         { error: "Декларация не найдена в очереди" },

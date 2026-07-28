@@ -7,7 +7,7 @@ import {
   validateEmailSyntax,
 } from "./email-validator";
 import { readOutreachQueue, writeOutreachQueue } from "./queue";
-import type { OutreachQueue, OutreachQueueItem } from "./types";
+import type { OutreachCategory, OutreachQueue, OutreachQueueItem } from "./types";
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
@@ -141,14 +141,19 @@ export async function prepareQueueForSending(
 }
 
 /** Прочитать очередь, провалидировать перед send, вернуть актуальную. */
-export async function prepareOutreachQueueForSending(): Promise<{
+export async function prepareOutreachQueueForSending(
+  options?: { category?: OutreachCategory }
+): Promise<{
   queue: OutreachQueue | null;
   stats: QueueEmailValidationResult | null;
 }> {
-  const queue = readOutreachQueue();
+  const queue = readOutreachQueue(options?.category ?? "expiring");
   if (!queue) return { queue: null, stats: null };
   const prepared = await prepareQueueForSending(queue);
   return prepared;
 }
+
+// Backwards-compatible alias (older code may import the *ByCategory variant*).
+export const prepareOutreachQueueForSendingByCategory = prepareOutreachQueueForSending;
 
 export { suggestEmailFix, classifyEmail };

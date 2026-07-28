@@ -12,7 +12,7 @@ import {
   getSendBlockReason,
   isOutreachTestMode,
   isRecipientInCooldown,
-  readSentRecords,
+  readSentRecordsByCategory,
 } from "@/lib/outreach/mailer";
 import { getExpiringMonthRange, readOutreachQueue } from "@/lib/outreach/queue";
 import { getEnrichRunnerStatus } from "@/lib/outreach/enrich-runner";
@@ -29,55 +29,67 @@ import {
 } from "@/lib/outreach/unsubscribe";
 import type { OutreachCategory, OutreachQueueItem } from "@/lib/outreach/types";
 
-const CATEGORY: OutreachCategory = "expiring";
+function parseCategory(raw: string | null): OutreachCategory {
+  return raw === "expiring_certificates" ? "expiring_certificates" : "expiring";
+}
 
 function decorateItem(
   item: OutreachQueueItem,
-  sentLookup: ReturnType<typeof buildSentLookup>
+  sentLookup: ReturnType<typeof buildSentLookup>,
+  category: OutreachCategory,
+  sent: ReturnType<typeof readSentRecordsByCategory>
 ) {
   const email = item.applicant?.email?.trim().toLowerCase() ?? "";
-  const blockReason = getSendBlockReason(item);
+  const blockReason = getSendBlockReason(item, { category });
   const excludedFromAuto = Boolean(item.excludeFromAutoSend);
   const manualSendable = blockReason === null;
   return {
     ...item,
     alreadySent: sentLookup.byDeclarationId.has(item.id),
-    recipientAlreadySent: email ? isRecipientInCooldown(email) : false,
-    recipientCooldownUntil: email ? getRecipientCooldownUntil(email) : null,
-    unsubscribed: email ? isUnsubscribed(email, CATEGORY) : false,
+    recipientAlreadySent: email ? isRecipientInCooldown(email, sent) : false,
+    recipientCooldownUntil: email
+      ? getRecipientCooldownUntil(email, sent)
+      : null,
+    unsubscribed: email ? isUnsubscribed(email, category) : false,
     excludeFromAutoSend: excludedFromAuto,
     sendable: manualSendable,
     autoSendable: manualSendable && !excludedFromAuto,
     blockReason,
-    blockLabel: sendBlockLabel(blockReason),
+    blockLabel: sendBlockLabel(blockReason, category),
     rejectLabel: item.emailRejectReason
       ? emailFilterLabel(item.emailRejectReason)
       : undefined,
   };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   if (!(await isAuthenticated())) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const queue = readOutreachQueue();
-  const sent = readSentRecords();
+  const url = new URL(request.url);
+  const category = parseCategory(url.searchParams.get("category"));
+
+  const queue = readOutreachQueue(category);
+  const sent = readSentRecordsByCategory(category);
   const sentLookup = buildSentLookup(sent);
   const range = queue?.range ?? getExpiringMonthRange();
-  const scheduleStats = getScheduleStats();
+  const scheduleStats = getScheduleStats(category);
 
   const items = (queue?.items ?? []).map((item) =>
-    decorateItem(item, sentLookup)
+    decorateItem(item, sentLookup, category, sent)
   );
   const rejected = (queue?.rejected ?? []).map((item) =>
-    decorateItem(item, sentLookup)
+    decorateItem(item, sentLookup, category, sent)
   );
-  const sendSummary = summarizeSendBlocks(queue?.items ?? []);
+  const sendSummary = summarizeSendBlocks(queue?.items ?? [], { category });
 
   return NextResponse.json({
-    category: "expiring",
-    categoryLabel: "Заканчивающиеся",
+    category,
+    categoryLabel:
+      category === "expiring_certificates"
+        ? "Заканчивающиеся сертификаты"
+        : "Заканчивающиеся декларации",
     range,
     scannedAt: queue?.scannedAt ?? null,
     nextApiPage: queue?.nextApiPage ?? 0,
@@ -91,16 +103,17 @@ export async function GET() {
     pageSize: queue?.pageSize ?? 100,
     hasMore: queue?.hasMore ?? false,
     enrichPending: queue?.enrichQueue?.length ?? 0,
-    enrichStatus: getEnrichRunnerStatus(),
+    enrichStatus: getEnrichRunnerStatus(category),
     testMode: isOutreachTestMode(),
     testEmail: isOutreachTestMode() ? getOutreachTestEmail() : null,
     items,
     rejected,
     sendableCount: pickSendableCandidates(queue?.items ?? [], {
       forAutoSend: true,
+      category,
     }).length,
     sendSummary,
-    unsubscribed: listUnsubscribesByCategory(CATEGORY).map((item) => ({
+    unsubscribed: listUnsubscribesByCategory(category).map((item) => ({
       ...item,
       categoryLabel: getCategoryLabel(item.category),
     })),
