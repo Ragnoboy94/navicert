@@ -158,7 +158,9 @@ function applicantFromRecord(record: JsonRecord): FsaApplicant {
 }
 
 function declarationFromRecord(record: JsonRecord): FsaDeclaration | null {
-  const id = asNumber(record.id ?? record.declarationId);
+  const id = asNumber(
+    record.id ?? record.declarationId ?? record.idDeclaration
+  );
   if (!id) return null;
 
   const number =
@@ -170,19 +172,46 @@ function declarationFromRecord(record: JsonRecord): FsaDeclaration | null {
     ]) || `ID ${id}`;
 
   const applicant = applicantFromRecord(record);
+  // Иногда email только у manufacturer / certificationAuthority
+  if (!applicant.email?.trim()) {
+    const manufacturer = applicantFromRecord({
+      applicant: record.manufacturer as JsonRecord | undefined,
+    } as JsonRecord);
+    const authority = applicantFromRecord({
+      applicant: record.certificationAuthority as JsonRecord | undefined,
+    } as JsonRecord);
+    applicant.email = manufacturer.email || authority.email || applicant.email;
+    applicant.phone =
+      applicant.phone || manufacturer.phone || authority.phone;
+  }
+
+  const productRaw = record.product;
   const productName =
     pickString(record, [
       "productName",
       "productFullName",
       "productIdentificationName",
-      "product",
-    ]) || "продукция";
+    ]) ||
+    (typeof productRaw === "object" && productRaw
+      ? pickString(productRaw as JsonRecord, [
+          "fullName",
+          "name",
+          "productFullName",
+          "productName",
+        ])
+      : undefined) ||
+    pickString(record, ["product"]) ||
+    "продукция";
 
   return {
     id,
     number,
     registrationDate: formatRuDate(
-      record.registrationDate ?? record.declDate ?? record.regDate
+      record.registrationDate ??
+        record.declRegDate ??
+        record.declDate ??
+        record.regDate ??
+        record.submissionDate
     ),
     endDate: formatRuDate(
       record.endDate ?? record.declEndDate ?? record.validityEndDate
@@ -226,6 +255,7 @@ function certificateFromRecord(record: JsonRecord): FsaDeclaration | null {
   const id =
     asNumber(
       record.id ??
+        record.idCertificate ??
         record.certificateId ??
         record.certId ??
         record.certificate_number_id ??

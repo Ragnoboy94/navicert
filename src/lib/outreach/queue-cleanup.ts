@@ -51,7 +51,8 @@ export function pruneOutreachQueue(
   const keep = (item: OutreachQueueItem) => {
     if (sentIds.has(item.id)) return false;
     if (!isEndDateInRange(item, range)) return false;
-    if (item.emailStatus === "no_email") return false;
+    // no_email оставляем в rejected — иначе «обработано 720 / найдено 0»
+    // и карточки исчезают без следа.
     return true;
   };
 

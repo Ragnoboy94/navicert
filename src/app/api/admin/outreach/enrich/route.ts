@@ -3,8 +3,13 @@ import { isAuthenticated } from "@/lib/auth";
 import {
   getEnrichRunnerStatus,
   pauseBackgroundEnrich,
-  startBackgroundEnrich,
+  resumeBackgroundEnrich,
 } from "@/lib/outreach/enrich-runner";
+import {
+  cancelPendingEnrichJobs,
+  enqueueFsaJob,
+  getFsaQueueStatus,
+} from "@/lib/outreach/fsa-orchestrator";
 import { readOutreachQueue } from "@/lib/outreach/queue";
 import type { OutreachCategory } from "@/lib/outreach/types";
 
@@ -19,7 +24,10 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url);
   const category = parseCategory(url.searchParams.get("category"));
-  return NextResponse.json(getEnrichRunnerStatus(category));
+  return NextResponse.json({
+    ...getEnrichRunnerStatus(category),
+    fsaQueue: getFsaQueueStatus(category),
+  });
 }
 
 export async function POST(request: Request) {
@@ -33,7 +41,11 @@ export async function POST(request: Request) {
 
   if (body.action === "stop") {
     pauseBackgroundEnrich(category);
-    return NextResponse.json(getEnrichRunnerStatus(category));
+    cancelPendingEnrichJobs(category);
+    return NextResponse.json({
+      ...getEnrichRunnerStatus(category),
+      fsaQueue: getFsaQueueStatus(category),
+    });
   }
 
   const queue = readOutreachQueue(category);
@@ -42,21 +54,33 @@ export async function POST(request: Request) {
       ...getEnrichRunnerStatus(category),
       ok: true,
       message: "Очередь обогащения пуста",
+      fsaQueue: getFsaQueueStatus(category),
     });
   }
 
-  const { started, alreadyRunning, paused: blockedByPause } =
-    startBackgroundEnrich({
-      force: Boolean(body.force),
-      resetCounters: Boolean(body.resetCounters),
-      category,
-    });
+  // «Продолжить» всегда снимает паузу — иначе задача в cron есть, а UI пишет «остановлено».
+  resumeBackgroundEnrich(category);
+
+  const queued = enqueueFsaJob({
+    type: "enrich",
+    category,
+    priority: "low",
+    source: "admin_enrich_button",
+    payload: { maxBatches: 3 },
+  });
+  const status = getEnrichRunnerStatus(category);
+  const queueStatus = getFsaQueueStatus(category);
 
   return NextResponse.json({
     ok: true,
-    started,
-    alreadyRunning,
-    blockedByPause,
-    ...getEnrichRunnerStatus(category),
+    queued: true,
+    duplicate: queued.duplicate,
+    started: false,
+    alreadyRunning: status.running,
+    message: queued.duplicate
+      ? "Обработка email уже в очереди — ждём следующий запуск."
+      : "Обработка email поставлена в очередь и пойдёт через cron.",
+    fsaQueue: queueStatus,
+    ...status,
   });
 }

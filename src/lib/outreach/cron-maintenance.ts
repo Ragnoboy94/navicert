@@ -1,14 +1,8 @@
-import {
-  applyEnrichResult,
-  bulkLoadList,
-  enrichQueueBatch,
-  getEnrichBatchSize,
-  listResultToQueue,
-} from "./bulk-load";
 import { formatFsaConnectionError } from "./fsa-connection";
-import { getEnrichRunnerStatus, startBackgroundEnrich } from "./enrich-runner";
+import { getEnrichRunnerStatus } from "./enrich-runner";
+import { enqueueFsaJob } from "./fsa-orchestrator";
 import { pickSendableCandidates } from "./send-selection";
-import { readOutreachQueue, writeOutreachQueue } from "./queue";
+import { readOutreachQueue } from "./queue";
 import {
   getDateKey,
   getZonedParts,
@@ -79,71 +73,42 @@ function countSendable(
   }).length;
 }
 
-async function loadFromFsa(
+function queueScanViaOrchestrator(
   category: OutreachCategory,
   mode: "reset" | "append",
   maxItems = mode === "append" ? APPEND_LOAD_MAX : INITIAL_LOAD_MAX
 ) {
-  const existing = mode === "append" ? readOutreachQueue(category) : null;
-  const result = await bulkLoadList({
-    mode,
-    maxItems,
-    pageSize: 100,
-    existingQueue: existing,
-    range: mode === "append" ? existing?.range : undefined,
+  return enqueueFsaJob({
+    type: "scan",
     category,
-  });
-  writeOutreachQueue(
-    listResultToQueue(result, {
+    priority: "high",
+    source: "cron_maintenance",
+    payload: {
       mode,
-      existing: existing ?? undefined,
-      category,
-    })
-  );
-  return result;
+      maxItems,
+      pageSize: 100,
+    },
+  });
 }
 
 export async function processEnrichBacklog(
   maxMs: number,
   category: OutreachCategory = "expiring"
 ): Promise<CronEnrichResult> {
+  enqueueFsaJob({
+    type: "enrich",
+    category,
+    priority: "low",
+    source: "cron_enrich_backlog",
+    payload: { maxBatches: Math.max(Math.floor(maxMs / 20_000), 1) },
+  });
   const empty: CronEnrichResult = {
     ran: false,
     processed: 0,
     emailsFound: 0,
     enrichPending: readOutreachQueue(category)?.enrichQueue.length ?? 0,
   };
-
-  const deadline = Date.now() + maxMs;
-  let processed = 0;
-  let emailsFound = 0;
-
-  while (Date.now() < deadline) {
-    const queue = readOutreachQueue(category);
-    if (!queue?.enrichQueue.length) break;
-
-    const batch = await enrichQueueBatch(queue, getEnrichBatchSize());
-    writeOutreachQueue({
-      ...applyEnrichResult(queue, batch),
-      enrichProcessedTotal: (queue.enrichProcessedTotal ?? 0) + batch.processed,
-      enrichEmailsFoundTotal:
-        (queue.enrichEmailsFoundTotal ?? 0) + batch.emailsFound,
-    });
-    processed += batch.processed;
-    emailsFound += batch.emailsFound;
-
-    if (batch.enrichPending === 0) break;
-    if (batch.processed === 0 && batch.requeued === 0) break;
-  }
-
-  if (processed === 0) return empty;
-
-  return {
-    ran: true,
-    processed,
-    emailsFound,
-    enrichPending: readOutreachQueue(category)?.enrichQueue.length ?? 0,
-  };
+  return empty;
 }
 
 /** Каждый час: +100 документов поверх очереди (append), без сброса данных. */
@@ -162,16 +127,7 @@ export async function runHourlyFsaAppend(
     : "append";
 
   try {
-    const result = await loadFromFsa(category, mode, APPEND_LOAD_MAX);
-    if (
-      result.enrichQueue.length > 0 &&
-      !readOutreachQueue(category)?.enrichPaused
-    ) {
-      startBackgroundEnrich({
-        resetCounters: mode === "reset",
-        category,
-      });
-    }
+    const queued = queueScanViaOrchestrator(category, mode, APPEND_LOAD_MAX);
     writeOutreachSchedule({
       category,
       lastHourlyFsaAppendAt: now.toISOString(),
@@ -179,10 +135,7 @@ export async function runHourlyFsaAppend(
     return {
       ran: true,
       mode,
-      loadedFromApi: result.loadedFromApi,
-      addedNew: result.addedNew,
-      enrichPending: result.enrichQueue.length,
-      eligible: result.items.length,
+      reason: queued.duplicate ? "already_queued" : "queued",
     };
   } catch (error) {
     return {
@@ -201,23 +154,11 @@ export async function runMorningFsaSync(
     ? "reset"
     : "append";
 
-  const result = await loadFromFsa(category, mode);
-  if (
-    result.enrichQueue.length > 0 &&
-    !readOutreachQueue(category)?.enrichPaused
-  ) {
-    startBackgroundEnrich({
-      resetCounters: mode === "reset",
-      category,
-    });
-  }
+  const queued = queueScanViaOrchestrator(category, mode);
   return {
     ran: true,
     mode,
-    loadedFromApi: result.loadedFromApi,
-    addedNew: result.addedNew,
-    enrichPending: result.enrichQueue.length,
-    eligible: result.items.length,
+    reason: queued.duplicate ? "already_queued" : "queued",
   };
 }
 
@@ -251,17 +192,15 @@ export async function topUpQueueForSend(
   const mode: "reset" | "append" = queueNeedsInitialLoad(queue)
     ? "reset"
     : "append";
-  const loadResult = await loadFromFsa(category, mode);
-
+  const queued = queueScanViaOrchestrator(category, mode, APPEND_LOAD_MAX);
   const enrich = await processEnrichBacklog(120_000, category);
   queue = readOutreachQueue(category);
   ready = countSendable(queue, category);
 
   return {
-    ran: true,
+    ran: !queued.duplicate,
     mode,
-    loadedFromApi: loadResult.loadedFromApi,
-    addedNew: loadResult.addedNew,
+    reason: queued.duplicate ? "already_queued" : "queued",
     enrichPending: queue?.enrichQueue.length ?? 0,
     eligible: queue?.items.length ?? 0,
     enrich,
@@ -311,7 +250,13 @@ export async function runCronMaintenance(
     !queue?.enrichPaused &&
     !enrichStatus.running
   ) {
-    startBackgroundEnrich({ category });
+    enqueueFsaJob({
+      type: "enrich",
+      category,
+      priority: "low",
+      source: "cron_maintenance_enrich",
+      payload: { maxBatches: Math.max(Math.floor(enrichBudget / 20_000), 1) },
+    });
   }
   const enrich =
     enrichStatus.running || (queue?.enrichQueue.length ?? 0) > 0

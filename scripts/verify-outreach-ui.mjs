@@ -22,32 +22,68 @@ async function clickAndExpectEnabled(page, name, timeout = 15_000) {
   await page.waitForTimeout(300);
 }
 
+async function ensureLoggedIn(page) {
+  await page.goto(`${BASE_URL}/admin`, { waitUntil: "domcontentloaded" });
+  await page.waitForTimeout(800);
+
+  const passwordInput = page.locator('input[type="password"]');
+  const mailingsNav = page.getByRole("button", { name: /^Рассылки$/i });
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (await mailingsNav.isVisible().catch(() => false)) return;
+
+    if (await passwordInput.isVisible().catch(() => false)) {
+      await passwordInput.fill(ADMIN_PASSWORD);
+      await page.getByRole("button", { name: /войти/i }).click();
+      await page.waitForTimeout(1500);
+      if (await mailingsNav.isVisible().catch(() => false)) return;
+    }
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(1000);
+  }
+
+  await mailingsNav.waitFor({ state: "visible", timeout: 20_000 });
+}
+
 async function main() {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
 
   console.log("UI smoke test:", BASE_URL);
 
-  await page.goto(`${BASE_URL}/admin`, { waitUntil: "domcontentloaded" });
+  await ensureLoggedIn(page);
 
-  const passwordInput = page.locator('input[type="password"]');
-  if (await passwordInput.isVisible().catch(() => false)) {
-    await passwordInput.fill(ADMIN_PASSWORD);
-    await page.getByRole("button", { name: /войти/i }).click();
-    await page.waitForURL(/\/admin/, { timeout: 10_000 });
-  }
-
-  await page.getByRole("button", { name: /рассыл/i }).click();
-  await page.getByRole("tab", { name: /заканчивающиеся/i }).click();
+  await page.getByRole("button", { name: /^Рассылки$/i }).click();
+  const declarationsTab = page.getByRole("tab", {
+    name: /заканчивающиеся декларации/i,
+  });
+  await declarationsTab.waitFor({ state: "visible", timeout: 20_000 });
+  await declarationsTab.click();
 
   await page.getByRole("button", { name: /обновить/i }).click();
   console.log("  ✓ Обновить");
 
-  await page.getByRole("button", { name: /к отправке/i }).click();
-  await page.getByRole("button", { name: /готовы к отправке/i }).click();
-  await page.getByRole("button", { name: /личные ящики/i }).click();
-  await page.getByRole("button", { name: /всего отправлено/i }).click();
+  const healthBtn = page.getByRole("button", {
+    name: /проверить доступ к фса/i,
+  });
+  await healthBtn.waitFor({ state: "visible", timeout: 15_000 });
+  await healthBtn.click();
+  await page.waitForTimeout(1500);
+  console.log("  ✓ Проверить доступ к ФСА");
+
+  await page.getByRole("button", { name: /^к отправке/i }).click();
+  await page.getByRole("button", { name: /^готовы к отправке/i }).click();
+  await page.getByRole("button", { name: /^личные ящики/i }).click();
+  await page.getByRole("button", { name: /^всего отправлено/i }).click();
   console.log("  ✓ Filter stat buttons");
+
+  const removeQueued = page.getByRole("button", { name: /убрать из очереди/i });
+  if (await removeQueued.isVisible().catch(() => false)) {
+    await removeQueued.click();
+    await page.waitForTimeout(400);
+    console.log("  ✓ Убрать из очереди");
+  }
 
   const stopBtn = page.getByRole("button", { name: /^остановить$/i });
   if (await stopBtn.isVisible().catch(() => false)) {
@@ -59,11 +95,13 @@ async function main() {
   if (await continueBtn.isVisible().catch(() => false)) {
     await continueBtn.click();
     await page.waitForTimeout(500);
-    const stopAgain = page.getByRole("button", { name: /^остановить$/i });
+    const stopAgain = page.getByRole("button", {
+      name: /^(остановить|убрать из очереди)$/i,
+    });
     if (await stopAgain.isVisible().catch(() => false)) {
       await stopAgain.click();
     }
-    console.log("  ✓ Продолжить / Остановить enrich");
+    console.log("  ✓ Продолжить / снять enrich");
   }
 
   const enableBtn = page.getByRole("button", { name: /^включить$/i });
@@ -90,11 +128,25 @@ async function main() {
       : "  ✓ Догрузить button clickable"
   );
 
+  // Вторая вкладка: сертификаты
+  await page.getByRole("tab", { name: /заканчивающиеся сертификаты/i }).click();
+  await page.waitForTimeout(800);
+  await page.getByRole("button", { name: /обновить/i }).click();
+  console.log("  ✓ Сертификаты / Обновить");
+  const certHealth = page.getByRole("button", {
+    name: /проверить доступ к фса/i,
+  });
+  if (await certHealth.isVisible().catch(() => false)) {
+    await certHealth.click();
+    await page.waitForTimeout(1000);
+    console.log("  ✓ Сертификаты / Проверить доступ к ФСА");
+  }
+
   await browser.close();
   console.log("UI smoke passed — no freeze detected on clicked controls.");
 }
 
-main().catch((error) => {
+main().catch(async (error) => {
   console.error("UI smoke failed:", error.message);
   process.exit(1);
 });

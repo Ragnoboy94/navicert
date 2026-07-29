@@ -16,6 +16,7 @@ import {
 } from "@/lib/outreach/mailer";
 import { getExpiringMonthRange, readOutreachQueue } from "@/lib/outreach/queue";
 import { getEnrichRunnerStatus } from "@/lib/outreach/enrich-runner";
+import { getFsaQueueStatus } from "@/lib/outreach/fsa-orchestrator";
 import { getScheduleStats } from "@/lib/outreach/schedule";
 import {
   pickSendableCandidates,
@@ -75,6 +76,7 @@ export async function GET(request: Request) {
   const sentLookup = buildSentLookup(sent);
   const range = queue?.range ?? getExpiringMonthRange();
   const scheduleStats = getScheduleStats(category);
+  const fsaQueue = getFsaQueueStatus(category);
 
   const items = (queue?.items ?? []).map((item) =>
     decorateItem(item, sentLookup, category, sent)
@@ -104,6 +106,7 @@ export async function GET(request: Request) {
     hasMore: queue?.hasMore ?? false,
     enrichPending: queue?.enrichQueue?.length ?? 0,
     enrichStatus: getEnrichRunnerStatus(category),
+    fsaQueue,
     testMode: isOutreachTestMode(),
     testEmail: isOutreachTestMode() ? getOutreachTestEmail() : null,
     items,

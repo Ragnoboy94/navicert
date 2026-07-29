@@ -3,6 +3,7 @@ import {
   ensureQueueForScheduledSend,
   runCronMaintenance,
 } from "@/lib/outreach/cron-maintenance";
+import { drainFsaJobs } from "@/lib/outreach/fsa-orchestrator";
 import {
   getScheduleStats,
   readOutreachSchedule,
@@ -19,6 +20,10 @@ const CRON_CATEGORIES: OutreachCategory[] = [
 ];
 
 async function runCategoryCron(category: OutreachCategory, maxMs: number) {
+  const drainedBefore = await drainFsaJobs({
+    category,
+    maxMs: Math.min(Math.floor(maxMs * 0.35), 60_000),
+  });
   const maintenance = await runCronMaintenance({ maxMs, category });
 
   const schedule = readOutreachSchedule(category);
@@ -29,9 +34,17 @@ async function runCategoryCron(category: OutreachCategory, maxMs: number) {
       : null;
 
   const send = await runScheduledOutreach({ category });
+  const drainedAfter = await drainFsaJobs({
+    category,
+    maxMs: Math.min(Math.floor(maxMs * 0.35), 60_000),
+  });
 
   return {
     category,
+    fsaQueue: {
+      before: drainedBefore,
+      after: drainedAfter,
+    },
     maintenance,
     topUp,
     send,

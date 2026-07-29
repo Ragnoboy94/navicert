@@ -1,4 +1,5 @@
 import { applyEnrichResult, enrichQueueBatch } from "./bulk-load";
+import { getFsaQueueStatus } from "./fsa-orchestrator";
 import { readOutreachQueue, writeOutreachQueue } from "./queue";
 import type { OutreachCategory, OutreachQueue } from "./types";
 
@@ -6,6 +7,8 @@ export type EnrichRunnerStatus = {
   running: boolean;
   stopping: boolean;
   paused: boolean;
+  /** Задача enrich уже стоит в оркестраторе (ждёт cron) */
+  queued: boolean;
   pending: number;
   processedTotal: number;
   emailsFoundTotal: number;
@@ -84,17 +87,22 @@ export function getEnrichRunnerStatus(
   const rt = catRuntime(category);
   const queue = readOutreachQueue(category);
   const stats = queueStats(queue);
+  const fsa = getFsaQueueStatus(category);
+  const queued = fsa.enrichQueued;
+  const running = rt.running || fsa.enrichRunning;
+  const paused = Boolean(queue?.enrichPaused) && !queued && !running;
   return {
-    running: rt.running,
+    running,
     stopping: rt.abortRequested && rt.running,
-    paused: Boolean(queue?.enrichPaused),
+    paused,
+    queued,
     pending: queue?.enrichQueue.length ?? 0,
     processedTotal: stats.processedTotal,
     emailsFoundTotal: stats.emailsFoundTotal,
     sessionInitialPending: stats.sessionInitialPending,
-    lastBatchAt: rt.running ? rt.lastBatchAt : null,
+    lastBatchAt: running ? rt.lastBatchAt : null,
     lastError: rt.lastError,
-    activeCategory: rt.running ? category : null,
+    activeCategory: running ? category : null,
   };
 }
 
@@ -114,6 +122,14 @@ function clearEnrichPaused(category: OutreachCategory): void {
   if (queue?.enrichPaused) {
     writeOutreachQueue({ ...queue, enrichPaused: false });
   }
+}
+
+export function resumeBackgroundEnrich(
+  category: OutreachCategory = "expiring"
+): void {
+  const rt = catRuntime(category);
+  rt.abortRequested = false;
+  clearEnrichPaused(category);
 }
 
 function resetEnrichStats(queue: OutreachQueue): OutreachQueue {

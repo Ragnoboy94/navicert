@@ -119,6 +119,13 @@ export function getCardEnrichPerBatch(): number {
   );
 }
 
+export function getApiEnrichConcurrency(): number {
+  return Math.min(
+    Math.max(Number(process.env.OUTREACH_API_ENRICH_CONCURRENCY || 8), 1),
+    20
+  );
+}
+
 function parseAnyDate(value: string): Date | null {
   const raw = String(value || "").trim();
   if (!raw) return null;
@@ -208,10 +215,16 @@ async function mapWithConcurrency<T, R>(
   return results;
 }
 
+type ApiEnrichOutcome = {
+  item: FsaDeclaration;
+  /** GET /declarations/{id} успешен: контакты в ответе полные, Playwright не нужен */
+  detailFetched: boolean;
+};
+
 async function enrichEmailFromApi(
   declaration: FsaDeclaration,
   category: OutreachCategory
-): Promise<FsaDeclaration> {
+): Promise<ApiEnrichOutcome> {
   const normalize =
     category === "expiring_certificates"
       ? normalizeCertificate
@@ -222,15 +235,18 @@ async function enrichEmailFromApi(
   // (таймауты → батч обогащения «висит», кнопка кажется мёртвой).
   // Email для сертификатов берём со страницы заявителя через Playwright.
   if (category === "expiring_certificates") {
-    return base;
+    return { item: base, detailFetched: false };
   }
 
-  const fetchById = fetchDeclaration;
   try {
-    const detail = normalize(await fetchById(base.id));
-    return normalize({
+    const detail = normalize(await fetchDeclaration(base.id));
+    // Детальная карточка иногда отдаёт пустые даты — не затираем список.
+    const item = normalize({
       ...base,
       ...detail,
+      registrationDate:
+        detail.registrationDate?.trim() || base.registrationDate,
+      endDate: detail.endDate?.trim() || base.endDate,
       applicant: {
         ...base.applicant,
         ...detail.applicant,
@@ -238,8 +254,9 @@ async function enrichEmailFromApi(
         phone: detail.applicant?.phone?.trim() || base.applicant?.phone,
       },
     });
+    return { item, detailFetched: true };
   } catch {
-    return base;
+    return { item: base, detailFetched: false };
   }
 }
 
@@ -543,28 +560,55 @@ export async function enrichQueueBatch(
 
   let problemDeclaration: { id: number; url: string } | undefined;
 
-  const apiEnriched = await mapWithConcurrency(batch, 40, async (item) => {
-    try {
-      return await enrichEmailFromApi(item, queue.category);
-    } catch (error) {
-      problemDeclaration = {
-        id: item.id,
-        url:
-          item.registryUrl ||
-          (queue.category === "expiring_certificates"
-            ? certificateApplicantUrl(item.id)
-            : declarationApplicantUrl(item.id)),
-      };
-      return queue.category === "expiring_certificates"
-        ? normalizeCertificate(item)
-        : normalizeDeclaration(item);
+  const apiOutcomes = await mapWithConcurrency(
+    batch,
+    getApiEnrichConcurrency(),
+    async (item) => {
+      try {
+        return await enrichEmailFromApi(item, queue.category);
+      } catch {
+        problemDeclaration = {
+          id: item.id,
+          url:
+            item.registryUrl ||
+            (queue.category === "expiring_certificates"
+              ? certificateApplicantUrl(item.id)
+              : declarationApplicantUrl(item.id)),
+        };
+        return {
+          item:
+            queue.category === "expiring_certificates"
+              ? normalizeCertificate(item)
+              : normalizeDeclaration(item),
+          detailFetched: false,
+        } satisfies ApiEnrichOutcome;
+      }
     }
-  });
-
-  const withEmail = apiEnriched.filter((item) => item.applicant?.email?.trim());
-  const stillMissing = apiEnriched.filter(
-    (item) => !item.applicant?.email?.trim()
   );
+
+  const withEmail = apiOutcomes
+    .filter((row) => row.item.applicant?.email?.trim())
+    .map((row) => row.item);
+
+  // Декларации: email в ФСА лежит в applicant.contacts (idContactType=4, value с @).
+  // Если детальная карточка пришла без email — на сайте его тоже нет, Playwright не нужен.
+  // Сертификаты / сбой API — оставляем для карточек.
+  const apiConfirmedNoEmail = apiOutcomes
+    .filter(
+      (row) =>
+        row.detailFetched &&
+        !row.item.applicant?.email?.trim() &&
+        queue.category === "expiring"
+    )
+    .map((row) => row.item);
+
+  const stillMissing = apiOutcomes
+    .filter(
+      (row) =>
+        !row.item.applicant?.email?.trim() &&
+        !(row.detailFetched && queue.category === "expiring")
+    )
+    .map((row) => row.item);
 
   const cardBatch =
     options?.shouldAbort?.() === true
@@ -609,17 +653,29 @@ export async function enrichQueueBatch(
   const cardNoEmail = cardEnriched.filter(
     (item) => !item.applicant?.email?.trim()
   );
-  // cardNoEmail items не имеют email, но карточки могли быть обогащены частично.
-  // Нормализация и классификация делаются уже здесь, с учётом категории очереди.
-  const noEmailRejected = cardNoEmail.map((item) =>
+  // Если Playwright вернул карточку без имени и без email — страница не прогрузилась.
+  // Не списываем как no_email, возвращаем в хвост.
+  const scrapeFailed = cardNoEmail.filter(
+    (item) =>
+      !item.applicant?.shortName?.trim() && !item.applicant?.fullName?.trim()
+  );
+  const scrapeFailedIds = new Set(scrapeFailed.map((item) => item.id));
+  const confirmedNoEmail = [
+    ...apiConfirmedNoEmail,
+    ...cardNoEmail.filter((item) => !scrapeFailedIds.has(item.id)),
+  ];
+
+  // confirmedNoEmail: нормализация и классификация с учётом категории.
+  const noEmailRejected = confirmedNoEmail.map((item) =>
     toQueueItem(item, queue.category)
   );
 
-  // Без email после Playwright — убираем из очереди (не крутить бесконечно).
-  // Остальные без email — в хвост, чтобы дошла очередь до карточек 8–50 в батче.
-  const stillNeedEnrich = stillMissing.filter(
-    (item) => !cardEnrichedIds.has(item.id)
-  );
+  // Без email после успешного API (декларации) или Playwright — убираем из очереди.
+  // Остальные без email / scrapeFailed — в хвост (нужен повтор / карточка).
+  const stillNeedEnrich = [
+    ...stillMissing.filter((item) => !cardEnrichedIds.has(item.id)),
+    ...scrapeFailed,
+  ];
 
   const remainingQueue = [
     ...queue.enrichQueue.slice(batch.length),

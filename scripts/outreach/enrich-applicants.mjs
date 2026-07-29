@@ -8,9 +8,27 @@ const __filename = fileURLToPath(import.meta.url);
 
 function cardConcurrency() {
   return Math.min(
-    Math.max(Number(process.env.OUTREACH_CARD_CONCURRENCY || 6), 1),
-    8
+    Math.max(Number(process.env.OUTREACH_CARD_CONCURRENCY || 3), 1),
+    6
   );
+}
+
+function humanDelayBounds() {
+  const min = Math.max(Number(process.env.OUTREACH_CARD_DELAY_MIN_MS || 350), 0);
+  const max = Math.max(
+    Number(process.env.OUTREACH_CARD_DELAY_MAX_MS || 950),
+    min
+  );
+  return { min, max };
+}
+
+function randomDelayMs(min, max) {
+  if (max <= min) return min;
+  return Math.floor(min + Math.random() * (max - min + 1));
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function pickFromApiApplicant(apiApplicant) {
@@ -51,6 +69,9 @@ async function scrapeApplicant(context, item, category = "expiring") {
   page.on("response", onResponse);
 
   try {
+    const { min, max } = humanDelayBounds();
+    await sleep(randomDelayMs(min, max));
+
     // Для сертификатов detail API часто не отвечает — не ждём его 35с.
     const apiWait = isCertificates
       ? Promise.resolve(null)
@@ -73,10 +94,36 @@ async function scrapeApplicant(context, item, category = "expiring") {
       await apiWait;
     } else {
       // Дать SPA отрисовать блок заявителя
-      await page.waitForTimeout(2_000);
+      await page.waitForTimeout(2_000 + randomDelayMs(200, 900));
     }
 
+    // Ждём контент заявителя: иначе иногда остаётся только шапка реестра.
+    await Promise.race([
+      page
+        .locator("text=Сокращенное наименование")
+        .first()
+        .waitFor({ state: "visible", timeout: 20_000 }),
+      page
+        .locator("text=Полное наименование")
+        .first()
+        .waitFor({ state: "visible", timeout: 20_000 }),
+      page
+        .locator("text=Адрес электронной почты")
+        .first()
+        .waitFor({ state: "visible", timeout: 20_000 }),
+      page.waitForTimeout(5_000),
+    ]).catch(() => {});
+
     const fromApi = pickFromApiApplicant(apiRecord?.applicant || {});
+    if (!fromApi.email && apiRecord) {
+      // Иногда email лежит у manufacturer / вложенных contacts
+      const manuf = pickFromApiApplicant(apiRecord?.manufacturer || {});
+      const auth = pickFromApiApplicant(apiRecord?.certificationAuthority || {});
+      fromApi.email = manuf.email || auth.email || fromApi.email;
+      fromApi.phone = fromApi.phone || manuf.phone || auth.phone || "";
+      fromApi.shortName = fromApi.shortName || manuf.shortName || auth.shortName || "";
+      fromApi.fullName = fromApi.fullName || manuf.fullName || auth.fullName || "";
+    }
     if (fromApi.email) {
       return {
         id,
@@ -99,7 +146,7 @@ async function scrapeApplicant(context, item, category = "expiring") {
     await page
       .locator("text=Адрес электронной почты")
       .first()
-      .waitFor({ state: "visible", timeout: isCertificates ? 15_000 : 10_000 })
+      .waitFor({ state: "visible", timeout: isCertificates ? 15_000 : 12_000 })
       .catch(() => {});
 
     // Запасной поиск email в тексте страницы (в т.ч. сертификаты)
@@ -177,6 +224,8 @@ async function mapPool(items, concurrency, worker) {
       } catch {
         results[index] = item;
       }
+      const { min, max } = humanDelayBounds();
+      await sleep(randomDelayMs(min, max));
     }
   }
 

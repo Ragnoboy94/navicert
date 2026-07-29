@@ -16,7 +16,9 @@ import {
   startBackgroundEnrich,
   waitForBackgroundEnrich,
 } from "../src/lib/outreach/enrich-runner";
+import { cancelPendingEnrichJobs, getFsaQueueStatus, enqueueFsaJob, cancelPendingFsaJobs } from "../src/lib/outreach/fsa-orchestrator";
 import { readOutreachQueue, writeOutreachQueue } from "../src/lib/outreach/queue";
+import { enrichQueueBatch, applyEnrichResult } from "../src/lib/outreach/bulk-load";
 import {
   getScheduleStats,
   readOutreachSchedule,
@@ -158,6 +160,7 @@ async function testEnrichPauseLogic() {
     await waitForBackgroundEnrich();
 
     pauseBackgroundEnrich();
+    cancelPendingEnrichJobs("expiring");
     assert(
       "pause sets enrichPaused in queue file",
       readOutreachQueue()?.enrichPaused === true
@@ -177,7 +180,7 @@ async function testEnrichPauseLogic() {
     const status = getEnrichRunnerStatus();
     assert(
       "status reports paused",
-      status.paused === true && status.pending > 0
+      status.paused === true && status.queued !== true && status.pending > 0
     );
 
     const forced = startBackgroundEnrich({ force: true });
@@ -207,9 +210,90 @@ async function testEnrichPauseLogic() {
     );
   } finally {
     await waitForBackgroundEnrich();
-    pauseBackgroundEnrich();
     restoreQueue(snapshot);
   }
+}
+
+async function testFsaQueueStatusUx() {
+  console.log("\n[2b] FSA queue status (no cancel-as-error)");
+
+  cancelPendingFsaJobs("expiring", ["scan", "enrich", "health"]);
+  const queued = enqueueFsaJob({
+    type: "enrich",
+    category: "expiring",
+    priority: "low",
+    source: "verify",
+    payload: { maxBatches: 1 },
+  });
+  assert(
+    "enqueue enrich for status check",
+    queued.accepted === true,
+    JSON.stringify(queued)
+  );
+
+  cancelPendingFsaJobs("expiring", ["enrich"]);
+  const status = getFsaQueueStatus("expiring");
+  assert(
+    "manual cancel is not lastError",
+    status.lastError == null ||
+      !/снято с очереди|остановлено вручную/i.test(status.lastError),
+    status.lastError ?? "null"
+  );
+  assert(
+    "no pending enrich after cancel",
+    status.enrichQueued === false && status.pendingLow === 0
+  );
+}
+
+async function testLiveDeclarationEnrich() {
+  console.log("\n[2c] Live declaration enrich (API, skip Playwright)");
+
+  const queue = readOutreachQueue("expiring");
+  if (!queue || queue.enrichQueue.length === 0) {
+    pass("live enrich skipped", "no enrich backlog");
+    return;
+  }
+
+  const beforeItems = queue.items.length;
+  const beforeRejected = queue.rejected.length;
+  const beforeEnrich = queue.enrichQueue.length;
+  const batchSize = Math.min(12, beforeEnrich);
+  const started = Date.now();
+  const result = await enrichQueueBatch(queue, batchSize, {
+    shouldAbort: () => false,
+  });
+  const next = applyEnrichResult(queue, result);
+  next.enrichProcessedTotal =
+    (queue.enrichProcessedTotal ?? 0) + result.processed;
+  next.enrichEmailsFoundTotal =
+    (queue.enrichEmailsFoundTotal ?? 0) + result.emailsFound;
+  writeOutreachQueue(next);
+
+  assert(
+    "enrich batch processes cards",
+    result.processed + result.requeued === batchSize,
+    `processed=${result.processed} requeued=${result.requeued}`
+  );
+  assert(
+    "enrich prefers API over Playwright for declarations",
+    result.enrichedFromCards === 0 || result.emailsFound > 0,
+    `fromCards=${result.enrichedFromCards} emails=${result.emailsFound}`
+  );
+  // После успешного API без email карточки уходят в rejected, не крутятся в хвосте.
+  assert(
+    "enrich backlog shrinks without infinite requeue",
+    result.enrichQueue.length < beforeEnrich,
+    `${beforeEnrich} → ${result.enrichQueue.length}`
+  );
+  assert(
+    "enrich writes items or rejected",
+    next.items.length > beforeItems || next.rejected.length > beforeRejected,
+    `items ${beforeItems}→${next.items.length}, rejected ${beforeRejected}→${next.rejected.length}`
+  );
+  pass(
+    "live enrich timing",
+    `${Date.now() - started}ms, emails=${result.emailsFound}, fromCards=${result.enrichedFromCards}`
+  );
 }
 
 async function adminFetch(
@@ -245,13 +329,38 @@ async function testAdminApi(cookie: string) {
   const getRes = await adminFetch(cookie, "/api/admin/outreach");
   assert("GET /api/admin/outreach", getRes.ok, String(getRes.status));
   const state = (await getRes.json()) as {
-    enrichStatus?: { running: boolean; paused: boolean };
+    enrichStatus?: { running: boolean; paused: boolean; queued?: boolean };
     schedule?: { enabled: boolean };
     sendableCount?: number;
+    fsaQueue?: {
+      pendingHigh?: number;
+      pendingLow?: number;
+      lastError?: string | null;
+    };
   };
   assert(
     "state includes enrichStatus + schedule",
     Boolean(state.enrichStatus) && Boolean(state.schedule)
+  );
+  assert(
+    "state includes fsaQueue",
+    Boolean(state.fsaQueue) &&
+      typeof state.fsaQueue?.pendingHigh === "number"
+  );
+
+  const healthRes = await adminFetch(cookie, "/api/admin/outreach/fsa/health", {
+    method: "POST",
+  });
+  assert("POST fsa/health", healthRes.ok, String(healthRes.status));
+  const healthJson = (await healthRes.json()) as {
+    ok?: boolean;
+    message?: string;
+    error?: string | null;
+  };
+  assert(
+    "fsa/health returns probe result",
+    typeof healthJson.ok === "boolean",
+    healthJson.message ?? healthJson.error ?? ""
   );
 
   const schedBefore = state.schedule?.enabled ?? false;
@@ -275,19 +384,113 @@ async function testAdminApi(cookie: string) {
     body: JSON.stringify({ action: "stop" }),
   });
   assert("POST enrich stop", stopRes.ok, String(stopRes.status));
-  const afterStop = (await stopRes.json()) as { paused?: boolean };
-  assert("enrich stop returns paused flag", afterStop.paused === true);
+  const afterStop = (await stopRes.json()) as {
+    paused?: boolean;
+    queued?: boolean;
+  };
+  assert(
+    "enrich stop returns paused flag",
+    afterStop.paused === true && afterStop.queued !== true
+  );
 
+  // Сценарий: после stop «Продолжить» ставит в очередь и снимает паузу
   const startRes = await adminFetch(cookie, "/api/admin/outreach/enrich", {
     method: "POST",
     body: JSON.stringify({ force: true }),
   });
   assert("POST enrich continue (force)", startRes.ok, String(startRes.status));
+  const startJson = (await startRes.json()) as {
+    ok?: boolean;
+    queued?: boolean;
+    duplicate?: boolean;
+    paused?: boolean;
+    enrichQueue?: unknown;
+    message?: string;
+  };
+
+  // Если очередь enrich пуста — API вернёт ok без queued; это допустимо
+  if (startJson.message === "Очередь обогащения пуста") {
+    pass("enrich continue on empty queue", "no pending cards");
+  } else {
+    assert(
+      "enrich continue queues job and clears pause",
+      startJson.ok === true &&
+        startJson.queued === true &&
+        startJson.paused !== true,
+      JSON.stringify({
+        queued: startJson.queued,
+        paused: startJson.paused,
+        message: startJson.message,
+      })
+    );
+
+    const againRes = await adminFetch(cookie, "/api/admin/outreach/enrich", {
+      method: "POST",
+      body: JSON.stringify({ force: true }),
+    });
+    const againJson = (await againRes.json()) as {
+      duplicate?: boolean;
+      queued?: boolean;
+      paused?: boolean;
+    };
+    assert(
+      "second continue is duplicate, still not paused",
+      againRes.ok &&
+        againJson.duplicate === true &&
+        againJson.paused !== true &&
+        againJson.queued === true
+    );
+
+    const stateAfter = await adminFetch(cookie, "/api/admin/outreach");
+    const stateJson = (await stateAfter.json()) as {
+      enrichStatus?: { paused?: boolean; queued?: boolean };
+    };
+    assert(
+      "GET state: queued true, paused false while job waits",
+      stateJson.enrichStatus?.queued === true &&
+        stateJson.enrichStatus?.paused !== true
+    );
+  }
+
   await adminFetch(cookie, "/api/admin/outreach/enrich", {
     method: "POST",
     body: JSON.stringify({ action: "stop" }),
   });
+  const afterCancel = await adminFetch(cookie, "/api/admin/outreach");
+  const cancelJson = (await afterCancel.json()) as {
+    enrichStatus?: { queued?: boolean; paused?: boolean };
+  };
+  assert(
+    "stop cancels pending enrich jobs",
+    cancelJson.enrichStatus?.queued !== true
+  );
   pass("enrich stopped after API continue test");
+
+  // Снова поставить и снять через cancel endpoint
+  const requeue = await adminFetch(cookie, "/api/admin/outreach/enrich", {
+    method: "POST",
+    body: JSON.stringify({ force: true }),
+  });
+  const requeueJson = (await requeue.json()) as {
+    queued?: boolean;
+    message?: string;
+  };
+  if (requeueJson.message !== "Очередь обогащения пуста") {
+    const cancelRes = await adminFetch(cookie, "/api/admin/outreach/fsa/cancel", {
+      method: "POST",
+      body: JSON.stringify({ scope: "all" }),
+    });
+    const cancelApi = (await cancelRes.json()) as {
+      ok?: boolean;
+      cancelled?: number;
+    };
+    assert(
+      "POST fsa/cancel removes pending jobs",
+      cancelRes.ok && cancelApi.ok === true && (cancelApi.cancelled ?? 0) >= 1
+    );
+  } else {
+    pass("fsa/cancel skipped", "no enrich backlog to queue");
+  }
 
   const manualRun = await adminFetch(cookie, "/api/admin/outreach/schedule", {
     method: "POST",
@@ -316,6 +519,14 @@ async function testAdminApi(cookie: string) {
   } else {
     assert("POST send batch", sendRes.ok, String(sendRes.status));
   }
+
+  // Не оставляем боевую очередь на паузе после сценарных stop/cancel.
+  const { resumeBackgroundEnrich } = await import(
+    "../src/lib/outreach/enrich-runner"
+  );
+  resumeBackgroundEnrich("expiring");
+  resumeBackgroundEnrich("expiring_certificates");
+  pass("enrich pause restored after admin API scenarios");
 }
 
 async function testCronEndpoint() {
@@ -366,6 +577,8 @@ async function main() {
 
   await testScheduleLogic();
   await testEnrichPauseLogic();
+  await testFsaQueueStatusUx();
+  await testLiveDeclarationEnrich();
 
   const up = await testServerReachable();
   if (!up) {

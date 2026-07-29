@@ -77,6 +77,7 @@ type EnrichStatus = {
   running: boolean;
   stopping: boolean;
   paused: boolean;
+  queued?: boolean;
   pending: number;
   processedTotal: number;
   emailsFoundTotal: number;
@@ -84,6 +85,17 @@ type EnrichStatus = {
   lastBatchAt: string | null;
   lastError: string | null;
   activeCategory?: string | null;
+};
+
+type FsaQueueStatus = {
+  pendingHigh: number;
+  pendingLow: number;
+  running: boolean;
+  enrichQueued?: boolean;
+  enrichRunning?: boolean;
+  scanQueued?: boolean;
+  lastSummary: string | null;
+  lastError: string | null;
 };
 
 type OutreachState = {
@@ -97,6 +109,7 @@ type OutreachState = {
   hasMore: boolean;
   enrichPending: number;
   enrichStatus: EnrichStatus;
+  fsaQueue?: FsaQueueStatus;
   dataChannel?: "fsa" | "ss_backup" | null;
   dataChannelLabel?: string | null;
   dataChannelRetryFsaAt?: string | null;
@@ -515,6 +528,7 @@ export function OutreachPanel({
   const [enrichStarting, setEnrichStarting] = useState(false);
   const [listFilter, setListFilter] = useState<ListFilter>("pending");
   const [showLoadConfirm, setShowLoadConfirm] = useState(false);
+  const [checkingFsaAccess, setCheckingFsaAccess] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const loadedOnce = useRef(false);
 
@@ -558,8 +572,12 @@ export function OutreachPanel({
     if (!active) return;
     const running = data?.enrichStatus?.running;
     const stopping = data?.enrichStatus?.stopping;
+    const queued = data?.enrichStatus?.queued;
     const pending = data?.enrichPending ?? 0;
-    if (!running && !stopping && pending === 0) return;
+    const fsaBusy =
+      Boolean(data?.fsaQueue?.running) ||
+      (data?.fsaQueue?.pendingHigh ?? 0) + (data?.fsaQueue?.pendingLow ?? 0) > 0;
+    if (!running && !stopping && !queued && pending === 0 && !fsaBusy) return;
 
     const timer = setInterval(() => {
       void refresh(true);
@@ -572,7 +590,11 @@ export function OutreachPanel({
     category,
     data?.enrichStatus?.running,
     data?.enrichStatus?.stopping,
+    data?.enrichStatus?.queued,
     data?.enrichPending,
+    data?.fsaQueue?.running,
+    data?.fsaQueue?.pendingHigh,
+    data?.fsaQueue?.pendingLow,
   ]);
 
   async function startBackgroundEnrich(resetCounters = false) {
@@ -594,23 +616,20 @@ export function OutreachPanel({
         setError(json.error || "Не удалось запустить фоновое обогащение");
         return;
       }
-      if (json.message && !json.started && !json.alreadyRunning) {
-        setError(String(json.message));
+      if (json.queued || json.duplicate) {
+        setMessage(
+          json.message ||
+            (json.duplicate
+              ? "Обработка email уже в очереди — ждём следующий запуск."
+              : "Обработка email поставлена в очередь.")
+        );
         await refresh(true);
         return;
       }
-      if (json.blockedByPause) {
-        setError("Обогащение на паузе — нажмите ещё раз");
+      if (json.message && json.ok) {
+        setMessage(String(json.message));
         await refresh(true);
         return;
-      }
-      if (json.alreadyRunning) {
-        setMessage("Обогащение этого раздела уже запущено — статус сейчас обновится.");
-        await refresh(true);
-        return;
-      }
-      if (json.started) {
-        setMessage("Фоновое обогащение запущено.");
       }
       if (json.lastError) {
         setError(json.lastError);
@@ -622,9 +641,7 @@ export function OutreachPanel({
   }
 
   async function stopEnrich() {
-    setMessage(
-      "Останавливаем… текущий батч (до ~2 мин) может ещё завершиться."
-    );
+    setMessage("Убираем из очереди…");
     await fetch(
       `/api/admin/outreach/enrich?category=${encodeURIComponent(
         category
@@ -636,6 +653,28 @@ export function OutreachPanel({
       body: JSON.stringify({ action: "stop" }),
       }
     );
+    setMessage("Обработка email снята с очереди.");
+    await refresh(true);
+  }
+
+  async function cancelFsaQueue(scope: "all" | "scan" | "enrich" = "all") {
+    setError("");
+    setMessage("");
+    const res = await fetch(
+      `/api/admin/outreach/fsa/cancel?category=${encodeURIComponent(category)}`,
+      {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scope, category }),
+      }
+    );
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setError(json.error || "Не удалось снять задачи с очереди");
+      return;
+    }
+    setMessage(json.message || "Снято с очереди");
     await refresh(true);
   }
 
@@ -675,38 +714,17 @@ export function OutreachPanel({
         return;
       }
 
-      const addedNew = Number(json.addedNew ?? 0);
-      const loadedFromApi = Number(json.loadedFromApi ?? 0);
-      const action = mode === "append" ? "Догружено" : "Загружено";
-      const pending = json.enrichPending ?? 0;
-      const channelNote =
-        typeof json.channelNote === "string" && json.channelNote.trim()
-          ? ` · ${json.channelNote.trim()}`
-          : "";
-
-      const addedLine =
-        addedNew === 0 && loadedFromApi > 0
-          ? `${action}: новых 0 (${loadedFromApi} с API — уже были в очереди)`
-          : `${action}: +${addedNew} новых из ${loadedFromApi} с API`;
-
-      const eligibleNow = Number(json.eligible ?? 0);
-      const enrichLine =
-        addedNew > 0 && pending > 0
-          ? ` · без email в списке: +${addedNew} в очередь обогащения`
-          : "";
-
-      if (pending > 0) {
+      if (json.queued) {
+        const amount = mode === "append" ? APPEND_LOAD_MAX : INITIAL_LOAD_MAX;
         setMessage(
-          `${addedLine}${enrichLine}${channelNote}. Email подгружаются на сервере в фоне — можно закрыть вкладку.`
+          `Задача на ${amount} записей поставлена в очередь. Данные обновятся автоматически.`
         );
         await refresh(true);
         return;
       }
 
-      setMessage(
-        `${addedLine}${enrichLine}${channelNote} · к отправке: ${eligibleNow} · личные ящики: ${json.rejected}${json.hasMore ? " · в реестре ещё есть" : ""}${json.cursorLabel ? ` · ${json.cursorLabel}` : ""}`
-      );
-      await refresh();
+      setMessage("Запрос принят, ожидаем обновление очереди.");
+      await refresh(true);
     } catch (err) {
       setError(
         err instanceof Error
@@ -738,6 +756,33 @@ export function OutreachPanel({
     setShowLoadConfirm(false);
     const mode = data?.scannedAt ? "append" : "reset";
     void runScan(mode, INITIAL_LOAD_MAX);
+  }
+
+  async function checkFsaAccess() {
+    setCheckingFsaAccess(true);
+    setError("");
+    setMessage("");
+    try {
+      const res = await fetch(
+        `/api/admin/outreach/fsa/health?category=${encodeURIComponent(category)}`,
+        {
+          method: "POST",
+          credentials: "same-origin",
+        }
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(json.error || "Не удалось проверить доступ");
+        return;
+      }
+      if (json.ok) {
+        setMessage(json.message || "Доступ к ФСА подтверждён.");
+      } else {
+        setError(json.message || json.error || "Нет доступа к ФСА");
+      }
+    } finally {
+      setCheckingFsaAccess(false);
+    }
   }
 
   async function saveSchedule(
@@ -885,7 +930,9 @@ export function OutreachPanel({
   const enrichRunning =
     Boolean(data?.enrichStatus?.running) || enrichStarting;
   const enrichStopping = Boolean(data?.enrichStatus?.stopping);
-  const enrichPaused = Boolean(data?.enrichStatus?.paused);
+  const enrichQueued = Boolean(data?.enrichStatus?.queued);
+  const enrichPaused =
+    Boolean(data?.enrichStatus?.paused) && !enrichQueued && !enrichRunning;
   const enrichPending = data?.enrichPending ?? 0;
   const enrichProcessed = data?.enrichStatus?.processedTotal ?? 0;
   const enrichEmailsFound = data?.enrichStatus?.emailsFoundTotal ?? 0;
@@ -894,6 +941,23 @@ export function OutreachPanel({
     enrichSessionTotal != null && enrichSessionTotal > 0
       ? `обработано ${enrichProcessed} из ${enrichSessionTotal}`
       : `обработано ${enrichProcessed}`;
+
+  const fsaPendingHigh = data?.fsaQueue?.pendingHigh ?? 0;
+  const fsaPendingLow = data?.fsaQueue?.pendingLow ?? 0;
+  // Синяя плашка обогащения уже показывает ту же фоновую задачу — не дублируем.
+  const onlyEnrichInFsaQueue =
+    enrichQueued &&
+    fsaPendingHigh === 0 &&
+    fsaPendingLow > 0 &&
+    !data?.fsaQueue?.scanQueued;
+  const showFsaQueueStrip =
+    Boolean(data?.fsaQueue) &&
+    !onlyEnrichInFsaQueue &&
+    (fsaPendingHigh > 0 ||
+      fsaPendingLow > 0 ||
+      Boolean(data?.fsaQueue?.running) ||
+      Boolean(data?.fsaQueue?.lastSummary) ||
+      Boolean(data?.fsaQueue?.lastError));
 
   const queueSize =
     (data?.items.length ?? 0) +
@@ -914,34 +978,45 @@ export function OutreachPanel({
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted">
-          Загрузка из ФСА — до {INITIAL_LOAD_MAX} {docWordGenitive} за раз, новые
-          добавляются поверх очереди (данные и история отправок сохраняются).
-          Быстрая догрузка — по {APPEND_LOAD_MAX}. Период окончания: через месяц
-          от завтра и ещё 15 дней (например 14.07 → 15.08–30.08; окно сдвигается
-          каждый день, МСК).
+          Срочная загрузка из ФСА идёт раньше фоновой подгрузки email.
         </p>
-        <button
-          type="button"
-          onClick={() => void refresh()}
-          disabled={loading}
-          className="btn-ghost gap-2 px-4 py-2 text-sm"
-        >
-          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-          Обновить
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            disabled={loading}
+            className="btn-ghost gap-2 px-4 py-2 text-sm"
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            Обновить
+          </button>
+          <button
+            type="button"
+            onClick={checkFsaAccess}
+            disabled={checkingFsaAccess}
+            className="btn-ghost gap-2 px-4 py-2 text-sm"
+          >
+            <AlertCircle className={`h-4 w-4 ${checkingFsaAccess ? "animate-pulse" : ""}`} />
+            {checkingFsaAccess ? "Проверка..." : "Проверить доступ к ФСА"}
+          </button>
+        </div>
       </div>
 
-      {(enrichRunning || enrichStopping || enrichPending > 0) && (
+      {(enrichRunning ||
+        enrichStopping ||
+        enrichQueued ||
+        enrichPaused ||
+        enrichPending > 0) && (
         <AdminCard
           className={
-            enrichPaused && !enrichRunning && !enrichStopping
+            enrichPaused && !enrichRunning && !enrichStopping && !enrichQueued
               ? "!border-amber-200 !bg-amber-50/80"
               : "!border-blue-200 !bg-blue-50/80"
           }
         >
           <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-blue-900">
             <div className="flex gap-3">
-              {(enrichRunning || enrichStopping) && (
+              {(enrichRunning || enrichStopping || enrichQueued) && (
                 <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 animate-spin" />
               )}
               <p>
@@ -949,19 +1024,23 @@ export function OutreachPanel({
                   ? "Останавливаем — завершаем текущий батч на сервере…"
                   : enrichRunning
                     ? "На сервере в фоне подгружаем email из карточек ФСА"
-                    : enrichPaused
-                      ? "Обогащение остановлено"
-                      : "Остались карточки без email"}{" "}
+                    : enrichQueued
+                      ? "Обработка email в очереди"
+                      : enrichPaused
+                        ? "Обогащение остановлено"
+                        : "Остались карточки без email"}{" "}
                 — {enrichProgressLabel}, найдено email{" "}
                 <strong>{enrichEmailsFound}</strong>, в очереди{" "}
                 <strong>{enrichPending}</strong>
                 {enrichRunning && !enrichStopping
                   ? ". Можно уйти из раздела — процесс не остановится."
-                  : enrichPaused
-                    ? ". Нажмите «Продолжить», чтобы возобновить."
-                    : enrichPending > 0
-                      ? ". Если счётчик не растёт — проверьте доступ к ФСА (прокси)."
-                      : "."}
+                  : enrichQueued
+                    ? "."
+                    : enrichPaused
+                      ? ". Нажмите «Продолжить», чтобы возобновить."
+                      : enrichPending > 0
+                        ? ". Если счётчик не растёт — проверьте доступ к ФСА."
+                        : "."}
               </p>
             </div>
             {enrichRunning || enrichStopping ? (
@@ -972,6 +1051,14 @@ export function OutreachPanel({
                 className="btn-ghost px-3 py-1.5 text-xs disabled:opacity-50"
               >
                 {enrichStopping ? "Останавливаем…" : "Остановить"}
+              </button>
+            ) : enrichQueued ? (
+              <button
+                type="button"
+                onClick={() => void stopEnrich()}
+                className="btn-ghost px-3 py-1.5 text-xs"
+              >
+                Убрать из очереди
               </button>
             ) : enrichPending > 0 ? (
               <button
@@ -1118,6 +1205,31 @@ export function OutreachPanel({
                 ).toLocaleString("ru-RU")}`
               : ""}
           </p>
+        )}
+
+        {showFsaQueueStrip && data?.fsaQueue && (
+          <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted">
+            <p>
+              В очереди задач: срочных {data.fsaQueue.pendingHigh}, фоновых{" "}
+              {data.fsaQueue.pendingLow}
+              {data.fsaQueue.running ? " · сейчас идёт обмен" : ""}.
+              {data.fsaQueue.lastSummary
+                ? ` Последний результат: ${data.fsaQueue.lastSummary}.`
+                : ""}
+              {data.fsaQueue.lastError
+                ? ` Последняя ошибка: ${data.fsaQueue.lastError}.`
+                : ""}
+            </p>
+            {(data.fsaQueue.pendingHigh > 0 || data.fsaQueue.pendingLow > 0) && (
+              <button
+                type="button"
+                onClick={() => void cancelFsaQueue("all")}
+                className="btn-ghost px-2 py-1 text-xs"
+              >
+                Очистить очередь
+              </button>
+            )}
+          </div>
         )}
 
         {message && <p className="mt-3 text-sm text-green-700">{message}</p>}
