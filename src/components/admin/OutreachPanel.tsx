@@ -540,11 +540,73 @@ export function OutreachPanel({
   /** Пока запрос в полёте — не плодим одинаковые /api/admin/outreach. */
   const fullRefreshInFlight = useRef<Promise<void> | null>(null);
   const statusRefreshInFlight = useRef<Promise<void> | null>(null);
+  /** Для интервала lite-poll без перезапуска эффекта на каждый тик. */
+  const pollBusyRef = useRef(false);
 
   function applyScheduleFrom(json: OutreachState) {
     if (json.schedule) {
       setEmailsPerDay(json.schedule.emailsPerDay ?? 50);
     }
+  }
+
+  /** Сразу отражаем ответ POST enrich/stop в UI — не ждём следующего poll. */
+  function applyEnrichApiPayload(json: Record<string, unknown>) {
+    const fsaQueue = json.fsaQueue as FsaQueueStatus | undefined;
+    const pending =
+      typeof json.pending === "number" ? json.pending : undefined;
+    setData((prev) => {
+      if (!prev) return prev;
+      const nextStatus: EnrichStatus = {
+        ...prev.enrichStatus,
+        running: Boolean(json.running ?? prev.enrichStatus.running),
+        stopping: Boolean(json.stopping ?? prev.enrichStatus.stopping),
+        paused: Boolean(json.paused ?? prev.enrichStatus.paused),
+        queued: Boolean(
+          json.queued ??
+            fsaQueue?.enrichQueued ??
+            prev.enrichStatus.queued
+        ),
+        pending: pending ?? prev.enrichStatus.pending,
+        processedTotal:
+          typeof json.processedTotal === "number"
+            ? json.processedTotal
+            : prev.enrichStatus.processedTotal,
+        emailsFoundTotal:
+          typeof json.emailsFoundTotal === "number"
+            ? json.emailsFoundTotal
+            : prev.enrichStatus.emailsFoundTotal,
+        sessionInitialPending:
+          json.sessionInitialPending !== undefined
+            ? (json.sessionInitialPending as number | null)
+            : prev.enrichStatus.sessionInitialPending,
+        lastBatchAt:
+          (json.lastBatchAt as string | null | undefined) !== undefined
+            ? (json.lastBatchAt as string | null)
+            : prev.enrichStatus.lastBatchAt,
+        lastError:
+          (json.lastError as string | null | undefined) !== undefined
+            ? (json.lastError as string | null)
+            : prev.enrichStatus.lastError,
+        activeCategory:
+          (json.activeCategory as string | null | undefined) !== undefined
+            ? (json.activeCategory as string | null)
+            : prev.enrichStatus.activeCategory,
+      };
+      // Если задача принята в очередь — сразу убираем «Продолжить», не ждём poll.
+      if (json.ok && (json.queued || json.duplicate)) {
+        nextStatus.paused = false;
+        nextStatus.queued = true;
+        if (json.running || fsaQueue?.enrichRunning) {
+          nextStatus.running = true;
+        }
+      }
+      return {
+        ...prev,
+        enrichPending: pending ?? prev.enrichPending,
+        enrichStatus: nextStatus,
+        fsaQueue: fsaQueue ?? prev.fsaQueue,
+      };
+    });
   }
 
   /** Полная загрузка списков — только старт / Обновить / после действий. */
@@ -673,41 +735,17 @@ export function OutreachPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
 
+  // lite-poll всегда, пока вкладка открыта (счётчики + кнопки).
+  // Интервал короче при активной FSA/enrich; эффект НЕ перезапускаем на каждый тик.
   useEffect(() => {
-    if (!active) return;
-    const running = data?.enrichStatus?.running;
-    const stopping = data?.enrichStatus?.stopping;
-    const queued = data?.enrichStatus?.queued;
-    const pending = data?.enrichPending ?? 0;
-    const fsaBusy =
+    pollBusyRef.current =
+      Boolean(data?.enrichStatus?.running) ||
+      Boolean(data?.enrichStatus?.stopping) ||
+      Boolean(data?.enrichStatus?.queued) ||
+      (data?.enrichPending ?? 0) > 0 ||
       Boolean(data?.fsaQueue?.running) ||
       (data?.fsaQueue?.pendingHigh ?? 0) + (data?.fsaQueue?.pendingLow ?? 0) > 0;
-    if (!running && !stopping && !queued && pending === 0 && !fsaBusy) return;
-
-    // Не setInterval-спам: следующий тик только после завершения предыдущего.
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-
-    const tick = async () => {
-      if (cancelled) return;
-      await refreshStatus();
-      if (cancelled) return;
-      timer = setTimeout(() => {
-        void tick();
-      }, 10_000);
-    };
-    timer = setTimeout(() => {
-      void tick();
-    }, 10_000);
-
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    active,
-    category,
     data?.enrichStatus?.running,
     data?.enrichStatus?.stopping,
     data?.enrichStatus?.queued,
@@ -717,10 +755,53 @@ export function OutreachPanel({
     data?.fsaQueue?.pendingLow,
   ]);
 
+  useEffect(() => {
+    if (!active) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const tick = async () => {
+      if (cancelled) return;
+      if (loadedOnce.current) {
+        await refreshStatus();
+      }
+      if (cancelled) return;
+      const delay = pollBusyRef.current ? 4_000 : 10_000;
+      timer = setTimeout(() => {
+        void tick();
+      }, delay);
+    };
+
+    // Первый тик быстро — чтобы кнопки/статус не «висели» после действий.
+    timer = setTimeout(() => {
+      void tick();
+    }, 1_500);
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, category]);
+
   async function startBackgroundEnrich(resetCounters = false) {
     setError("");
     setMessage("");
     setEnrichStarting(true);
+    // Оптимистично: сразу «в очереди», иначе до ответа API остаётся «Продолжить».
+    setData((prev) =>
+      prev
+        ? {
+            ...prev,
+            enrichStatus: {
+              ...prev.enrichStatus,
+              paused: false,
+              queued: true,
+              stopping: false,
+            },
+          }
+        : prev
+    );
     try {
       const res = await fetch(
         `/api/admin/outreach/enrich?category=${encodeURIComponent(category)}`,
@@ -731,30 +812,33 @@ export function OutreachPanel({
           body: JSON.stringify({ force: true, resetCounters }),
         }
       );
-      const json = await res.json().catch(() => ({}));
+      const json = (await res.json().catch(() => ({}))) as Record<
+        string,
+        unknown
+      >;
       if (!res.ok) {
-        setError(json.error || "Не удалось запустить фоновое обогащение");
+        setError(
+          (json.error as string) || "Не удалось запустить фоновое обогащение"
+        );
+        await refreshStatus();
         return;
       }
+      applyEnrichApiPayload(json);
       if (json.queued || json.duplicate) {
         setMessage(
-          json.message ||
+          (json.message as string) ||
             (json.duplicate
               ? "Обработка email уже в очереди — ждём следующий запуск."
               : "Обработка email поставлена в очередь.")
         );
-        await refresh(true);
-        return;
-      }
-      if (json.message && json.ok) {
+      } else if (json.message && json.ok) {
         setMessage(String(json.message));
-        await refresh(true);
-        return;
+      } else if (json.lastError) {
+        setError(String(json.lastError));
       }
-      if (json.lastError) {
-        setError(json.lastError);
-      }
-      await refresh(true);
+      // Lite сразу; полный список — без silent-склейки со старым запросом.
+      await refreshStatus();
+      void refresh();
     } finally {
       setEnrichStarting(false);
     }
@@ -762,19 +846,39 @@ export function OutreachPanel({
 
   async function stopEnrich() {
     setMessage("Убираем из очереди…");
-    await fetch(
+    setData((prev) =>
+      prev
+        ? {
+            ...prev,
+            enrichStatus: {
+              ...prev.enrichStatus,
+              stopping: prev.enrichStatus.running,
+              queued: false,
+              paused: true,
+              running: false,
+            },
+          }
+        : prev
+    );
+    const res = await fetch(
       `/api/admin/outreach/enrich?category=${encodeURIComponent(
         category
       )}`,
       {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "stop" }),
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "stop" }),
       }
     );
+    const json = (await res.json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
+    applyEnrichApiPayload({ ...json, queued: false, paused: true });
     setMessage("Обработка email снята с очереди.");
-    await refresh(true);
+    await refreshStatus();
+    void refresh();
   }
 
   async function cancelFsaQueue(scope: "all" | "scan" | "enrich" = "all") {
@@ -795,7 +899,25 @@ export function OutreachPanel({
       return;
     }
     setMessage(json.message || "Снято с очереди");
-    await refresh(true);
+    if (json.fsaQueue) {
+      setData((prev) =>
+        prev
+          ? {
+              ...prev,
+              fsaQueue: json.fsaQueue,
+              enrichStatus: {
+                ...prev.enrichStatus,
+                queued: Boolean(json.fsaQueue?.enrichQueued),
+                running:
+                  prev.enrichStatus.running ||
+                  Boolean(json.fsaQueue?.enrichRunning),
+              },
+            }
+          : prev
+      );
+    }
+    await refreshStatus();
+    void refresh();
   }
 
   function selectFilter(filter: ListFilter) {
@@ -847,6 +969,11 @@ export function OutreachPanel({
             ? `В очередь: +${amount} (задач догрузки: ${pending}). Можно жать ещё — page/sort возьмутся актуальные на момент запуска.`
             : `Задача на ${amount} записей поставлена в очередь. Данные обновятся автоматически.`
         );
+        if (json.fsaQueue) {
+          setData((prev) =>
+            prev ? { ...prev, fsaQueue: json.fsaQueue } : prev
+          );
+        }
         await refreshStatus();
         return;
       }
@@ -1060,10 +1187,12 @@ export function OutreachPanel({
 
   const currentFilter = filterMeta[listFilter];
   const autoSendActive = Boolean(data?.schedule?.enabled);
-  const enrichRunning =
-    Boolean(data?.enrichStatus?.running) || enrichStarting;
+  const enrichRunning = Boolean(data?.enrichStatus?.running);
   const enrichStopping = Boolean(data?.enrichStatus?.stopping);
-  const enrichQueued = Boolean(data?.enrichStatus?.queued);
+  const enrichQueued =
+    Boolean(data?.enrichStatus?.queued) ||
+    Boolean(data?.fsaQueue?.enrichQueued) ||
+    enrichStarting;
   const enrichPaused =
     Boolean(data?.enrichStatus?.paused) && !enrichQueued && !enrichRunning;
   const enrichPending = data?.enrichPending ?? 0;
@@ -1193,9 +1322,10 @@ export function OutreachPanel({
               <button
                 type="button"
                 onClick={() => void stopEnrich()}
-                className="btn-ghost px-3 py-1.5 text-xs"
+                disabled={enrichStarting}
+                className="btn-ghost px-3 py-1.5 text-xs disabled:opacity-50"
               >
-                Убрать из очереди
+                {enrichStarting ? "Запускаем…" : "Убрать из очереди"}
               </button>
             ) : enrichPending > 0 ? (
               <button

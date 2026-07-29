@@ -78,10 +78,12 @@ export async function POST(request: Request) {
   return NextResponse.json({
     ...status,
     ok: true,
-    queued: true,
+    // Реальный статус + факт постановки: UI сразу меняет кнопку.
+    queued: Boolean(status.queued || status.running || queued.accepted),
     duplicate: queued.duplicate,
     started: false,
     alreadyRunning: status.running,
+    pending: status.pending,
     message: queued.duplicate
       ? "Обработка email уже в очереди — ждём следующий запуск."
       : "Обработка email поставлена в очередь и уже запускается.",
