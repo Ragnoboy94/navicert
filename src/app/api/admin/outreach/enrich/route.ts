@@ -72,6 +72,7 @@ export async function POST(request: Request) {
   const queueStatus = getFsaQueueStatus(category);
 
   return NextResponse.json({
+    ...status,
     ok: true,
     queued: true,
     duplicate: queued.duplicate,
@@ -81,6 +82,5 @@ export async function POST(request: Request) {
       ? "Обработка email уже в очереди — ждём следующий запуск."
       : "Обработка email поставлена в очередь и пойдёт через cron.",
     fsaQueue: queueStatus,
-    ...status,
   });
 }
