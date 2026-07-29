@@ -107,9 +107,24 @@ async function main() {
   const enableBtn = page.getByRole("button", { name: /^включить$/i });
   if (!(await enableBtn.isDisabled())) {
     await enableBtn.click();
-    await page.waitForTimeout(500);
+    const disableBtn = page.getByRole("button", { name: /^выключить$/i });
+    await disableBtn.waitFor({ state: "visible", timeout: 30_000 });
+    const deadline = Date.now() + 30_000;
+    while (await disableBtn.isDisabled()) {
+      if (Date.now() > deadline) {
+        throw new Error("Выключить stayed disabled after Включить");
+      }
+      await page.waitForTimeout(200);
+    }
     console.log("  ✓ Включить автоотправку");
-    await page.getByRole("button", { name: /^выключить$/i }).click();
+    await disableBtn.click();
+    const enableDeadline = Date.now() + 30_000;
+    while (await enableBtn.isDisabled()) {
+      if (Date.now() > enableDeadline) {
+        throw new Error("Включить stayed disabled after Выключить");
+      }
+      await page.waitForTimeout(200);
+    }
     console.log("  ✓ Выключить автоотправку");
   } else {
     await page.getByRole("button", { name: /сохранить лимит/i }).click();

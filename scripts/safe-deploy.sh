@@ -57,6 +57,7 @@ if [ -d "$BK/data-snapshot" ]; then
     outreach-certificates-sent.json \
     outreach-certificates-schedule.json \
     outreach-certificates-queue.json \
+    outreach-fsa-jobs.json \
     fsa-token.json
   do
     test -f "$BK/data-snapshot/$f" && cp -a "$BK/data-snapshot/$f" "data/$f" || true

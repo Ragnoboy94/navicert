@@ -294,7 +294,17 @@ for name in ('services.json', 'categories.json', 'site.json', 'articles.json'):
         test -f "$BK/leads.json" && cp -a "$BK/leads.json" data/leads.json || true
         if [ -d "$BK/data-snapshot" ]; then
           mkdir -p data
-          for f in outreach-sent.json outreach-unsubscribed.json outreach-schedule.json outreach-queue.json fsa-token.json; do
+          for f in \
+            outreach-sent.json \
+            outreach-unsubscribed.json \
+            outreach-schedule.json \
+            outreach-queue.json \
+            outreach-certificates-sent.json \
+            outreach-certificates-schedule.json \
+            outreach-certificates-queue.json \
+            outreach-fsa-jobs.json \
+            fsa-token.json
+          do
             test -f "$BK/data-snapshot/$f" && cp -a "$BK/data-snapshot/$f" "data/$f" || true
           done
         fi
@@ -419,9 +429,10 @@ if counts_path.exists():
         #!/bin/bash
         set -euo pipefail
         ENV_FILE="{APP_DIR}/.env.local"
-        SECRET=$(grep -E '^OUTREACH_CRON_SECRET=' "$ENV_FILE" | cut -d= -f2- || true)
+        SECRET=$(grep -E '^OUTREACH_CRON_SECRET=' "$ENV_FILE" | cut -d= -f2- | tr -d '"' | tr -d "'" || true)
         if [ -z "$SECRET" ]; then exit 0; fi
-        curl -fsS -X POST -H "Authorization: Bearer $SECRET" http://127.0.0.1:3000/api/outreach/cron >/dev/null
+        # Не висеть вечно, если next/scan застрял: иначе следующий cron не стартует.
+        curl -fsS --max-time 280 -X POST -H "Authorization: Bearer $SECRET" http://127.0.0.1:3000/api/outreach/cron >/dev/null || exit 0
         EOF
         chmod +x /usr/local/bin/navicert-outreach-cron
 

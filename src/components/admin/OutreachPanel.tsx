@@ -94,6 +94,7 @@ type FsaQueueStatus = {
   enrichQueued?: boolean;
   enrichRunning?: boolean;
   scanQueued?: boolean;
+  pendingScanAppend?: number;
   lastSummary: string | null;
   lastError: string | null;
 };
@@ -117,6 +118,9 @@ type OutreachState = {
   testEmail: string | null;
   items: QueueItem[];
   rejected: QueueItem[];
+  /** Счётчики с сервера (есть и в lite-ответе без списков) */
+  itemsCount?: number;
+  rejectedCount?: number;
   sendableCount: number;
   unsubscribed: UnsubscribedItem[];
   sentCount: number;
@@ -531,26 +535,127 @@ export function OutreachPanel({
   const [checkingFsaAccess, setCheckingFsaAccess] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const loadedOnce = useRef(false);
+  const lastFullRefreshAt = useRef(0);
+  const listSignature = useRef("");
+  /** Пока запрос в полёте — не плодим одинаковые /api/admin/outreach. */
+  const fullRefreshInFlight = useRef<Promise<void> | null>(null);
+  const statusRefreshInFlight = useRef<Promise<void> | null>(null);
 
-  async function refresh(silent = false) {
-    if (!silent) setLoading(true);
-    if (!silent) setError("");
-    const res = await fetch(
-      `/api/admin/outreach?category=${encodeURIComponent(category)}`,
-      { credentials: "same-origin" }
-    );
-    if (!res.ok) {
-      if (!silent) setError("Не удалось загрузить данные рассылки");
-      if (!silent) setLoading(false);
-      return;
-    }
-    const json = await res.json();
-    setData(json);
-    loadedOnce.current = true;
+  function applyScheduleFrom(json: OutreachState) {
     if (json.schedule) {
       setEmailsPerDay(json.schedule.emailsPerDay ?? 50);
     }
-    if (!silent) setLoading(false);
+  }
+
+  /** Полная загрузка списков — только старт / Обновить / после действий. */
+  async function refresh(silent = false) {
+    if (fullRefreshInFlight.current) {
+      // Silent-poll: ждём текущий запрос и выходим (без дублей).
+      // После мутаций (silent=false) после ожидания грузим ещё раз —
+      // иначе можно «приклеиться» к ответу, начатому до изменения.
+      await fullRefreshInFlight.current;
+      if (silent) return;
+    }
+
+    const run = (async () => {
+      if (!silent) setLoading(true);
+      if (!silent) setError("");
+      try {
+        const res = await fetch(
+          `/api/admin/outreach?category=${encodeURIComponent(category)}`,
+          { credentials: "same-origin" }
+        );
+        if (!res.ok) {
+          if (!silent) setError("Не удалось загрузить данные рассылки");
+          return;
+        }
+        const json = (await res.json()) as OutreachState;
+        setData(json);
+        loadedOnce.current = true;
+        lastFullRefreshAt.current = Date.now();
+        listSignature.current = [
+          json.itemsCount ?? json.items?.length ?? 0,
+          json.rejectedCount ?? json.rejected?.length ?? 0,
+          json.sentCount ?? 0,
+          json.enrichStatus?.emailsFoundTotal ?? 0,
+          json.enrichStatus?.processedTotal ?? 0,
+        ].join(":");
+        applyScheduleFrom(json);
+      } finally {
+        if (!silent) setLoading(false);
+      }
+    })();
+
+    fullRefreshInFlight.current = run.finally(() => {
+      if (fullRefreshInFlight.current === run) {
+        fullRefreshInFlight.current = null;
+      }
+    });
+    await fullRefreshInFlight.current;
+  }
+
+  /** Лёгкий poll: статус + счётчики, без МБ списков. */
+  async function refreshStatus() {
+    if (!loadedOnce.current) return;
+    // Уже идёт full или lite — не стартуем ещё один такой же.
+    if (fullRefreshInFlight.current || statusRefreshInFlight.current) return;
+
+    const run = (async () => {
+      const res = await fetch(
+        `/api/admin/outreach?category=${encodeURIComponent(category)}&lite=1`,
+        { credentials: "same-origin" }
+      );
+      if (!res.ok) return;
+      const json = (await res.json()) as OutreachState;
+      const nextSig = [
+        json.itemsCount ?? 0,
+        json.rejectedCount ?? 0,
+        json.sentCount ?? 0,
+        json.enrichStatus?.emailsFoundTotal ?? 0,
+        json.enrichStatus?.processedTotal ?? 0,
+      ].join(":");
+
+      setData((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          scannedAt: json.scannedAt,
+          nextApiPage: json.nextApiPage,
+          apiCursor: json.apiCursor,
+          cursorLabel: json.cursorLabel,
+          hasMore: json.hasMore,
+          enrichPending: json.enrichPending,
+          enrichStatus: json.enrichStatus,
+          fsaQueue: json.fsaQueue,
+          itemsCount: json.itemsCount,
+          rejectedCount: json.rejectedCount,
+          sendableCount: json.sendableCount,
+          sentCount: json.sentCount,
+          schedule: json.schedule,
+          scheduleStats: json.scheduleStats,
+          testMode: json.testMode,
+          testEmail: json.testEmail,
+          range: json.range,
+        };
+      });
+      applyScheduleFrom(json);
+
+      // Список устарел — один полный silent refresh, не чаще раза в 45 с.
+      if (
+        nextSig !== listSignature.current &&
+        Date.now() - lastFullRefreshAt.current > 45_000
+      ) {
+        listSignature.current = nextSig;
+        void refresh(true);
+      }
+    })();
+
+    statusRefreshInFlight.current = run.finally(() => {
+      if (statusRefreshInFlight.current === run) {
+        statusRefreshInFlight.current = null;
+      }
+    });
+    await statusRefreshInFlight.current;
   }
 
   useEffect(() => {
@@ -561,10 +666,10 @@ export function OutreachPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [category]);
 
-  // Вернулись на вкладку — тихо подтянуть статус, без «Загрузка…» и сброса списка
+  // Вернулись на вкладку — только статус, без повторной выгрузки МБ
   useEffect(() => {
     if (!active || !loadedOnce.current) return;
-    void refresh(true);
+    void refreshStatus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
 
@@ -579,11 +684,26 @@ export function OutreachPanel({
       (data?.fsaQueue?.pendingHigh ?? 0) + (data?.fsaQueue?.pendingLow ?? 0) > 0;
     if (!running && !stopping && !queued && pending === 0 && !fsaBusy) return;
 
-    const timer = setInterval(() => {
-      void refresh(true);
+    // Не setInterval-спам: следующий тик только после завершения предыдущего.
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const tick = async () => {
+      if (cancelled) return;
+      await refreshStatus();
+      if (cancelled) return;
+      timer = setTimeout(() => {
+        void tick();
+      }, 10_000);
+    };
+    timer = setTimeout(() => {
+      void tick();
     }, 10_000);
 
-    return () => clearInterval(timer);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     active,
@@ -715,16 +835,24 @@ export function OutreachPanel({
       }
 
       if (json.queued) {
-        const amount = mode === "append" ? APPEND_LOAD_MAX : INITIAL_LOAD_MAX;
+        const amount =
+          maxItemsOverride ??
+          (mode === "reset" ? INITIAL_LOAD_MAX : APPEND_LOAD_MAX);
+        const pending =
+          typeof json.pendingAppendScans === "number"
+            ? json.pendingAppendScans
+            : null;
         setMessage(
-          `Задача на ${amount} записей поставлена в очередь. Данные обновятся автоматически.`
+          mode === "append" && pending != null
+            ? `В очередь: +${amount} (задач догрузки: ${pending}). Можно жать ещё — page/sort возьмутся актуальные на момент запуска.`
+            : `Задача на ${amount} записей поставлена в очередь. Данные обновятся автоматически.`
         );
-        await refresh(true);
+        await refreshStatus();
         return;
       }
 
-      setMessage("Запрос принят, ожидаем обновление очереди.");
-      await refresh(true);
+      setMessage(json.message || "Запрос принят, ожидаем обновление очереди.");
+      await refreshStatus();
     } catch (err) {
       setError(
         err instanceof Error
@@ -819,6 +947,11 @@ export function OutreachPanel({
     }
 
     setEmailsPerDay(json.schedule?.emailsPerDay ?? emailsPerDay);
+    if (json.schedule) {
+      setData((prev) =>
+        prev ? { ...prev, schedule: json.schedule } : prev
+      );
+    }
     setMessage(
       action === "limit"
         ? `Лимит сохранён: ${json.schedule?.emailsPerDay ?? emailsPerDay} писем в сутки`
@@ -945,11 +1078,13 @@ export function OutreachPanel({
   const fsaPendingHigh = data?.fsaQueue?.pendingHigh ?? 0;
   const fsaPendingLow = data?.fsaQueue?.pendingLow ?? 0;
   // Синяя плашка обогащения уже показывает ту же фоновую задачу — не дублируем.
+  // Срочные догрузки (+100) всегда показываем в полоске очереди.
   const onlyEnrichInFsaQueue =
     enrichQueued &&
     fsaPendingHigh === 0 &&
     fsaPendingLow > 0 &&
-    !data?.fsaQueue?.scanQueued;
+    !data?.fsaQueue?.scanQueued &&
+    (data?.fsaQueue?.pendingScanAppend ?? 0) === 0;
   const showFsaQueueStrip =
     Boolean(data?.fsaQueue) &&
     !onlyEnrichInFsaQueue &&
@@ -960,8 +1095,8 @@ export function OutreachPanel({
       Boolean(data?.fsaQueue?.lastError));
 
   const queueSize =
-    (data?.items.length ?? 0) +
-    (data?.rejected.length ?? 0) +
+    (data?.itemsCount ?? data?.items.length ?? 0) +
+    (data?.rejectedCount ?? data?.rejected.length ?? 0) +
     (data?.enrichPending ?? 0);
 
   return (
@@ -1034,7 +1169,9 @@ export function OutreachPanel({
                 <strong>{enrichPending}</strong>
                 {enrichRunning && !enrichStopping
                   ? ". Можно уйти из раздела — процесс не остановится."
-                  : enrichQueued
+                  : enrichQueued && fsaPendingHigh > 0
+                    ? `. Сейчас сначала идут срочные загрузки из ФСА (${fsaPendingHigh}), email начнётся следом.`
+                    : enrichQueued
                     ? "."
                     : enrichPaused
                       ? ". Нажмите «Продолжить», чтобы возобновить."
@@ -1105,7 +1242,7 @@ export function OutreachPanel({
           </div>
           <StatFilterButton
             label="К отправке"
-            count={data?.items.length ?? 0}
+            count={data?.itemsCount ?? data?.items.length ?? 0}
             active={listFilter === "eligible"}
             onClick={() => selectFilter("eligible")}
           />
@@ -1117,7 +1254,7 @@ export function OutreachPanel({
           />
           <StatFilterButton
             label="Личные ящики"
-            count={data?.rejected.length ?? 0}
+            count={data?.rejectedCount ?? data?.rejected.length ?? 0}
             active={listFilter === "rejected"}
             onClick={() => selectFilter("rejected")}
           />
@@ -1139,7 +1276,9 @@ export function OutreachPanel({
             <Search className={`h-4 w-4 ${scanning || appending ? "animate-pulse" : ""}`} />
             {scanning || appending
               ? "Загрузка…"
-              : `Загрузить из ФСА (до ${INITIAL_LOAD_MAX})`}
+              : data?.scannedAt && (data?.fsaQueue?.pendingScanAppend ?? 0) > 0
+                ? `Загрузить ещё до ${INITIAL_LOAD_MAX} (в очереди ${data.fsaQueue?.pendingScanAppend})`
+                : `Загрузить из ФСА (до ${INITIAL_LOAD_MAX})`}
           </button>
 
           <button
@@ -1149,7 +1288,11 @@ export function OutreachPanel({
             className="btn-ghost inline-flex gap-2 px-5 py-2.5 text-sm"
           >
             <ChevronDown className={`h-4 w-4 ${appending ? "animate-pulse" : ""}`} />
-            {appending ? "Догрузка…" : `Догрузить следующие ${APPEND_LOAD_MAX}`}
+            {appending
+              ? "Догрузка…"
+              : (data?.fsaQueue?.pendingScanAppend ?? 0) > 0
+                ? `Догрузить ещё ${APPEND_LOAD_MAX} (в очереди ${data?.fsaQueue?.pendingScanAppend})`
+                : `Догрузить следующие ${APPEND_LOAD_MAX}`}
           </button>
 
           <label className="text-sm">

@@ -87,12 +87,13 @@ function writeState(state: FsaOrchestratorState): void {
 function recoverStaleLock(state: FsaOrchestratorState): FsaOrchestratorState {
   if (!state.running) return state;
 
-  const STALE_MS = 20 * 60 * 1000;
+  // С heartbeat раз в ~20с: 8 мин без обновления = зависший lock.
+  const STALE_MS = 8 * 60 * 1000;
   const updatedAt = Date.parse(state.updatedAt);
   const staleByTime =
     !Number.isFinite(updatedAt) || Date.now() - updatedAt > STALE_MS;
 
-  // Живой drain обновляет updatedAt при старте/финише.
+  // Живой drain обновляет updatedAt при старте/финише и heartbeat.
   // Если running давно без обновлений — lock мёртвый.
   if (!staleByTime) return state;
 
@@ -123,23 +124,39 @@ function makeId(): string {
   return `job_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function sameScanPayload(a: FsaScanPayload, b: FsaScanPayload): boolean {
-  return a.mode === b.mode && a.maxItems === b.maxItems && a.pageSize === b.pageSize;
-}
-
 function isDuplicatePending(state: FsaOrchestratorState, options: EnqueueOptions): FsaJob | null {
   for (const job of state.jobs) {
     if (job.status !== "pending" && job.status !== "running") continue;
     if (job.type !== options.type) continue;
     if (job.category !== options.category) continue;
 
-    if (job.type === "scan" && options.type === "scan" && options.payload) {
-      if (sameScanPayload(job.payload, options.payload as FsaScanPayload)) return job;
+    if (job.type === "scan" && options.type === "scan") {
+      const incoming = options.payload as FsaScanPayload | undefined;
+      // append (+100 / +1000): можно ставить пачкой. Каждая задача при старте
+      // читает актуальный apiCursor (page/sort/slice) из очереди и двигает дальше.
+      // Схлопываем только повторный reset, пока первая полная загрузка ждёт/идёт.
+      if (incoming?.mode === "append") continue;
+      if (job.payload.mode === "reset") return job;
       continue;
     }
     return job;
   }
   return null;
+}
+
+const MAX_PENDING_APPEND_SCANS = 20;
+
+function countPendingAppendScans(
+  state: FsaOrchestratorState,
+  category: OutreachCategory
+): number {
+  return state.jobs.filter(
+    (job) =>
+      job.status === "pending" &&
+      job.type === "scan" &&
+      job.category === category &&
+      job.payload.mode === "append"
+  ).length;
 }
 
 function priorityWeight(priority: FsaJobPriority): number {
@@ -158,7 +175,10 @@ function pickNextJob(jobs: FsaJob[]): FsaJob | null {
 }
 
 async function runScanJob(job: Extract<FsaJob, { type: "scan" }>): Promise<string> {
-  const existing = job.payload.mode === "append" ? readOutreachQueue(job.category) : null;
+  // Важно: очередь читаем в момент запуска, не из payload —
+  // предыдущий scan уже мог сдвинуть page/sort/slice.
+  const existing =
+    job.payload.mode === "append" ? readOutreachQueue(job.category) : null;
   const result = await bulkLoadList({
     mode: job.payload.mode,
     maxItems: job.payload.maxItems,
@@ -244,11 +264,32 @@ export function enqueueFsaJob(options: EnqueueOptions): {
   accepted: boolean;
   duplicate: boolean;
   jobId: string;
+  pendingAppendScans?: number;
 } {
   const state = readState();
   const duplicate = isDuplicatePending(state, options);
   if (duplicate) {
-    return { accepted: true, duplicate: true, jobId: duplicate.id };
+    return {
+      accepted: true,
+      duplicate: true,
+      jobId: duplicate.id,
+      pendingAppendScans: countPendingAppendScans(state, options.category),
+    };
+  }
+
+  if (
+    options.type === "scan" &&
+    (options.payload as FsaScanPayload | undefined)?.mode === "append"
+  ) {
+    const pendingAppends = countPendingAppendScans(state, options.category);
+    if (pendingAppends >= MAX_PENDING_APPEND_SCANS) {
+      return {
+        accepted: false,
+        duplicate: true,
+        jobId: "",
+        pendingAppendScans: pendingAppends,
+      };
+    }
   }
 
   const base: FsaJobBase = {
@@ -282,7 +323,12 @@ export function enqueueFsaJob(options: EnqueueOptions): {
 
   state.jobs = trimHistory([...state.jobs, job]);
   writeState(state);
-  return { accepted: true, duplicate: false, jobId: job.id };
+  return {
+    accepted: true,
+    duplicate: false,
+    jobId: job.id,
+    pendingAppendScans: countPendingAppendScans(state, options.category),
+  };
 }
 
 export async function drainFsaJobs(
@@ -323,6 +369,13 @@ export async function drainFsaJobs(
     } as FsaJob;
     writeState(updated);
 
+    const heartbeat = setInterval(() => {
+      const live = readState();
+      if (!live.running) return;
+      // touch updatedAt — иначе долгий scan выглядит как мёртвый lock
+      writeState(live);
+    }, 20_000);
+
     try {
       const summary = await runJob(updated.jobs[idx]);
       const complete = readState();
@@ -354,11 +407,26 @@ export async function drainFsaJobs(
       complete.jobs = trimHistory(complete.jobs);
       writeState(complete);
       failed += 1;
+    } finally {
+      clearInterval(heartbeat);
     }
     ran += 1;
   }
 
   return { ran, ok, failed };
+}
+
+/** Запуск drain после ответа админке — не ждать ближайший cron (до 20 мин). */
+export function kickFsaDrain(
+  category?: OutreachCategory,
+  maxMs = 180_000
+): void {
+  void drainFsaJobs({ category, maxMs }).catch((error) => {
+    console.error(
+      "kickFsaDrain failed:",
+      error instanceof Error ? error.message : error
+    );
+  });
 }
 
 export function cancelPendingFsaJobs(
@@ -368,24 +436,33 @@ export function cancelPendingFsaJobs(
   const allow = new Set(types ?? ["scan", "enrich", "health"]);
   const state = readState();
   let cancelled = 0;
+  let clearedRunning = false;
   const jobs = state.jobs.map((job) => {
     if (
       job.category === category &&
-      job.status === "pending" &&
+      (job.status === "pending" || job.status === "running") &&
       allow.has(job.type)
     ) {
       cancelled += 1;
+      if (job.status === "running") clearedRunning = true;
       return {
         ...job,
         status: "failed" as const,
         finishedAt: nowIso(),
+        startedAt: undefined,
         error: "Снято с очереди вручную",
       };
     }
     return job;
   });
-  if (cancelled > 0) {
-    writeState({ ...state, jobs: trimHistory(jobs) });
+  if (cancelled > 0 || clearedRunning) {
+    const nextJobs = trimHistory(jobs);
+    writeState({
+      ...state,
+      // Lock снимаем только если убрали running-задачу (или их больше нет).
+      running: nextJobs.some((job) => job.status === "running"),
+      jobs: nextJobs,
+    });
   }
   return cancelled;
 }
@@ -402,6 +479,7 @@ export function getFsaQueueStatus(category?: OutreachCategory): {
   enrichQueued: boolean;
   enrichRunning: boolean;
   scanQueued: boolean;
+  pendingScanAppend: number;
   lastSummary: string | null;
   lastError: string | null;
 } {
@@ -424,6 +502,12 @@ export function getFsaQueueStatus(category?: OutreachCategory): {
   const scanQueued = jobs.some(
     (job) => job.type === "scan" && job.status === "pending"
   );
+  const pendingScanAppend = jobs.filter(
+    (job) =>
+      job.status === "pending" &&
+      job.type === "scan" &&
+      job.payload.mode === "append"
+  ).length;
   const completed = [...jobs]
     .filter((job) => job.status === "done" || job.status === "failed")
     .sort((a, b) => (b.finishedAt || "").localeCompare(a.finishedAt || ""));
@@ -440,6 +524,7 @@ export function getFsaQueueStatus(category?: OutreachCategory): {
     enrichQueued,
     enrichRunning,
     scanQueued,
+    pendingScanAppend,
     lastSummary: latestMeaningful?.summary ?? null,
     lastError: latestMeaningful?.error ?? null,
   };

@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { isAuthenticated } from "@/lib/auth";
 import {
   getEnrichRunnerStatus,
@@ -9,6 +9,7 @@ import {
   cancelPendingEnrichJobs,
   enqueueFsaJob,
   getFsaQueueStatus,
+  kickFsaDrain,
 } from "@/lib/outreach/fsa-orchestrator";
 import { readOutreachQueue } from "@/lib/outreach/queue";
 import type { OutreachCategory } from "@/lib/outreach/types";
@@ -68,6 +69,9 @@ export async function POST(request: Request) {
     source: "admin_enrich_button",
     payload: { maxBatches: 3 },
   });
+  if (queued.accepted) {
+    after(() => kickFsaDrain(category, 180_000));
+  }
   const status = getEnrichRunnerStatus(category);
   const queueStatus = getFsaQueueStatus(category);
 
@@ -80,7 +84,7 @@ export async function POST(request: Request) {
     alreadyRunning: status.running,
     message: queued.duplicate
       ? "Обработка email уже в очереди — ждём следующий запуск."
-      : "Обработка email поставлена в очередь и пойдёт через cron.",
+      : "Обработка email поставлена в очередь и уже запускается.",
     fsaQueue: queueStatus,
   });
 }

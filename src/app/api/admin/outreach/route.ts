@@ -70,23 +70,19 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url);
   const category = parseCategory(url.searchParams.get("category"));
+  const lite =
+    url.searchParams.get("lite") === "1" ||
+    url.searchParams.get("view") === "status";
 
   const queue = readOutreachQueue(category);
   const sent = readSentRecordsByCategory(category);
-  const sentLookup = buildSentLookup(sent);
   const range = queue?.range ?? getExpiringMonthRange();
   const scheduleStats = getScheduleStats(category);
   const fsaQueue = getFsaQueueStatus(category);
+  const itemsRaw = queue?.items ?? [];
+  const rejectedRaw = queue?.rejected ?? [];
 
-  const items = (queue?.items ?? []).map((item) =>
-    decorateItem(item, sentLookup, category, sent)
-  );
-  const rejected = (queue?.rejected ?? []).map((item) =>
-    decorateItem(item, sentLookup, category, sent)
-  );
-  const sendSummary = summarizeSendBlocks(queue?.items ?? [], { category });
-
-  return NextResponse.json({
+  const base = {
     category,
     categoryLabel:
       category === "expiring_certificates"
@@ -109,20 +105,13 @@ export async function GET(request: Request) {
     fsaQueue,
     testMode: isOutreachTestMode(),
     testEmail: isOutreachTestMode() ? getOutreachTestEmail() : null,
-    items,
-    rejected,
-    sendableCount: pickSendableCandidates(queue?.items ?? [], {
+    itemsCount: itemsRaw.length,
+    rejectedCount: rejectedRaw.length,
+    sendableCount: pickSendableCandidates(itemsRaw, {
       forAutoSend: true,
       category,
     }).length,
-    sendSummary,
-    unsubscribed: listUnsubscribesByCategory(category).map((item) => ({
-      ...item,
-      categoryLabel: getCategoryLabel(item.category),
-    })),
     sentCount: sent.length,
-    sent: sent.slice().reverse(),
-    recentSent: sent.slice(-15).reverse(),
     schedule: scheduleStats.schedule,
     scheduleStats: {
       sentToday: scheduleStats.sentToday,
@@ -132,5 +121,32 @@ export async function GET(request: Request) {
       workHoursLabel: scheduleStats.workHoursLabel,
       nextRunLabel: scheduleStats.nextRunLabel,
     },
+  };
+
+  // Лёгкий poll для UI: без items/rejected/sent (~КБ вместо МБ).
+  if (lite) {
+    return NextResponse.json(base);
+  }
+
+  const sentLookup = buildSentLookup(sent);
+  const items = itemsRaw.map((item) =>
+    decorateItem(item, sentLookup, category, sent)
+  );
+  const rejected = rejectedRaw.map((item) =>
+    decorateItem(item, sentLookup, category, sent)
+  );
+  const sendSummary = summarizeSendBlocks(itemsRaw, { category });
+
+  return NextResponse.json({
+    ...base,
+    items,
+    rejected,
+    sendSummary,
+    unsubscribed: listUnsubscribesByCategory(category).map((item) => ({
+      ...item,
+      categoryLabel: getCategoryLabel(item.category),
+    })),
+    sent: sent.slice().reverse(),
+    recentSent: sent.slice(-15).reverse(),
   });
 }

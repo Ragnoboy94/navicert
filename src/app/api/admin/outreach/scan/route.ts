@@ -1,6 +1,6 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { isAuthenticated } from "@/lib/auth";
-import { enqueueFsaJob } from "@/lib/outreach/fsa-orchestrator";
+import { enqueueFsaJob, kickFsaDrain } from "@/lib/outreach/fsa-orchestrator";
 import { readOutreachQueue } from "@/lib/outreach/queue";
 import type { OutreachCategory } from "@/lib/outreach/types";
 
@@ -43,13 +43,43 @@ export async function POST(request: Request) {
     payload: { mode, maxItems, pageSize },
   });
 
+  if (!enqueued.accepted) {
+    return NextResponse.json(
+      {
+        ok: false,
+        queued: false,
+        duplicate: true,
+        pendingAppendScans: enqueued.pendingAppendScans ?? 0,
+        error:
+          mode === "append"
+            ? `Уже стоит ${enqueued.pendingAppendScans ?? 0} догрузок в очереди (лимит). Дождитесь cron или очистите очередь.`
+            : "Задача уже в очереди",
+      },
+      { status: 409 }
+    );
+  }
+
+  const pendingAppend =
+    enqueued.pendingAppendScans ??
+    (mode === "append" ? 1 : 0);
+
+  if (enqueued.accepted) {
+    // Даже duplicate — пнуть drain: вдруг предыдущий curl/cron завис.
+    after(() => kickFsaDrain(category, 180_000));
+  }
+
   return NextResponse.json({
     ok: true,
     queued: true,
     duplicate: enqueued.duplicate,
     jobId: enqueued.jobId,
+    pendingAppendScans: pendingAppend,
     message: enqueued.duplicate
-      ? "Задача уже стоит в очереди. Когда очередь дойдёт, список обновится."
-      : "Запрос добавлен в очередь. Данные подтянутся автоматически в ближайшем запуске cron.",
+      ? mode === "reset"
+        ? "Полная загрузка уже стоит в очереди."
+        : "Задача уже стоит в очереди. Когда очередь дойдёт, список обновится."
+      : mode === "append"
+        ? `В очередь: +${maxItems} (догрузок: ${pendingAppend}). Обработка уже запускается.`
+        : "Запрос добавлен в очередь — обработка уже запускается.",
   });
 }
