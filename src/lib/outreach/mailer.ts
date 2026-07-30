@@ -11,7 +11,12 @@ import {
   smtpErrorReason,
 } from "./smtp-transport";
 import { buildOutreachEmail, getOutreachFromName } from "./template";
-import type { FsaDeclaration, OutreachCategory, OutreachSendRecord } from "./types";
+import type {
+  FsaDeclaration,
+  OutreachCategory,
+  OutreachQueueItem,
+  OutreachSendRecord,
+} from "./types";
 import { isUnsubscribed } from "./unsubscribe";
 
 const DEFAULT_CATEGORY: OutreachCategory = "expiring";
@@ -167,6 +172,17 @@ export function getSendBlockReason(
 
   const { status, reason } = classifyEmail(declaration.applicant?.email);
   if (status !== "eligible") return reason ?? "no_corporate_email";
+
+  const rejectReason = (declaration as OutreachQueueItem).emailRejectReason;
+  if (rejectReason === "no_mx" || rejectReason === "invalid_syntax") {
+    return rejectReason;
+  }
+  if (
+    rejectReason?.startsWith("domain_typo_") ||
+    rejectReason === "domain_double_ru"
+  ) {
+    return rejectReason;
+  }
 
   return null;
 }

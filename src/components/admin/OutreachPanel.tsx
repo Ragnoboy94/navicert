@@ -28,6 +28,7 @@ type QueueItem = {
   sendable: boolean;
   autoSendable?: boolean;
   excludeFromAutoSend?: boolean;
+  emailStatus?: "eligible" | "rejected" | "no_email";
   blockLabel?: string;
   rejectLabel?: string;
   applicant: {
@@ -172,6 +173,21 @@ function statusBadge(item: QueueItem) {
       </span>
     );
   }
+  // Rejected / no MX и т.п. — не «в очереди на отправку».
+  if (item.emailStatus === "rejected" || item.emailStatus === "no_email") {
+    return (
+      <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">
+        {item.rejectLabel ?? "не для автоотправки"}
+      </span>
+    );
+  }
+  if (item.rejectLabel) {
+    return (
+      <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">
+        {item.rejectLabel}
+      </span>
+    );
+  }
   if (!item.sendable && item.blockLabel) {
     return (
       <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">
@@ -208,7 +224,7 @@ function statusBadge(item: QueueItem) {
   }
   return (
     <span className="rounded-full bg-background px-2 py-0.5 text-xs text-muted">
-      в очереди
+      готов к отправке
     </span>
   );
 }
@@ -657,10 +673,16 @@ export function OutreachPanel({
   }
 
   /** Лёгкий poll: статус + счётчики, без МБ списков. */
-  async function refreshStatus() {
+  async function refreshStatus(opts?: { force?: boolean }) {
     if (!loadedOnce.current) return;
-    // Уже идёт full или lite — не стартуем ещё один такой же.
-    if (fullRefreshInFlight.current || statusRefreshInFlight.current) return;
+    if (fullRefreshInFlight.current) {
+      await fullRefreshInFlight.current;
+      if (!opts?.force) return;
+    }
+    if (statusRefreshInFlight.current) {
+      await statusRefreshInFlight.current;
+      if (!opts?.force) return;
+    }
 
     const run = (async () => {
       const res = await fetch(
@@ -966,15 +988,29 @@ export function OutreachPanel({
             : null;
         setMessage(
           mode === "append" && pending != null
-            ? `В очередь: +${amount} (задач догрузки: ${pending}). Можно жать ещё — page/sort возьмутся актуальные на момент запуска.`
+            ? `В очередь: +${amount} (задач догрузки: ${pending}). Обработка уже запускается.`
             : `Задача на ${amount} записей поставлена в очередь. Данные обновятся автоматически.`
         );
-        if (json.fsaQueue) {
-          setData((prev) =>
-            prev ? { ...prev, fsaQueue: json.fsaQueue } : prev
-          );
-        }
-        await refreshStatus();
+        const fsaQueue = json.fsaQueue as FsaQueueStatus | undefined;
+        setData((prev) => {
+          if (!prev) return prev;
+          const nextFsa: FsaQueueStatus = fsaQueue ?? {
+            pendingHigh: Math.max(prev.fsaQueue?.pendingHigh ?? 0, 1),
+            pendingLow: prev.fsaQueue?.pendingLow ?? 0,
+            running: Boolean(prev.fsaQueue?.running),
+            scanQueued: true,
+            pendingScanAppend:
+              mode === "append"
+                ? pending ?? Math.max(prev.fsaQueue?.pendingScanAppend ?? 0, 1)
+                : prev.fsaQueue?.pendingScanAppend ?? 0,
+            enrichQueued: prev.fsaQueue?.enrichQueued,
+            enrichRunning: prev.fsaQueue?.enrichRunning,
+            lastSummary: prev.fsaQueue?.lastSummary ?? null,
+            lastError: prev.fsaQueue?.lastError ?? null,
+          };
+          return { ...prev, fsaQueue: nextFsa };
+        });
+        await refreshStatus({ force: true });
         return;
       }
 
@@ -1219,6 +1255,8 @@ export function OutreachPanel({
     !onlyEnrichInFsaQueue &&
     (fsaPendingHigh > 0 ||
       fsaPendingLow > 0 ||
+      (data?.fsaQueue?.pendingScanAppend ?? 0) > 0 ||
+      Boolean(data?.fsaQueue?.scanQueued) ||
       Boolean(data?.fsaQueue?.running) ||
       Boolean(data?.fsaQueue?.lastSummary) ||
       Boolean(data?.fsaQueue?.lastError));

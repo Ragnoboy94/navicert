@@ -85,6 +85,13 @@ function writeState(state: FsaOrchestratorState): void {
 
 /** Если процесс умер mid-job, running остаётся true и drain навсегда молчит. */
 function recoverStaleLock(state: FsaOrchestratorState): FsaOrchestratorState {
+  const hasRunningJob = state.jobs.some((job) => job.status === "running");
+
+  // Lock «сирота»: running=true, а ни одна задача не running — drain вечно no-op.
+  if (state.running && !hasRunningJob) {
+    return { ...state, running: false, updatedAt: nowIso() };
+  }
+
   if (!state.running) return state;
 
   // С heartbeat раз в ~20с: 8 мин без обновления = зависший lock.
@@ -100,6 +107,7 @@ function recoverStaleLock(state: FsaOrchestratorState): FsaOrchestratorState {
   return {
     ...state,
     running: false,
+    updatedAt: nowIso(),
     jobs: state.jobs.map((job) =>
       job.status === "running"
         ? {
@@ -111,6 +119,15 @@ function recoverStaleLock(state: FsaOrchestratorState): FsaOrchestratorState {
         : job
     ),
   };
+}
+
+function readStateRecovered(): FsaOrchestratorState {
+  const raw = readState();
+  const recovered = recoverStaleLock(raw);
+  if (recovered !== raw) {
+    writeState(recovered);
+  }
+  return recovered;
 }
 
 function trimHistory(jobs: FsaJob[]): FsaJob[] {
@@ -421,6 +438,7 @@ export function kickFsaDrain(
   category?: OutreachCategory,
   maxMs = 180_000
 ): void {
+  // Сразу + страховка: на части окружений after() может не дойти.
   void drainFsaJobs({ category, maxMs }).catch((error) => {
     console.error(
       "kickFsaDrain failed:",
@@ -483,7 +501,7 @@ export function getFsaQueueStatus(category?: OutreachCategory): {
   lastSummary: string | null;
   lastError: string | null;
 } {
-  const state = recoverStaleLock(readState());
+  const state = readStateRecovered();
   const jobs = category
     ? state.jobs.filter((job) => job.category === category)
     : state.jobs;

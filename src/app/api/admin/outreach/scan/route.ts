@@ -1,6 +1,10 @@
 import { NextResponse, after } from "next/server";
 import { isAuthenticated } from "@/lib/auth";
-import { enqueueFsaJob, kickFsaDrain } from "@/lib/outreach/fsa-orchestrator";
+import {
+  enqueueFsaJob,
+  getFsaQueueStatus,
+  kickFsaDrain,
+} from "@/lib/outreach/fsa-orchestrator";
 import { readOutreachQueue } from "@/lib/outreach/queue";
 import type { OutreachCategory } from "@/lib/outreach/types";
 
@@ -50,6 +54,7 @@ export async function POST(request: Request) {
         queued: false,
         duplicate: true,
         pendingAppendScans: enqueued.pendingAppendScans ?? 0,
+        fsaQueue: getFsaQueueStatus(category),
         error:
           mode === "append"
             ? `Уже стоит ${enqueued.pendingAppendScans ?? 0} догрузок в очереди (лимит). Дождитесь cron или очистите очередь.`
@@ -63,10 +68,9 @@ export async function POST(request: Request) {
     enqueued.pendingAppendScans ??
     (mode === "append" ? 1 : 0);
 
-  if (enqueued.accepted) {
-    // Даже duplicate — пнуть drain: вдруг предыдущий curl/cron завис.
-    after(() => kickFsaDrain(category, 180_000));
-  }
+  // Сразу пнуть drain (не ждать after / cron).
+  kickFsaDrain(category, 180_000);
+  after(() => kickFsaDrain(category, 180_000));
 
   return NextResponse.json({
     ok: true,
@@ -74,6 +78,7 @@ export async function POST(request: Request) {
     duplicate: enqueued.duplicate,
     jobId: enqueued.jobId,
     pendingAppendScans: pendingAppend,
+    fsaQueue: getFsaQueueStatus(category),
     message: enqueued.duplicate
       ? mode === "reset"
         ? "Полная загрузка уже стоит в очереди."

@@ -70,6 +70,7 @@ export async function POST(request: Request) {
     payload: { maxBatches: 3 },
   });
   if (queued.accepted) {
+    kickFsaDrain(category, 180_000);
     after(() => kickFsaDrain(category, 180_000));
   }
   const status = getEnrichRunnerStatus(category);
