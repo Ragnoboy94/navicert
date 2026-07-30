@@ -593,15 +593,7 @@ export async function enrichQueueBatch(
   // Декларации: email в ФСА лежит в applicant.contacts (idContactType=4, value с @).
   // Если детальная карточка пришла без email — на сайте его тоже нет, Playwright не нужен.
   // Сертификаты / сбой API — оставляем для карточек.
-  const apiConfirmedNoEmail = apiOutcomes
-    .filter(
-      (row) =>
-        row.detailFetched &&
-        !row.item.applicant?.email?.trim() &&
-        queue.category === "expiring"
-    )
-    .map((row) => row.item);
-
+  // Без email после подтверждения в rejected/UI не кладём — просто выпадают из enrich.
   const stillMissing = apiOutcomes
     .filter(
       (row) =>
@@ -645,6 +637,8 @@ export async function enrichQueueBatch(
 
   const classified = resolved.map((item) => toQueueItem(item, queue.category));
   const eligible = classified.filter((item) => item.emailStatus === "eligible");
+  // В rejected на диске: и личные ящики, и no_email (чтобы не обогащать повторно).
+  // В UI no_email не показываем.
   const rejected = classified.filter(
     (item) =>
       item.emailStatus === "rejected" || item.emailStatus === "no_email"
@@ -661,17 +655,22 @@ export async function enrichQueueBatch(
   );
   const scrapeFailedIds = new Set(scrapeFailed.map((item) => item.id));
   const confirmedNoEmail = [
-    ...apiConfirmedNoEmail,
+    ...apiOutcomes
+      .filter(
+        (row) =>
+          row.detailFetched &&
+          !row.item.applicant?.email?.trim() &&
+          queue.category === "expiring"
+      )
+      .map((row) => row.item),
     ...cardNoEmail.filter((item) => !scrapeFailedIds.has(item.id)),
   ];
-
-  // confirmedNoEmail: нормализация и классификация с учётом категории.
   const noEmailRejected = confirmedNoEmail.map((item) =>
     toQueueItem(item, queue.category)
   );
 
-  // Без email после успешного API (декларации) или Playwright — убираем из очереди.
-  // Остальные без email / scrapeFailed — в хвост (нужен повтор / карточка).
+  // Без email после успешного API/карточки — убираем из enrich, помним в rejected (скрыто в UI).
+  // scrapeFailed — в хвост на повтор.
   const stillNeedEnrich = [
     ...stillMissing.filter((item) => !cardEnrichedIds.has(item.id)),
     ...scrapeFailed,

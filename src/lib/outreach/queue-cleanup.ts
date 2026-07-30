@@ -51,13 +51,13 @@ export function pruneOutreachQueue(
   const keep = (item: OutreachQueueItem) => {
     if (sentIds.has(item.id)) return false;
     if (!isEndDateInRange(item, range)) return false;
-    // no_email оставляем в rejected — иначе «обработано 720 / найдено 0»
-    // и карточки исчезают без следа.
     return true;
   };
 
   return {
     items: sortByEndDate(items.filter(keep)),
+    // no_email оставляем в файле (чтобы append не тащил их снова в enrich),
+    // в UI «Личные ящики» их режет isDisplayRejectedItem.
     rejected: sortByEndDate(rejected.filter(keep)),
   };
 }

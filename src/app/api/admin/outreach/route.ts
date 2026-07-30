@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { isAuthenticated } from "@/lib/auth";
-import { emailFilterLabel } from "@/lib/outreach/email-filter";
+import { emailFilterLabel, isDisplayRejectedItem } from "@/lib/outreach/email-filter";
 import {
   describeFsaCursor,
   splitRangeIntoSlices,
@@ -80,7 +80,7 @@ export async function GET(request: Request) {
   const scheduleStats = getScheduleStats(category);
   const fsaQueue = getFsaQueueStatus(category);
   const itemsRaw = queue?.items ?? [];
-  const rejectedRaw = queue?.rejected ?? [];
+  const rejectedRaw = (queue?.rejected ?? []).filter(isDisplayRejectedItem);
 
   const base = {
     category,

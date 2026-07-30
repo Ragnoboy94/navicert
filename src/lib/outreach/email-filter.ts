@@ -103,3 +103,13 @@ export function emailFilterLabel(reason?: string): string {
       return reason ?? "не прошёл фильтр";
   }
 }
+
+/** «Личные ящики» / rejected в UI: только email, не прошедшие фильтр — без no_email. */
+export function isDisplayRejectedItem(item: {
+  emailStatus?: string;
+  emailRejectReason?: string;
+}): boolean {
+  if (item.emailStatus === "no_email") return false;
+  if (item.emailRejectReason === "email_missing") return false;
+  return item.emailStatus === "rejected";
+}
