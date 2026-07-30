@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState, useEffect } from "react";
 import { Menu, X, Phone, Mail } from "lucide-react";
 import type { SiteConfig } from "@/lib/types";
+import { BrandLogo } from "./BrandLogo";
 
 const nav = [
   { href: "/uslugi", label: "Услуги" },
@@ -36,13 +37,11 @@ export function Header({ site }: { site: SiteConfig }) {
       }`}
     >
       <div className="container-page flex items-center justify-between gap-4 py-3.5">
-        <Link
-          href="/"
-          className="shrink-0 text-xl font-bold tracking-wide text-primary-dark"
+        <BrandLogo
+          name={site.name}
+          variant="header"
           onClick={() => setOpen(false)}
-        >
-          {site.name.toUpperCase()}
-        </Link>
+        />
 
         <nav className="hidden items-center gap-1 xl:flex">
           {nav.map((item) => (
@@ -57,27 +56,20 @@ export function Header({ site }: { site: SiteConfig }) {
         </nav>
 
         <div className="hidden items-center gap-3 lg:flex">
-          <div className="flex items-center gap-3 border-r border-border pr-4">
+          <div className="flex flex-col items-start justify-center gap-0.5 border-r border-border pr-4 2xl:flex-row 2xl:items-center 2xl:gap-3">
             <a
               href={`tel:${site.phoneRaw}`}
-              className="flex items-center gap-1.5 text-sm font-semibold text-primary-dark whitespace-nowrap hover:text-primary"
+              className="flex items-center gap-1.5 text-sm font-semibold leading-tight text-primary-dark whitespace-nowrap hover:text-primary"
             >
               <Phone className="h-4 w-4 shrink-0 text-accent" />
               {site.phone}
             </a>
             <a
               href={`mailto:${site.email}`}
-              className="hidden items-center gap-1.5 text-sm text-muted transition hover:text-primary xl:inline-flex"
+              className="flex max-w-full items-center gap-1.5 text-sm leading-tight text-muted transition hover:text-primary"
             >
               <Mail className="h-4 w-4 shrink-0 text-accent" />
-              <span className="max-w-[200px] truncate">{site.email}</span>
-            </a>
-            <a
-              href={`mailto:${site.email}`}
-              className="inline-flex rounded-full p-2 text-muted transition hover:bg-accent-soft hover:text-primary xl:hidden"
-              aria-label={site.email}
-            >
-              <Mail className="h-4 w-4 text-accent" />
+              <span className="truncate">{site.email}</span>
             </a>
           </div>
           <Link href="/#zayavka" className="btn-primary px-5 py-2.5 text-sm">

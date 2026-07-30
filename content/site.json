@@ -21,8 +21,8 @@
     "cta": "Бесплатная консультация",
     "priceFrom": "от 4 000 ₽"
   },
-  "logoMark": "/images/logo-mark.png",
-  "ogImage": "/images/hero-main.webp",
+  "logoMark": "/images/logo-shield.png",
+  "ogImage": "/images/og-brand.png",
   "images": {
     "hero": "/images/hero-main.webp"
   },

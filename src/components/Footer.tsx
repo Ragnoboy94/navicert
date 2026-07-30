@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { SiteConfig } from "@/lib/types";
+import { BrandLogo } from "./BrandLogo";
 import { SocialLinks } from "./SocialLinks";
 
 const footerNav = [
@@ -27,7 +28,7 @@ export function Footer({
       <div className="container-page py-8 sm:py-10 lg:py-14">
         <div className="grid grid-cols-2 gap-x-6 gap-y-8 sm:gap-x-8 lg:grid-cols-4 lg:gap-10">
           <div className="col-span-2 lg:col-span-1">
-            <p className="text-lg font-bold tracking-wide sm:text-xl">{site.name}</p>
+            <BrandLogo name={site.name} variant="footer" className="text-white" />
             <p className="mt-2 hidden text-sm leading-relaxed text-blue-200 sm:mt-3 sm:block">
               {site.tagline}
             </p>

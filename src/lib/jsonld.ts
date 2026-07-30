@@ -44,6 +44,11 @@ export function buildOrganizationJsonLd(site: SiteConfig, reviews: Review[]) {
     telephone: site.phoneRaw,
     email: site.email,
     image: site.ogImage ? `${baseUrl}${site.ogImage}` : undefined,
+    logo: site.logoMark
+      ? `${baseUrl}${site.logoMark}`
+      : site.ogImage
+        ? `${baseUrl}${site.ogImage}`
+        : undefined,
     areaServed: { "@type": "Country", name: "Россия" },
     priceRange: "₽₽",
     sameAs: socialSameAs(site.social),
