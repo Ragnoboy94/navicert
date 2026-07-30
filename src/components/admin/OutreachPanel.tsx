@@ -92,6 +92,8 @@ type FsaQueueStatus = {
   pendingHigh: number;
   pendingLow: number;
   running: boolean;
+  runningType?: "scan" | "enrich" | "health" | null;
+  runningSince?: string | null;
   enrichQueued?: boolean;
   enrichRunning?: boolean;
   scanQueued?: boolean;
@@ -1523,7 +1525,13 @@ export function OutreachPanel({
             <p>
               В очереди задач: срочных {data.fsaQueue.pendingHigh}, фоновых{" "}
               {data.fsaQueue.pendingLow}
-              {data.fsaQueue.running ? " · сейчас идёт обмен" : ""}.
+              {data.fsaQueue.running
+                ? data.fsaQueue.runningType === "scan"
+                  ? " · сейчас идёт догрузка из ФСА"
+                  : data.fsaQueue.runningType === "enrich"
+                    ? " · сейчас идёт обогащение email"
+                    : " · сейчас идёт обмен"
+                : ""}.
               {data.fsaQueue.lastSummary
                 ? ` Последний результат: ${data.fsaQueue.lastSummary}.`
                 : ""}

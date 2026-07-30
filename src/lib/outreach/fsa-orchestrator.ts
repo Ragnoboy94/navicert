@@ -494,6 +494,8 @@ export function getFsaQueueStatus(category?: OutreachCategory): {
   pendingHigh: number;
   pendingLow: number;
   running: boolean;
+  runningType: FsaJobType | null;
+  runningSince: string | null;
   enrichQueued: boolean;
   enrichRunning: boolean;
   scanQueued: boolean;
@@ -526,6 +528,9 @@ export function getFsaQueueStatus(category?: OutreachCategory): {
       job.type === "scan" &&
       job.payload.mode === "append"
   ).length;
+  const runningJob = jobs
+    .filter((job) => job.status === "running")
+    .sort((a, b) => (b.startedAt || "").localeCompare(a.startedAt || ""))[0];
   const completed = [...jobs]
     .filter((job) => job.status === "done" || job.status === "failed")
     .sort((a, b) => (b.finishedAt || "").localeCompare(a.finishedAt || ""));
@@ -539,6 +544,8 @@ export function getFsaQueueStatus(category?: OutreachCategory): {
     pendingHigh,
     pendingLow,
     running: state.running,
+    runningType: runningJob?.type ?? null,
+    runningSince: runningJob?.startedAt ?? null,
     enrichQueued,
     enrichRunning,
     scanQueued,
