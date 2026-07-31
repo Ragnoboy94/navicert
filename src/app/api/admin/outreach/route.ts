@@ -30,8 +30,22 @@ import {
 } from "@/lib/outreach/unsubscribe";
 import type { OutreachCategory, OutreachQueueItem } from "@/lib/outreach/types";
 
+/** Большой JSON очереди на проде — не рвать proxy/server на 60s. */
+export const maxDuration = 300;
+
+/** Сколько карточек отдавать в полном ответе по умолчанию (0 = все). */
+const DEFAULT_LIST_LIMIT = 300;
+const DEFAULT_SENT_LIMIT = 200;
+
 function parseCategory(raw: string | null): OutreachCategory {
   return raw === "expiring_certificates" ? "expiring_certificates" : "expiring";
+}
+
+function parseLimit(raw: string | null, fallback: number): number {
+  if (raw == null || raw === "") return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return fallback;
+  return Math.floor(n);
 }
 
 function decorateItem(
@@ -63,6 +77,13 @@ function decorateItem(
   };
 }
 
+function takeHead<T>(rows: T[], limit: number): { rows: T[]; truncated: boolean } {
+  if (limit <= 0 || rows.length <= limit) {
+    return { rows, truncated: false };
+  }
+  return { rows: rows.slice(0, limit), truncated: true };
+}
+
 export async function GET(request: Request) {
   if (!(await isAuthenticated())) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -73,6 +94,14 @@ export async function GET(request: Request) {
   const lite =
     url.searchParams.get("lite") === "1" ||
     url.searchParams.get("view") === "status";
+  const listLimit = parseLimit(
+    url.searchParams.get("limit"),
+    DEFAULT_LIST_LIMIT
+  );
+  const sentLimit = parseLimit(
+    url.searchParams.get("sentLimit"),
+    DEFAULT_SENT_LIMIT
+  );
 
   const queue = readOutreachQueue(category);
   const sent = readSentRecordsByCategory(category);
@@ -129,10 +158,18 @@ export async function GET(request: Request) {
   }
 
   const sentLookup = buildSentLookup(sent);
-  const items = itemsRaw.map((item) =>
+  const itemsSlice = takeHead(itemsRaw, listLimit);
+  const rejectedSlice = takeHead(rejectedRaw, listLimit);
+  const sentRows =
+    sentLimit <= 0 || sent.length <= sentLimit
+      ? sent
+      : sent.slice(-sentLimit);
+  const sentTruncated = sentRows.length < sent.length;
+
+  const items = itemsSlice.rows.map((item) =>
     decorateItem(item, sentLookup, category, sent)
   );
-  const rejected = rejectedRaw.map((item) =>
+  const rejected = rejectedSlice.rows.map((item) =>
     decorateItem(item, sentLookup, category, sent)
   );
   const sendSummary = summarizeSendBlocks(itemsRaw, { category });
@@ -141,12 +178,16 @@ export async function GET(request: Request) {
     ...base,
     items,
     rejected,
+    itemsTruncated: itemsSlice.truncated,
+    rejectedTruncated: rejectedSlice.truncated,
+    listLimit,
     sendSummary,
     unsubscribed: listUnsubscribesByCategory(category).map((item) => ({
       ...item,
       categoryLabel: getCategoryLabel(item.category),
     })),
-    sent: sent.slice().reverse(),
+    sent: sentRows.slice().reverse(),
+    sentTruncated,
     recentSent: sent.slice(-15).reverse(),
   });
 }

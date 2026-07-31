@@ -14,18 +14,68 @@ function queuePath(category: OutreachCategory): string {
   return path.join(process.cwd(), "data", file);
 }
 
+type QueueCacheEntry = {
+  mtimeMs: number;
+  size: number;
+  queue: OutreachQueue;
+};
+
+const queueCache = new Map<OutreachCategory, QueueCacheEntry>();
+
+function rememberQueue(
+  category: OutreachCategory,
+  qpath: string,
+  queue: OutreachQueue
+): OutreachQueue {
+  try {
+    const st = fs.statSync(qpath);
+    queueCache.set(category, {
+      mtimeMs: st.mtimeMs,
+      size: st.size,
+      queue,
+    });
+  } catch {
+    queueCache.delete(category);
+  }
+  return queue;
+}
+
 export function readOutreachQueue(
   category: OutreachCategory = "expiring"
 ): OutreachQueue | null {
   const qpath = queuePath(category);
-  if (!fs.existsSync(qpath)) return null;
-  const raw = JSON.parse(fs.readFileSync(qpath, "utf-8")) as OutreachQueue;
+  if (!fs.existsSync(qpath)) {
+    queueCache.delete(category);
+    return null;
+  }
+
+  const st = fs.statSync(qpath);
+  const hit = queueCache.get(category);
+  if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) {
+    return hit.queue;
+  }
+
+  const text = fs.readFileSync(qpath, "utf-8");
+  const raw = JSON.parse(text) as OutreachQueue;
   // Категория берётся из пути файла — иначе запись может уйти в чужой контур
   const stamped: OutreachQueue = { ...raw, category };
   const { queue: healed, changed } = healFsaPagination(stamped);
   const withCategory: OutreachQueue = { ...healed, category };
-  if (changed || raw.category !== category) writeOutreachQueue(withCategory);
-  return sanitizeOutreachQueue(normalizeQueue(withCategory));
+  const prettyPrinted = text.includes("\n  ");
+  if (changed || raw.category !== category || prettyPrinted) {
+    // compact JSON сильно ускоряет последующие parse (файл ~в 2–3 раза меньше)
+    writeOutreachQueue(withCategory);
+    return rememberQueue(
+      category,
+      qpath,
+      sanitizeOutreachQueue(normalizeQueue(withCategory))
+    );
+  }
+  return rememberQueue(
+    category,
+    qpath,
+    sanitizeOutreachQueue(normalizeQueue(withCategory))
+  );
 }
 
 /** Убирает отправленные и то, что вне актуального окна.
@@ -82,10 +132,9 @@ export function writeOutreachQueue(queue: OutreachQueue): void {
   const qpath = queuePath(category);
   const dir = path.dirname(qpath);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(
-    qpath,
-    JSON.stringify(normalizeQueue(queue), null, 2) + "\n"
-  );
+  // Без pretty-print: меньше диск/RAM/время JSON.parse на проде (~4MB+).
+  fs.writeFileSync(qpath, JSON.stringify(normalizeQueue(queue)) + "\n");
+  queueCache.delete(category);
 }
 
 export function setExcludeFromAutoSend(

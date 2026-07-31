@@ -410,12 +410,23 @@ if counts_path.exists():
     nginx_patch = textwrap.dedent(
         """
         NGINX=/etc/nginx/sites-available/navicert
+        changed=0
         if [ -f "$NGINX" ] && ! grep -q 'client_max_body_size' "$NGINX"; then
           sed -i '/server_name /a\\    client_max_body_size 10m;' "$NGINX"
-          nginx -t && systemctl reload nginx
+          changed=1
           echo "nginx: client_max_body_size 10m added"
-        elif [ -f "$NGINX" ]; then
-          echo "nginx: client_max_body_size already set"
+        fi
+        if [ -f "$NGINX" ] && ! grep -q 'proxy_read_timeout' "$NGINX"; then
+          sed -i '/proxy_pass http:\\/\\/127.0.0.1:3000;/a\\        proxy_connect_timeout 60s;\\n        proxy_send_timeout 300s;\\n        proxy_read_timeout 300s;' "$NGINX"
+          changed=1
+          echo "nginx: proxy timeouts 300s added"
+        fi
+        if [ -f "$NGINX" ]; then
+          if [ "$changed" = "1" ]; then
+            nginx -t && systemctl reload nginx
+          else
+            echo "nginx: body size and proxy timeouts already set"
+          fi
         else
           echo "nginx: site config missing"
         fi

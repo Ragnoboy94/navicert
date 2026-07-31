@@ -124,6 +124,10 @@ type OutreachState = {
   /** Счётчики с сервера (есть и в lite-ответе без списков) */
   itemsCount?: number;
   rejectedCount?: number;
+  itemsTruncated?: boolean;
+  rejectedTruncated?: boolean;
+  sentTruncated?: boolean;
+  listLimit?: number;
   sendableCount: number;
   unsubscribed: UnsubscribedItem[];
   sentCount: number;
@@ -628,7 +632,7 @@ export function OutreachPanel({
   }
 
   /** Полная загрузка списков — только старт / Обновить / после действий. */
-  async function refresh(silent = false) {
+  async function refresh(silent = false, opts?: { loadAll?: boolean }) {
     if (fullRefreshInFlight.current) {
       // Silent-poll: ждём текущий запрос и выходим (без дублей).
       // После мутаций (silent=false) после ожидания грузим ещё раз —
@@ -641,8 +645,15 @@ export function OutreachPanel({
       if (!silent) setLoading(true);
       if (!silent) setError("");
       try {
+        const qs = new URLSearchParams({
+          category,
+        });
+        if (opts?.loadAll) {
+          qs.set("limit", "0");
+          qs.set("sentLimit", "0");
+        }
         const res = await fetch(
-          `/api/admin/outreach?category=${encodeURIComponent(category)}`,
+          `/api/admin/outreach?${qs.toString()}`,
           { credentials: "same-origin" }
         );
         if (!res.ok) {
@@ -1696,6 +1707,23 @@ export function OutreachPanel({
       </AdminCard>
 
       <div ref={listRef}>
+        {(data?.itemsTruncated ||
+          data?.rejectedTruncated ||
+          data?.sentTruncated) && (
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+            <p>
+              Показана укороченная выборка (до {data.listLimit ?? 300} в
+              списках), чтобы страница не зависала. Счётчики сверху — полные.
+            </p>
+            <button
+              type="button"
+              className="btn-ghost shrink-0 px-3 py-1.5 text-sm"
+              onClick={() => void refresh(false, { loadAll: true })}
+            >
+              Загрузить всё
+            </button>
+          </div>
+        )}
         <AdminCard
           title={currentFilter.label}
           description={`${currentFilter.description} · ${filteredRows.length} записей`}

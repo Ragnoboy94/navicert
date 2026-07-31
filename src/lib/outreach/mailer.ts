@@ -48,6 +48,13 @@ export function resolveRecipientEmail(
   return email;
 }
 
+type SentCacheEntry = {
+  mtimeMs: number;
+  size: number;
+  records: OutreachSendRecord[];
+};
+const sentCache = new Map<OutreachCategory, SentCacheEntry>();
+
 export function readSentRecords(): OutreachSendRecord[] {
   return readSentRecordsByCategory("expiring");
 }
@@ -56,10 +63,25 @@ export function readSentRecordsByCategory(
   category: OutreachCategory = "expiring"
 ): OutreachSendRecord[] {
   const spath = sentPath(category);
-  if (!fs.existsSync(spath)) return [];
-  return JSON.parse(fs.readFileSync(spath, "utf-8")) as OutreachSendRecord[];
+  if (!fs.existsSync(spath)) {
+    sentCache.delete(category);
+    return [];
+  }
+  const st = fs.statSync(spath);
+  const hit = sentCache.get(category);
+  if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) {
+    return hit.records;
+  }
+  const records = JSON.parse(
+    fs.readFileSync(spath, "utf-8")
+  ) as OutreachSendRecord[];
+  sentCache.set(category, {
+    mtimeMs: st.mtimeMs,
+    size: st.size,
+    records,
+  });
+  return records;
 }
-
 /** Пауза перед повторным письмом на тот же корпоративный email (другая декларация). */
 export function getRecipientCooldownDays(): number {
   const parsed = Number(process.env.OUTREACH_RECIPIENT_COOLDOWN_DAYS ?? 7);
@@ -127,8 +149,9 @@ function writeSentRecord(
   records.push(record);
   fs.writeFileSync(
     sentPath(category),
-    JSON.stringify(records, null, 2) + "\n"
+    JSON.stringify(records) + "\n"
   );
+  sentCache.delete(category);
 }
 
 export function wasAlreadySent(
