@@ -384,7 +384,7 @@ export async function searchExpiringDeclarations(
         },
       },
       columnsSearch: [],
-      sort: filter.sort?.length ? filter.sort : ["endDate"],
+      sort: filter.sort?.length ? filter.sort : ["endDate,asc"],
     },
     {
       tokenOverride: token,
@@ -469,7 +469,7 @@ export async function searchExpiringCertificates(
         },
       },
       columnsSearch: [],
-      sort: filter.sort?.length ? filter.sort : ["endDate"],
+      sort: filter.sort?.length ? filter.sort : ["endDate,asc"],
     },
     {
       tokenOverride: token,

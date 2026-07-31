@@ -12,6 +12,7 @@ loadEnv({ path: path.join(process.cwd(), ".env.local") });
 import { bulkLoadList, listResultToQueue } from "../src/lib/outreach/bulk-load";
 import {
   FSA_API_MAX_PAGES,
+  FSA_PAGINATION_VERSION,
   FSA_SORT_FIELDS,
   cursorNeedsRotation,
   healFsaPagination,
@@ -75,6 +76,7 @@ function testPaginationHelpers() {
   assert("rotate exhausted", r3.exhausted);
 
   assert("FSA_API_MAX_PAGES is 20", FSA_API_MAX_PAGES === 20);
+  assert("sort grid has asc+desc", FSA_SORT_FIELDS.length >= 8);
 
   const legacySlices = dateSlicesForLoad(
     { from: "01.07.2026", to: "31.08.2026" },
@@ -111,13 +113,16 @@ function testHealFsaPagination() {
   };
   const { queue, changed } = healFsaPagination(stuck);
   assert("heal detects stuck page 20", changed);
-  assert("heal upgrades to pagination v2", queue.paginationVersion === 2);
+  assert(
+    "heal upgrades to current pagination version",
+    queue.paginationVersion === FSA_PAGINATION_VERSION
+  );
   assert("heal resets page", queue.apiCursor?.page === 0);
   assert("heal rotates sort", queue.apiCursor?.sortIndex === 1);
 
   const alreadyOk: OutreachQueue = {
     ...stuck,
-    paginationVersion: 2,
+    paginationVersion: FSA_PAGINATION_VERSION,
     nextApiPage: 5,
     apiCursor: { page: 5, sortIndex: 1, sliceIndex: 0 },
   };

@@ -3,12 +3,20 @@ import type { OutreachQueue } from "./types";
 /** ФСА разрешает страницы 0..19 (не больше 20 запросов подряд с одними параметрами). */
 export const FSA_API_MAX_PAGES = 20;
 
-/** Поля сортировки для обхода лимита страниц (новый «срез» реестра). */
+/**
+ * Сортировки для обхода лимита 20 страниц.
+ * Важно: и asc, и desc — иначе реестр «закрывает» разные хвосты одним индексом.
+ * Формат как в UI/API ФСА: `field,asc` / `field,desc`.
+ */
 export const FSA_SORT_FIELDS = [
-  "endDate",
-  "registrationDate",
-  "number",
-  "id",
+  "endDate,asc",
+  "endDate,desc",
+  "registrationDate,asc",
+  "registrationDate,desc",
+  "number,asc",
+  "number,desc",
+  "id,asc",
+  "id,desc",
 ] as const;
 
 export type FsaSortField = (typeof FSA_SORT_FIELDS)[number];
@@ -20,6 +28,9 @@ export type FsaLoadCursor = {
 };
 
 export type RuDateRange = { from: string; to: string };
+
+/** v2: срезы по 14 дней; v3+: плотнее (7 дней) + asc/desc сортировки. */
+export const FSA_PAGINATION_VERSION = 3;
 
 export function ruDateToIso(ru: string): string {
   const [day, month, year] = ru.split(".");
@@ -39,22 +50,27 @@ function parseRuDate(value: string): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+function daysPerSliceForVersion(paginationVersion: number): number {
+  return paginationVersion >= 3 ? 7 : 14;
+}
+
 /** Делит период на подинтервалы по дате окончания (для новых «окон» пагинации). */
 export function dateSlicesForLoad(
   range: RuDateRange,
   options: { mode: "reset" | "append"; paginationVersion?: number }
 ): RuDateRange[] {
-  if (options.mode === "reset" || (options.paginationVersion ?? 1) >= 2) {
-    return splitRangeIntoSlices(range);
+  const version = options.paginationVersion ?? FSA_PAGINATION_VERSION;
+  if (options.mode === "reset" || version >= 2) {
+    return splitRangeIntoSlices(range, daysPerSliceForVersion(version));
   }
-  // Legacy-очередь: страницы считались по всему периоду, не по 14-дневным срезам
+  // Legacy-очередь: страницы считались по всему периоду, не по срезам
   return [range];
 }
 
-/** Делит период на подинтервалы по дате окончания (для новых «окон» пагинации). */
+/** Делит период на подинтервалы по дате окончания. */
 export function splitRangeIntoSlices(
   range: RuDateRange,
-  daysPerSlice = 14
+  daysPerSlice = 7
 ): RuDateRange[] {
   const start = parseRuDate(range.from);
   const end = parseRuDate(range.to);
@@ -91,14 +107,42 @@ export function cursorFromQueue(queue: OutreachQueue | null): FsaLoadCursor {
   };
 }
 
-/** После исчерпания legacy-пагинации (один период, 4 сортировки) переходим на срезы по 14 дней. */
+export function freshFsaCursor(): FsaLoadCursor {
+  return { page: 0, sortIndex: 0, sliceIndex: 0 };
+}
+
+/** Курсор за пределами текущей сетки sort×slice — пора начинать обход заново. */
+export function isFsaCursorExhausted(
+  cursor: FsaLoadCursor,
+  sliceCount: number
+): boolean {
+  if (cursor.sliceIndex >= sliceCount) return true;
+  if (cursor.sortIndex >= FSA_SORT_FIELDS.length) return true;
+  if (
+    cursor.sliceIndex >= sliceCount - 1 &&
+    cursor.sortIndex >= FSA_SORT_FIELDS.length - 1 &&
+    cursor.page >= FSA_API_MAX_PAGES
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** После исчерпания legacy-пагинации переходим на срезы. */
 export function upgradeLegacyPagination(
   range: RuDateRange
-): { paginationVersion: 2; dateSlices: RuDateRange[]; cursor: FsaLoadCursor } {
+): {
+  paginationVersion: number;
+  dateSlices: RuDateRange[];
+  cursor: FsaLoadCursor;
+} {
   return {
-    paginationVersion: 2,
-    dateSlices: splitRangeIntoSlices(range),
-    cursor: { page: 0, sortIndex: 0, sliceIndex: 0 },
+    paginationVersion: FSA_PAGINATION_VERSION,
+    dateSlices: splitRangeIntoSlices(
+      range,
+      daysPerSliceForVersion(FSA_PAGINATION_VERSION)
+    ),
+    cursor: freshFsaCursor(),
   };
 }
 
@@ -144,7 +188,7 @@ export function cursorNeedsRotation(cursor: FsaLoadCursor): boolean {
   return cursor.page >= FSA_API_MAX_PAGES;
 }
 
-/** Авто-ротация sort/slice при page≥20 и upgrade на pagination v2 (без ручного сброса). */
+/** Авто-ротация sort/slice при page≥20 и upgrade пагинации. */
 export function healFsaPagination(queue: OutreachQueue): {
   queue: OutreachQueue;
   changed: boolean;
@@ -152,14 +196,26 @@ export function healFsaPagination(queue: OutreachQueue): {
   const range = queue.range;
   if (!range) return { queue, changed: false };
 
-  const paginationVersion = Math.max(queue.paginationVersion ?? 1, 2);
+  const paginationVersion = Math.max(
+    queue.paginationVersion ?? 1,
+    FSA_PAGINATION_VERSION
+  );
   let cursor = cursorFromQueue(queue);
-  const sliceCount = splitRangeIntoSlices(range).length;
+  const sliceCount = splitRangeIntoSlices(
+    range,
+    daysPerSliceForVersion(paginationVersion)
+  ).length;
   const before = JSON.stringify({
     paginationVersion: queue.paginationVersion ?? 1,
     apiCursor: queue.apiCursor ?? null,
     nextApiPage: queue.nextApiPage ?? null,
   });
+
+  // Старый sortIndex мог указывать на «конец» при 4 сортировках — при 8 это ещё середина,
+  // но page≥20 / выход за сетку лечим ротацией или сбросом.
+  if (cursor.sortIndex >= FSA_SORT_FIELDS.length || cursor.sliceIndex >= sliceCount) {
+    cursor = freshFsaCursor();
+  }
 
   let guard = 0;
   const maxSteps = FSA_SORT_FIELDS.length * Math.max(sliceCount, 1);

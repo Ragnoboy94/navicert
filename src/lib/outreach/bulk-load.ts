@@ -19,13 +19,16 @@ import {
   cursorFromQueue,
   cursorNeedsRotation,
   describeFsaCursor,
+  freshFsaCursor,
   getSortField,
   healFsaPagination,
+  isFsaCursorExhausted,
   isFsaPageLimitError,
   rotateFsaCursor,
   ruDateToIso,
   dateSlicesForLoad,
   upgradeLegacyPagination,
+  FSA_PAGINATION_VERSION,
   type FsaLoadCursor,
 } from "./fsa-pagination";
 import { getExpiringMonthRange } from "./queue";
@@ -294,12 +297,29 @@ export async function bulkLoadList(
   }
 
   let paginationVersion =
-    mode === "append" ? Math.max(existing?.paginationVersion ?? 1, 2) : 2;
+    mode === "append"
+      ? Math.max(existing?.paginationVersion ?? 1, FSA_PAGINATION_VERSION)
+      : FSA_PAGINATION_VERSION;
   let dateSlices = dateSlicesForLoad(range, { mode, paginationVersion });
   let cursor =
     mode === "append"
       ? cursorFromQueue(existing)
-      : { page: 0, sortIndex: 0, sliceIndex: 0 };
+      : freshFsaCursor();
+
+  // Если прошлый обход помечен исчерпанным — начинаем сетку sort×slice заново.
+  // knownIds сохраняем: уже виденные не пойдут в enrich повторно, но новые id
+  // из других сортировок/направлений подтянутся (типичный кейс сертификатов).
+  if (
+    mode === "append" &&
+    existing &&
+    (existing.hasMore === false ||
+      isFsaCursorExhausted(cursor, dateSlices.length))
+  ) {
+    cursor = freshFsaCursor();
+    paginationVersion = FSA_PAGINATION_VERSION;
+    dateSlices = dateSlicesForLoad(range, { mode, paginationVersion });
+  }
+
   const knownIds = collectKnownIds(existing);
 
   let sessionToken = (await ensureFsaSession()).token;
@@ -310,8 +330,8 @@ export async function bulkLoadList(
   let exhausted = false;
   let fetchAttempts = 0;
   let rotationSkips = 0;
-  const maxFetchAttempts = Math.max(maxItems / pageSize + 12, 32);
-  const maxRotationSkips = 16;
+  const maxFetchAttempts = Math.max(maxItems / pageSize + 48, 64);
+  const maxRotationSkips = 32;
 
   while (newIdsCollected < maxItems && !exhausted && fetchAttempts < maxFetchAttempts) {
     fetchAttempts += 1;
