@@ -37,10 +37,6 @@ function monthLabelRu(endDate: string): string {
   return MONTHS_RU[parsed.getMonth()] ?? endDate;
 }
 
-function endYear(endDate: string): number {
-  return parseRuDate(endDate)?.getFullYear() ?? new Date().getFullYear();
-}
-
 function companyName(declaration: FsaDeclaration): string {
   return (
     declaration.applicant?.shortName ||
@@ -64,18 +60,6 @@ export function getOutreachFromName(): string {
   return process.env.OUTREACH_FROM_NAME?.trim() || "Андрей Громов";
 }
 
-function documentNoun(category: OutreachCategory): string {
-  switch (category) {
-    case "expiring_certificates":
-      return "сертификатов";
-    case "new_registrations":
-      return "регистрации";
-    case "expiring":
-    default:
-      return "деклараций";
-  }
-}
-
 export function buildOutreachSubject(
   declaration: FsaDeclaration,
   options?: { category?: OutreachCategory }
@@ -86,85 +70,77 @@ export function buildOutreachSubject(
     return `Поздравляем с регистрацией ${company}: сертификация и декларации`;
   }
   if (category === "expiring_certificates") {
-    return `Мониторинг реестра ФСА: завершение срока действия документации ${company}`;
+    return `Уведомление о завершении сертификата ${company}!`;
   }
-  return `Мониторинг реестра ФСА: истечение сроков действия ${documentNoun(category)} ${company}`;
+  return `Напоминание о завершении декларации ${company}!`;
 }
 
-function certDurationLabel(): string {
-  return process.env.OUTREACH_CERT_DURATION?.trim() || "до 2 месяцев";
+function signatureFromName(): string {
+  const fromName = getOutreachFromName();
+  return fromName.trim().toLowerCase() === "андрей громов"
+    ? "Громов Андрей"
+    : fromName;
 }
 
+/** Шаблон «Заканчивающиеся ДС» (актуальный). */
 function declarationBodyBlocks(declaration: FsaDeclaration): BodyBlock[] {
-  const senderName = getOutreachSenderName();
   const recipient = companyName(declaration);
   const month = monthLabelRu(declaration.endDate);
   const productCat = productCategory(declaration);
-  const year = endYear(declaration.endDate);
 
   return [
-    { type: "p", text: `Уважаемые руководители компании ${recipient}!` },
     {
       type: "p",
-      text: `${senderName} в рамках планового мониторинга открытых данных реестра Росаккредитации зафиксировал, что у вашей организации в ближайшее время завершается период действия разрешительной документации.`,
-    },
-    { type: "label", text: "Статус документов:" },
-    {
-      type: "p",
-      text: `В ${month} ${year} года истекает срок действия документов товарной группы: ${productCat}.`,
+      text: "Здравствуйте! Это Андрей из центра сертификации «Нависерт».",
     },
     {
       type: "p",
-      text: `Напоминаем, что процедура сертификации или декларирования (включая отбор образцов, проведение лабораторных испытаний и регистрацию в реестре) может занимать ${certDurationLabel()}.`,
+      text: `Увидел в реестре Росаккредитации, что в ${month} у вашей компании ${recipient} заканчивается декларация на ${productCat}. При необходимости могу прислать ссылку на заканчивающуюся декларацию.`,
     },
     {
       type: "p",
-      text: "Во избежание рисков привлечения к административной ответственности по ст. 14.43 КоАП РФ («Нарушение требований технических регламентов»), задержки поставок или блокировок карточек на маркетплейсах, рекомендуем заблаговременно запустить процедуру переоформления.",
+      text: "Чтобы у вас не встали продажи из-за долгого переоформления, лучше обновить её заранее. Мы можем помочь с оформлением под ключ. Скажите, актуально ли обновить документ в ближайшее время?",
     },
     {
       type: "p",
-      text: "Мы готовы предоставить информацию по актуальным срокам и схемам сертификации под ваш ассортимент. Направьте ответ на данное уведомление для связи с профильным техническим специалистом.",
+      text: 'Если вы уже в процессе переоформления или вам это просто не интересно, пожалуйста, ответьте на это письмо словом «Нет», и я исключу ваш адрес из мониторинга.',
     },
     { type: "p", text: "С уважением," },
-    { type: "p", text: senderName },
+    {
+      type: "p",
+      text: `${signatureFromName()}, эксперт центра «Нависерт»`,
+    },
   ];
 }
 
-/** Шаблон «Заканчивающиеся СС» — только для сертификатов. */
+/** Шаблон «Заканчивающиеся СС» (актуальный). */
 function certificateBodyBlocks(declaration: FsaDeclaration): BodyBlock[] {
   const recipient = companyName(declaration);
   const month = monthLabelRu(declaration.endDate);
-  const year = endYear(declaration.endDate);
-  const number = declaration.number?.trim() || "—";
   const productCat = productCategory(declaration);
 
   return [
-    { type: "p", text: `Уважаемые руководители компании ${recipient}!` },
     {
       type: "p",
-      text: "Центр сертификации «Нависерт» в рамках планового мониторинга открытых данных реестра Росаккредитации зафиксировал, что у Вас в ближайшее время заканчивается срок действия разрешительной документации.",
-    },
-    { type: "label", text: "Статус документов:" },
-    {
-      type: "ul",
-      items: [
-        `В ${month} ${year} года истекает срок действия сертификата соответствия № ${number} оформленного на: ${productCat}.`,
-      ],
+      text: "Здравствуйте! Это Андрей из центра сертификации «Нависерт».",
     },
     {
       type: "p",
-      text: "Ответьте на данное уведомление, и технический специалист вышлет вам ссылку на заканчивающийся документ.",
+      text: `Заметил в реестре Росаккредитации, что в ${month} у вашей компании ${recipient} заканчивается сертификат соответствия на ${productCat}. При необходимости могу прислать ссылку на заканчивающийся сертификат.`,
     },
     {
       type: "p",
-      text: `Также хотим напомнить, что процедура сертификации (включая отбор образцов, проведение лабораторных испытаний и регистрацию в реестре) может занимать ${certDurationLabel()}.`,
+      text: "Чтобы у вас не встали продажи из-за долгого переоформления, лучше обновить документ заранее. Мы можем помочь с оформлением под ключ. Скажите, актуально ли обновление документов в ближайшее время?",
     },
     {
       type: "p",
-      text: "Мы готовы предоставить информацию по актуальным срокам и схемам сертификации вашего ассортимента продукции.",
+      text: 'Если вы уже в процессе переоформления или вам это просто не интересно, пожалуйста, ответьте на это письмо словом «Нет», и я исключу ваш адрес из мониторинга.',
     },
     { type: "p", text: "С уважением," },
-    { type: "p", text: "Экспертный центр Нависерт" },
+    {
+      type: "p",
+      text: `${signatureFromName()}, эксперт центра «Нависерт»`,
+    },
   ];
 }
 
