@@ -50,6 +50,7 @@ function workersRuntime(): WorkersRuntime {
       byCategory: {
         expiring: emptyWorker(),
         expiring_certificates: emptyWorker(),
+        new_registrations: emptyWorker(),
       },
     };
   }
@@ -57,7 +58,11 @@ function workersRuntime(): WorkersRuntime {
 }
 
 function slot(category: OutreachCategory): CategoryWorker {
-  return workersRuntime().byCategory[category];
+  const rt = workersRuntime();
+  if (!rt.byCategory[category]) {
+    rt.byCategory[category] = emptyWorker();
+  }
+  return rt.byCategory[category];
 }
 
 function scriptPath() {
@@ -252,7 +257,11 @@ export async function enrichApplicantsFromCards(
 /** Закрыть демоны Chromium (после ночного прогона / тестов). */
 export async function closeEnrichCardsWorker(): Promise<void> {
   const rt = workersRuntime();
-  const categories: OutreachCategory[] = ["expiring", "expiring_certificates"];
+  const categories: OutreachCategory[] = [
+    "expiring",
+    "expiring_certificates",
+    "new_registrations",
+  ];
   await Promise.all(
     categories.map(async (category) => {
       const s = rt.byCategory[category];

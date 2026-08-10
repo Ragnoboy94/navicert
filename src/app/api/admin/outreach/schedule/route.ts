@@ -7,10 +7,7 @@ import {
 } from "@/lib/outreach/schedule";
 
 import type { OutreachCategory } from "@/lib/outreach/types";
-
-function parseCategory(raw: string | null): OutreachCategory {
-  return raw === "expiring_certificates" ? "expiring_certificates" : "expiring";
-}
+import { parseOutreachCategory } from "@/lib/outreach/category";
 
 export async function GET(request: Request) {
   if (!(await isAuthenticated())) {
@@ -18,7 +15,7 @@ export async function GET(request: Request) {
   }
 
   const url = new URL(request.url);
-  const category = parseCategory(url.searchParams.get("category"));
+  const category = parseOutreachCategory(url.searchParams.get("category"));
   return NextResponse.json(getScheduleStats(category));
 }
 
@@ -30,7 +27,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => ({}));
     const url = new URL(request.url);
-    const category = parseCategory(url.searchParams.get("category"));
+    const category = parseOutreachCategory(url.searchParams.get("category"));
 
     if (body.action === "run") {
       const result = await runScheduledOutreach({ force: true, category });

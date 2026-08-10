@@ -15,7 +15,9 @@ export function sendBlockLabel(
     case "already_sent":
       return category === "expiring_certificates"
         ? "письмо по этому сертификату уже отправляли"
-        : "письмо по этой декларации уже отправляли";
+        : category === "new_registrations"
+          ? "письмо этой организации уже отправляли"
+          : "письмо по этой декларации уже отправляли";
     case "recipient_already_sent":
       return "на этот email недавно писали — повтор позже";
     case "unsubscribed":
@@ -129,7 +131,11 @@ export function formatEmptySendMessage(
 ): string {
   const category = options?.category ?? "expiring";
   const docLabel =
-    category === "expiring_certificates" ? "сертификаты" : "декларации";
+    category === "expiring_certificates"
+      ? "сертификаты"
+      : category === "new_registrations"
+        ? "организации"
+        : "декларации";
   const parts: string[] = [];
 
   if (summary.counts.recipient_already_sent) {
@@ -140,7 +146,11 @@ export function formatEmptySendMessage(
   if (summary.counts.already_sent) {
     parts.push(
       `${summary.counts.already_sent} — ${
-        category === "expiring_certificates" ? "сертификат" : "декларация"
+        category === "expiring_certificates"
+          ? "сертификат"
+          : category === "new_registrations"
+            ? "организация"
+            : "декларация"
       } уже в истории`
     );
   }

@@ -113,6 +113,11 @@ type OutreachState = {
   hasMore: boolean;
   enrichPending: number;
   enrichStatus: EnrichStatus;
+  checkoBlock?: {
+    active: boolean;
+    remainingMs: number;
+    reason: string | null;
+  };
   fsaQueue?: FsaQueueStatus;
   dataChannel?: "fsa" | "ss_backup" | null;
   dataChannelLabel?: string | null;
@@ -274,6 +279,7 @@ function QueueTable({
   manualSend = false,
   onToggleAutoExclude,
   togglingId,
+  variant = "fsa",
 }: {
   rows: QueueItem[];
   showRejectReason?: boolean;
@@ -282,10 +288,13 @@ function QueueTable({
   manualSend?: boolean;
   onToggleAutoExclude?: (id: number, exclude: boolean) => void;
   togglingId?: number | null;
+  variant?: "fsa" | "checko";
 }) {
   if (rows.length === 0) {
     return <p className="py-8 text-center text-sm text-muted">Список пуст</p>;
   }
+
+  const isChecko = variant === "checko";
 
   return (
     <div className="overflow-x-auto">
@@ -293,10 +302,16 @@ function QueueTable({
         <thead>
           <tr className="border-b border-border text-muted">
             <th className="px-3 py-2 font-medium">Компания</th>
-            <th className="px-3 py-2 font-medium">Регистрация</th>
-            <th className="px-3 py-2 font-medium">Окончание</th>
+            <th className="px-3 py-2 font-medium">
+              {isChecko ? "Дата регистрации" : "Регистрация"}
+            </th>
+            {!isChecko && (
+              <th className="px-3 py-2 font-medium">Окончание</th>
+            )}
             <th className="px-3 py-2 font-medium">Email</th>
-            <th className="px-3 py-2 font-medium">Продукция</th>
+            <th className="px-3 py-2 font-medium">
+              {isChecko ? "ОКВЭД / деятельность" : "Продукция"}
+            </th>
             {showRejectReason && (
               <th className="px-3 py-2 font-medium">Причина</th>
             )}
@@ -319,7 +334,9 @@ function QueueTable({
               <td className="px-3 py-3 whitespace-nowrap">
                 {item.registrationDate || "—"}
               </td>
-              <td className="px-3 py-3 whitespace-nowrap">{item.endDate}</td>
+              {!isChecko && (
+                <td className="px-3 py-3 whitespace-nowrap">{item.endDate}</td>
+              )}
               <td className="px-3 py-3">
                 <span className="inline-flex items-center gap-1">
                   <Mail className="h-3.5 w-3.5 text-muted" />
@@ -369,20 +386,28 @@ function QueueTable({
                     type="button"
                     disabled={
                       sendingId === item.id ||
+                      item.alreadySent ||
+                      item.unsubscribed ||
                       (manualSend
-                        ? !item.applicant?.email || item.unsubscribed
+                        ? !item.applicant?.email
                         : !item.sendable)
                     }
                     onClick={() => onSendOne(item.id)}
                     className="btn-ghost gap-1 px-2 py-1 text-xs disabled:opacity-40"
                     title={
-                      !manualSend && !item.sendable
-                        ? item.blockLabel
-                        : undefined
+                      item.alreadySent
+                        ? "Уже отправлено"
+                        : !manualSend && !item.sendable
+                          ? item.blockLabel
+                          : undefined
                     }
                   >
                     <Send className="h-3.5 w-3.5" />
-                    {sendingId === item.id ? "…" : "Отправить"}
+                    {sendingId === item.id
+                      ? "…"
+                      : item.alreadySent
+                        ? "Отправлено"
+                        : "Отправить"}
                   </button>
                 </td>
               )}
@@ -402,6 +427,7 @@ function FsaLoadConfirmDialog({
   onConfirm,
   docWordNominative,
   docWordGenitive,
+  source = "fsa",
 }: {
   open: boolean;
   isFirstLoad: boolean;
@@ -410,8 +436,12 @@ function FsaLoadConfirmDialog({
   onConfirm: () => void;
   docWordNominative: string;
   docWordGenitive: string;
+  source?: "fsa" | "checko";
 }) {
   if (!open) return null;
+
+  const isChecko = source === "checko";
+  const sourceLabel = isChecko ? "checko.ru" : "ФСА";
 
   return (
     <div
@@ -437,11 +467,28 @@ function FsaLoadConfirmDialog({
               className="text-lg font-bold text-primary-dark"
             >
               {isFirstLoad
-                ? `Загрузить ${docWordNominative} из ФСА?`
-                : `Догрузить ${docWordNominative} из ФСА?`}
+                ? `Загрузить ${docWordNominative} с ${sourceLabel}?`
+                : `Догрузить ${docWordNominative} с ${sourceLabel}?`}
             </h3>
             <p className="mt-2 text-sm leading-relaxed text-muted">
-              {isFirstLoad ? (
+              {isChecko ? (
+                isFirstLoad ? (
+                  <>
+                    Срочно найдём до <strong>{INITIAL_LOAD_MAX}</strong>{" "}
+                    {docWordGenitive}, зарегистрированных{" "}
+                    <strong>за последние 21 день</strong>, в списке checko.ru.
+                    Email подтянем в фоне — по одной карточке, с паузами.
+                  </>
+                ) : (
+                  <>
+                    Добавим до <strong>{INITIAL_LOAD_MAX}</strong> новых{" "}
+                    {docWordGenitive} с checko.ru поверх очереди (
+                    <strong>{queueSize}</strong> в базе). Уже загруженные
+                    компании и история отправок <strong>сохранятся</strong>.
+                    Email без срочности — в фоне.
+                  </>
+                )
+              ) : isFirstLoad ? (
                 <>
                   Запросим до <strong>{INITIAL_LOAD_MAX}</strong>{" "}
                   {docWordGenitive} с
@@ -460,9 +507,9 @@ function FsaLoadConfirmDialog({
               )}
             </p>
             <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
-              Это важная операция: идёт обращение к внешнему API ФСА и
-              фоновое обогащение email. Нажимайте только когда готовы начать
-              загрузку.
+              {isChecko
+                ? "Важная операция: срочный обход списка checko.ru. Карточки с email — отдельно, медленно. Запускайте, когда готовы."
+                : "Это важная операция: идёт обращение к внешнему API ФСА и фоновое обогащение email. Нажимайте только когда готовы начать загрузку."}
             </p>
           </div>
         </div>
@@ -479,7 +526,11 @@ function FsaLoadConfirmDialog({
             onClick={onConfirm}
             className="btn-primary px-5 py-2.5 text-sm"
           >
-            {isFirstLoad ? "Начать загрузку" : "Догрузить из ФСА"}
+            {isFirstLoad
+              ? "Начать загрузку"
+              : isChecko
+                ? "Догрузить с checko.ru"
+                : "Догрузить из ФСА"}
           </button>
         </div>
       </div>
@@ -531,11 +582,33 @@ export function OutreachPanel({
   /** false = вкладка скрыта, но панель жива — не поллим и не сбрасываем данные */
   active?: boolean;
 }) {
-  const docWord = category === "expiring_certificates" ? "сертификаты" : "декларации";
+  const docWord =
+    category === "expiring_certificates"
+      ? "сертификаты"
+      : category === "new_registrations"
+        ? "организации"
+        : "декларации";
   const docWordGenitive =
-    category === "expiring_certificates" ? "сертификатов" : "деклараций";
-  const docAccusative = category === "expiring_certificates" ? "сертификат" : "декларацию";
-  const docThisLabel = category === "expiring_certificates" ? "этому сертификату" : "этой декларации";
+    category === "expiring_certificates"
+      ? "сертификатов"
+      : category === "new_registrations"
+        ? "организаций"
+        : "деклараций";
+  const docAccusative =
+    category === "expiring_certificates"
+      ? "сертификат"
+      : category === "new_registrations"
+        ? "организацию"
+        : "декларацию";
+  const docThisLabel =
+    category === "expiring_certificates"
+      ? "этому сертификату"
+      : category === "new_registrations"
+        ? "этой организации"
+        : "этой декларации";
+  const isChecko = category === "new_registrations";
+  const sourceLabel = isChecko ? "checko.ru" : "ФСА";
+  const tableVariant = isChecko ? "checko" : "fsa";
   const [data, setData] = useState<OutreachState | null>(null);
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
@@ -645,6 +718,32 @@ export function OutreachPanel({
       if (!silent) setLoading(true);
       if (!silent) setError("");
       try {
+        // Первая отрисовка вкладки: лёгкий статус сразу, списки — следом.
+        if (!silent && !loadedOnce.current) {
+          try {
+            const liteRes = await fetch(
+              `/api/admin/outreach?category=${encodeURIComponent(category)}&lite=1`,
+              { credentials: "same-origin" }
+            );
+            if (liteRes.ok) {
+              const liteJson = (await liteRes.json()) as OutreachState;
+              setData({
+                ...liteJson,
+                items: [],
+                rejected: [],
+                sent: [],
+                recentSent: [],
+                unsubscribed: [],
+              });
+              applyScheduleFrom(liteJson);
+              loadedOnce.current = true;
+              setLoading(false);
+            }
+          } catch {
+            // полный запрос ниже
+          }
+        }
+
         const qs = new URLSearchParams({
           category,
         });
@@ -686,17 +785,20 @@ export function OutreachPanel({
   }
 
   /** Лёгкий poll: статус + счётчики, без МБ списков. */
-  async function refreshStatus(opts?: { force?: boolean }) {
-    if (!loadedOnce.current) return;
+  async function refreshStatus(opts?: {
+    force?: boolean;
+  }): Promise<OutreachState | null> {
+    if (!loadedOnce.current) return null;
     if (fullRefreshInFlight.current) {
       await fullRefreshInFlight.current;
-      if (!opts?.force) return;
+      if (!opts?.force) return null;
     }
     if (statusRefreshInFlight.current) {
       await statusRefreshInFlight.current;
-      if (!opts?.force) return;
+      if (!opts?.force) return null;
     }
 
+    let latest: OutreachState | null = null;
     const run = (async () => {
       const res = await fetch(
         `/api/admin/outreach?category=${encodeURIComponent(category)}&lite=1`,
@@ -704,6 +806,7 @@ export function OutreachPanel({
       );
       if (!res.ok) return;
       const json = (await res.json()) as OutreachState;
+      latest = json;
       const nextSig = [
         json.itemsCount ?? 0,
         json.rejectedCount ?? 0,
@@ -723,6 +826,7 @@ export function OutreachPanel({
           hasMore: json.hasMore,
           enrichPending: json.enrichPending,
           enrichStatus: json.enrichStatus,
+          checkoBlock: json.checkoBlock,
           fsaQueue: json.fsaQueue,
           itemsCount: json.itemsCount,
           rejectedCount: json.rejectedCount,
@@ -753,6 +857,7 @@ export function OutreachPanel({
       }
     });
     await statusRefreshInFlight.current;
+    return latest;
   }
 
   useEffect(() => {
@@ -987,7 +1092,13 @@ export function OutreachPanel({
       const json = await res.json().catch(() => ({}));
 
       if (!res.ok) {
+        const fsaQueue = json.fsaQueue as FsaQueueStatus | undefined;
+        if (fsaQueue) {
+          setData((prev) => (prev ? { ...prev, fsaQueue } : prev));
+        }
+        setMessage("");
         setError(json.error || "Ошибка загрузки из реестра");
+        await refreshStatus({ force: true }).catch(() => null);
         return;
       }
 
@@ -999,31 +1110,51 @@ export function OutreachPanel({
           typeof json.pendingAppendScans === "number"
             ? json.pendingAppendScans
             : null;
+        // Не обещаем «данные обновятся» — только что задача принята.
         setMessage(
-          mode === "append" && pending != null
-            ? `В очередь: +${amount} (задач догрузки: ${pending}). Обработка уже запускается.`
-            : `Задача на ${amount} записей поставлена в очередь. Данные обновятся автоматически.`
+          json.duplicate
+            ? String(json.message || "Задача уже выполняется.")
+            : mode === "append" && pending != null
+              ? `Принято: +${amount} (в очереди догрузок: ${pending}).`
+              : `Принято: загрузка до ${amount} записей.`
         );
         const fsaQueue = json.fsaQueue as FsaQueueStatus | undefined;
-        setData((prev) => {
-          if (!prev) return prev;
-          const nextFsa: FsaQueueStatus = fsaQueue ?? {
-            pendingHigh: Math.max(prev.fsaQueue?.pendingHigh ?? 0, 1),
-            pendingLow: prev.fsaQueue?.pendingLow ?? 0,
-            running: Boolean(prev.fsaQueue?.running),
-            scanQueued: true,
-            pendingScanAppend:
-              mode === "append"
-                ? pending ?? Math.max(prev.fsaQueue?.pendingScanAppend ?? 0, 1)
-                : prev.fsaQueue?.pendingScanAppend ?? 0,
-            enrichQueued: prev.fsaQueue?.enrichQueued,
-            enrichRunning: prev.fsaQueue?.enrichRunning,
-            lastSummary: prev.fsaQueue?.lastSummary ?? null,
-            lastError: prev.fsaQueue?.lastError ?? null,
-          };
-          return { ...prev, fsaQueue: nextFsa };
-        });
-        await refreshStatus({ force: true });
+        // Только серверный статус — без фейка «running + срочных 0».
+        if (fsaQueue) {
+          setData((prev) => (prev ? { ...prev, fsaQueue } : prev));
+        }
+
+        // Ждём конец задачи по серверному статусу (не по локальному scanning).
+        const deadline = Date.now() + 170_000;
+        let nullPolls = 0;
+        while (Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 2000));
+          const status = await refreshStatus({ force: true });
+          const fq = status?.fsaQueue;
+          if (!fq) {
+            nullPolls += 1;
+            if (nullPolls >= 3) break;
+            continue;
+          }
+          nullPolls = 0;
+          const busy =
+            Boolean(fq.running) ||
+            (fq.pendingHigh ?? 0) > 0 ||
+            (fq.pendingScanAppend ?? 0) > 0;
+          if (!busy) {
+            if (fq.lastError) {
+              setMessage("");
+              setError(fq.lastError);
+            } else if (fq.lastSummary) {
+              setError("");
+              setMessage(fq.lastSummary);
+            } else {
+              setMessage("");
+            }
+            break;
+          }
+        }
+        await refresh(true);
         return;
       }
 
@@ -1033,7 +1164,9 @@ export function OutreachPanel({
       setError(
         err instanceof Error
           ? err.message
-          : "Сеть оборвалась во время загрузки из ФСА"
+          : isChecko
+            ? "Сеть оборвалась во время загрузки с checko.ru"
+            : "Сеть оборвалась во время загрузки из ФСА"
       );
     } finally {
       setScanning(false);
@@ -1218,6 +1351,30 @@ export function OutreachPanel({
       return;
     }
     setMessage(`Письмо отправлено (ID ${id})`);
+    // Сразу в UI — не ждём полный refresh (иначе «Отправить» висит).
+    setData((prev) => {
+      if (!prev) return prev;
+      const mark = (rows: QueueItem[]) =>
+        rows.map((row) =>
+          row.id === id
+            ? {
+                ...row,
+                alreadySent: true,
+                sendable: false,
+                autoSendable: false,
+                blockReason: "already_sent",
+                blockLabel: "уже отправляли",
+              }
+            : row
+        );
+      return {
+        ...prev,
+        items: mark(prev.items),
+        rejected: mark(prev.rejected),
+        sendableCount: Math.max((prev.sendableCount ?? 1) - 1, 0),
+        sentCount: (prev.sentCount ?? 0) + 1,
+      };
+    });
     await refresh();
   }
 
@@ -1245,6 +1402,11 @@ export function OutreachPanel({
   const enrichPaused =
     Boolean(data?.enrichStatus?.paused) && !enrichQueued && !enrichRunning;
   const enrichPending = data?.enrichPending ?? 0;
+  const checkoBlocked = Boolean(data?.checkoBlock?.active);
+  const checkoBlockMins = Math.max(
+    1,
+    Math.ceil((data?.checkoBlock?.remainingMs ?? 0) / 60_000)
+  );
   const enrichProcessed = data?.enrichStatus?.processedTotal ?? 0;
   const enrichEmailsFound = data?.enrichStatus?.emailsFoundTotal ?? 0;
   const enrichSessionTotal = data?.enrichStatus?.sessionInitialPending ?? null;
@@ -1255,6 +1417,10 @@ export function OutreachPanel({
 
   const fsaPendingHigh = data?.fsaQueue?.pendingHigh ?? 0;
   const fsaPendingLow = data?.fsaQueue?.pendingLow ?? 0;
+  const fsaQueuePending = fsaPendingHigh + fsaPendingLow;
+  /** Реальная работа на сервере — не путать с локальным scanning. */
+  const fsaServerBusy = Boolean(data?.fsaQueue?.running);
+  const fsaQueuedWaiting = fsaQueuePending > 0 && !fsaServerBusy;
   // Синяя плашка обогащения уже показывает ту же фоновую задачу — не дублируем.
   // Срочные догрузки (+100) всегда показываем в полоске очереди.
   const onlyEnrichInFsaQueue =
@@ -1266,11 +1432,10 @@ export function OutreachPanel({
   const showFsaQueueStrip =
     Boolean(data?.fsaQueue) &&
     !onlyEnrichInFsaQueue &&
-    (fsaPendingHigh > 0 ||
-      fsaPendingLow > 0 ||
-      (data?.fsaQueue?.pendingScanAppend ?? 0) > 0 ||
-      Boolean(data?.fsaQueue?.scanQueued) ||
-      Boolean(data?.fsaQueue?.running) ||
+    (fsaServerBusy ||
+      fsaQueuedWaiting ||
+      scanning ||
+      appending ||
       Boolean(data?.fsaQueue?.lastSummary) ||
       Boolean(data?.fsaQueue?.lastError));
 
@@ -1289,11 +1454,14 @@ export function OutreachPanel({
         onConfirm={confirmFsaLoad}
         docWordNominative={docWord}
         docWordGenitive={docWordGenitive}
+        source={isChecko ? "checko" : "fsa"}
       />
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted">
-          Срочная загрузка из ФСА идёт раньше фоновой подгрузки email.
+          {isChecko
+            ? "Срочно — список с checko.ru. Email с карточек — в фоне, по одной, с паузами."
+            : "Срочная загрузка из ФСА идёт раньше фоновой подгрузки email."}
         </p>
         <div className="flex flex-wrap gap-2">
           <button
@@ -1305,15 +1473,17 @@ export function OutreachPanel({
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
             Обновить
           </button>
-          <button
-            type="button"
-            onClick={checkFsaAccess}
-            disabled={checkingFsaAccess}
-            className="btn-ghost gap-2 px-4 py-2 text-sm"
-          >
-            <AlertCircle className={`h-4 w-4 ${checkingFsaAccess ? "animate-pulse" : ""}`} />
-            {checkingFsaAccess ? "Проверка..." : "Проверить доступ к ФСА"}
-          </button>
+          {!isChecko && (
+            <button
+              type="button"
+              onClick={checkFsaAccess}
+              disabled={checkingFsaAccess}
+              className="btn-ghost gap-2 px-4 py-2 text-sm"
+            >
+              <AlertCircle className={`h-4 w-4 ${checkingFsaAccess ? "animate-pulse" : ""}`} />
+              {checkingFsaAccess ? "Проверка..." : "Проверить доступ к ФСА"}
+            </button>
+          )}
         </div>
       </div>
 
@@ -1338,9 +1508,13 @@ export function OutreachPanel({
                 {enrichStopping
                   ? "Останавливаем — завершаем текущий батч на сервере…"
                   : enrichRunning
-                    ? "На сервере в фоне подгружаем email из карточек ФСА"
+                    ? isChecko
+                      ? "В фоне берём email с карточек checko.ru (по одной, с паузами)"
+                      : "На сервере в фоне подгружаем email из карточек ФСА"
                     : enrichQueued
                       ? "Обработка email в очереди"
+                      : checkoBlocked
+                        ? `Пауза checko ~${checkoBlockMins} мин (защита сайта) — потом продолжит сам`
                       : enrichPaused
                         ? "Обогащение остановлено"
                         : "Остались карточки без email"}{" "}
@@ -1350,13 +1524,17 @@ export function OutreachPanel({
                 {enrichRunning && !enrichStopping
                   ? ". Можно уйти из раздела — процесс не остановится."
                   : enrichQueued && fsaPendingHigh > 0
-                    ? `. Сейчас сначала идут срочные загрузки из ФСА (${fsaPendingHigh}), email начнётся следом.`
+                    ? `. Сейчас сначала идут срочные загрузки (${fsaPendingHigh}), email начнётся следом.`
                     : enrichQueued
                     ? "."
+                    : checkoBlocked
+                      ? ". Не жмите «Продолжить» сразу — так только продлите блок."
                     : enrichPaused
                       ? ". Нажмите «Продолжить», чтобы возобновить."
                       : enrichPending > 0
-                        ? ". Если счётчик не растёт — проверьте доступ к ФСА."
+                        ? isChecko
+                          ? ". Если счётчик не растёт без паузы — нажмите «Продолжить в фоне»."
+                          : ". Если счётчик не растёт — проверьте доступ к ФСА."
                         : "."}
               </p>
             </div>
@@ -1382,10 +1560,19 @@ export function OutreachPanel({
               <button
                 type="button"
                 onClick={() => void startBackgroundEnrich()}
-                disabled={enrichStarting}
+                disabled={enrichStarting || checkoBlocked}
                 className="btn-primary px-3 py-1.5 text-xs disabled:opacity-50"
+                title={
+                  checkoBlocked
+                    ? `Подождите ~${checkoBlockMins} мин`
+                    : undefined
+                }
               >
-                {enrichStarting ? "Запускаем…" : "Продолжить в фоне"}
+                {enrichStarting
+                  ? "Запускаем…"
+                  : checkoBlocked
+                    ? `Пауза ~${checkoBlockMins} мин`
+                    : "Продолжить в фоне"}
               </button>
             ) : null}
           </div>
@@ -1411,12 +1598,22 @@ export function OutreachPanel({
       )}
 
       <AdminCard
-        title={`Заканчивающиеся ${docWord}`}
-        description="Фильтр: дата окончания действия"
+        title={
+          isChecko
+            ? "Новые организации"
+            : `Заканчивающиеся ${docWord}`
+        }
+        description={
+          isChecko
+            ? "Фильтр: дата регистрации на checko.ru (последние 21 день, только ЮЛ)"
+            : "Фильтр: дата окончания действия"
+        }
       >
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
           <div className="rounded-xl bg-background p-4">
-            <p className="text-xs text-muted">Период окончания</p>
+            <p className="text-xs text-muted">
+              {isChecko ? "Период регистрации" : "Период окончания"}
+            </p>
             <p className="mt-1 font-semibold">
               {data ? `${data.range.from} — ${data.range.to}` : "—"}
             </p>
@@ -1459,7 +1656,7 @@ export function OutreachPanel({
               ? "Загрузка…"
               : data?.scannedAt && (data?.fsaQueue?.pendingScanAppend ?? 0) > 0
                 ? `Загрузить ещё до ${INITIAL_LOAD_MAX} (в очереди ${data.fsaQueue?.pendingScanAppend})`
-                : `Загрузить из ФСА (до ${INITIAL_LOAD_MAX})`}
+                : `Загрузить с ${sourceLabel} (до ${INITIAL_LOAD_MAX})`}
           </button>
 
           <button
@@ -1534,15 +1731,15 @@ export function OutreachPanel({
         {showFsaQueueStrip && data?.fsaQueue && (
           <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted">
             <p>
-              В очереди задач: срочных {data.fsaQueue.pendingHigh}, фоновых{" "}
-              {data.fsaQueue.pendingLow}
-              {data.fsaQueue.running
-                ? data.fsaQueue.runningType === "scan"
-                  ? " · сейчас идёт догрузка из ФСА"
-                  : data.fsaQueue.runningType === "enrich"
-                    ? " · сейчас идёт обогащение email"
-                    : " · сейчас идёт обмен"
-                : ""}.
+              {fsaServerBusy
+                ? data.fsaQueue.runningType === "enrich"
+                  ? "Сейчас идёт обогащение email…"
+                  : `Сейчас загружаем данные с ${sourceLabel}…`
+                : scanning || appending
+                  ? "Запускаем задачу…"
+                  : fsaQueuePending > 0
+                    ? `В очереди задач: срочных ${data.fsaQueue.pendingHigh}, фоновых ${data.fsaQueue.pendingLow}.`
+                    : "Очередь задач пуста."}
               {data.fsaQueue.lastSummary
                 ? ` Последний результат: ${data.fsaQueue.lastSummary}.`
                 : ""}
@@ -1550,7 +1747,7 @@ export function OutreachPanel({
                 ? ` Последняя ошибка: ${data.fsaQueue.lastError}.`
                 : ""}
             </p>
-            {(data.fsaQueue.pendingHigh > 0 || data.fsaQueue.pendingLow > 0) && (
+            {fsaQueuePending > 0 && (
               <button
                 type="button"
                 onClick={() => void cancelFsaQueue("all")}
@@ -1561,6 +1758,7 @@ export function OutreachPanel({
             )}
           </div>
         )}
+
 
         {message && <p className="mt-3 text-sm text-green-700">{message}</p>}
         {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
@@ -1683,10 +1881,21 @@ export function OutreachPanel({
         </div>
 
         <p className="mt-3 text-xs text-muted">
-          Лимит применяется сразу. Cron каждые ~20 мин: раз в час догружает
-          до 100 {docWordGenitive} из ФСА (поверх очереди); в ~6:00 МСК — утренняя
-          синхронизация; при нехватке адресов — дозагрузка перед автоотправкой.
-          {data?.schedule?.lastHourlyFsaAppendAt && (
+          {isChecko ? (
+            <>
+              Лимит применяется сразу. Cron каждые ~20 мин: при нехватке адресов
+              догружает список новых организаций с checko.ru (21 день), email —
+              в фоне по одной карточке.
+            </>
+          ) : (
+            <>
+              Лимит применяется сразу. Cron каждые ~20 мин: раз в час догружает
+              до 100 {docWordGenitive} из ФСА (поверх очереди); в ~6:00 МСК —
+              утренняя синхронизация; при нехватке адресов — дозагрузка перед
+              автоотправкой.
+            </>
+          )}
+          {!isChecko && data?.schedule?.lastHourlyFsaAppendAt && (
             <>
               {" "}
               Последняя почасовая догрузка:{" "}
@@ -1696,7 +1905,7 @@ export function OutreachPanel({
               .
             </>
           )}
-          {data?.schedule?.lastFsaSyncAt && (
+          {!isChecko && data?.schedule?.lastFsaSyncAt && (
             <>
               {" "}
               Утренняя синхронизация:{" "}
@@ -1737,6 +1946,7 @@ export function OutreachPanel({
               onSendOne={(id) => sendOne(id, true)}
               sendingId={sendingId}
               manualSend
+              variant={tableVariant}
             />
           ) : (
             <QueueTable
@@ -1745,6 +1955,7 @@ export function OutreachPanel({
               sendingId={sendingId}
               onToggleAutoExclude={toggleAutoExclude}
               togglingId={togglingId}
+              variant={tableVariant}
             />
           )}
         </AdminCard>

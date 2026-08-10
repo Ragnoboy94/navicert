@@ -9,14 +9,9 @@ import {
   summarizeSendBlocks,
 } from "@/lib/outreach/send-selection";
 import type { FsaDeclaration, OutreachQueueItem, OutreachCategory } from "@/lib/outreach/types";
+import { parseOutreachCategory } from "@/lib/outreach/category";
 
 export const maxDuration = 300;
-
-function parseCategory(raw: string | null | undefined): OutreachCategory {
-  return raw === "expiring_certificates"
-    ? "expiring_certificates"
-    : "expiring";
-}
 
 function findQueueItem(
   queue: NonNullable<ReturnType<typeof readOutreachQueue>>,
@@ -36,7 +31,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const url = new URL(request.url);
-    const category = parseCategory(body.category ?? url.searchParams.get("category"));
+    const category = parseOutreachCategory(body.category ?? url.searchParams.get("category"));
     const count = clampBatchCount(body.count);
     const force = Boolean(body.force);
     const manual = Boolean(body.manual);

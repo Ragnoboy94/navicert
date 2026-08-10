@@ -1,0 +1,1628 @@
+<!DOCTYPE html>
+<html lang="ru" style="height:100%">
+
+<head>
+
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+
+<link rel="stylesheet" href="/cdn/default.260725.min.css">
+<link rel="preload" href="/cdn/default_font_400.260526.woff2" as="font" type="font/woff2" crossorigin fetchpriority="high">
+<link rel="preload" href="/cdn/default_font_700.260526.woff2" as="font" type="font/woff2" crossorigin fetchpriority="high">
+
+  
+<title>Расширенный поиск</title>
+
+<meta name="viewport" content="width=device-width, user-scalable=yes, initial-scale=1.0, maximum-scale=5.0">
+<meta name="theme-color" content="#5fac62">
+<meta name="description" content="Расширенный поиск - Чекко">
+<meta name="keywords" content="чекко, расширенный поиск, организации, предприниматели, фильтры">
+
+<style>.position-static{position:static!important}</style>
+
+<link rel="stylesheet" href="/cdn/quasar2.260730.css">
+<link rel="stylesheet" href="/cdn/user.260730.css">
+
+<link rel="icon" type="image/png" href="/icons/favicon-32x32.png" sizes="32x32">
+<link rel="icon" type="image/png" href="/icons/favicon-64x64.png" sizes="64x64">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="manifest" href="/icons/site.webmanifest">
+
+
+
+<meta name="csrf-param" content="authenticity_token" />
+<meta name="csrf-token" content="6lN46773y0FTNX252nDCIbXXouo28t7YW7Z5Ne0Y3wJlIJH55vYHKGtswpy_K4v1i0EHtFyxG2FycaYJx_K36g" />
+    
+
+    
+</head>
+
+<body class="h-100 d-flex flex-column" id="body">
+
+<header>
+<div class="container-xl">
+<ul class="d-flex" id="top-menu" style="max-height:70px">
+<li class="me-auto"><a href="/"><img src="/cdn/images/logo/350x140.webp" width="175" height="70" alt="Чекко" title="Чекко - Проверка контрагентов" id="logo" fetchpriority="high" decoding="async" loading="eager"></a></li>
+<li class="d-none d-sm-inline-block align-self-center"><a class="me-4" href="/company/select?code=all" title="Организации">Организации</a></li>
+<li class="d-none d-sm-inline-block align-self-center"><a class="me-4" href="/entrepreneur/select?code=all" title="Индивидуальные предприниматели">ИП</a></li>
+<li class="d-none d-xl-inline-block align-self-center"><a class="me-4" href="/by" title="Организации и ИП Беларуси">Беларусь</a></li>
+<li class="d-none d-md-inline-block align-self-center"><a rel="nofollow" class="hl me-4" href="/pro" title="Подписка PRO расширяет функционал сервиса и убирает рекламу">Подписка PRO</a></li>
+<li class="d-none d-lg-inline-block align-self-center"><a rel="nofollow" class="me-4" href="/business/about" title="Управление страницей вашего бизнеса">Мой бизнес</a></li>
+<li class="d-none d-md-inline-block align-self-center"><a rel="nofollow" class="me-4" href="/integration/api" title="API для работы с нашими данными">API</a></li>
+<li class="d-none d-lg-inline-block align-self-center"><a rel="nofollow" class="me-4" href="/databases" title="Базы данных российских компаний">Базы данных</a></li>
+<li class="d-none d-xl-inline-block align-self-center"><a rel="nofollow" class="me-4" href="/legality" title="Правовые основания размещения информации">Правовые основания</a></li><li class="align-self-center"><a rel="nofollow" class="ua me-4" href="/login"><svg fill="#fff" xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" style="vertical-align:text-top;margin:-2px 8px 0 0"><path d="M235.2-279.59q51-38.52 113.52-60.54 62.52-22.02 131.28-22.02 68.76 0 131.64 22.38 62.88 22.38 113.16 60.42 34.29-41.24 53.31-91.92 19.02-50.69 19.02-108.73 0-131.57-92.78-224.35T480-797.13q-131.57 0-224.35 92.78T162.87-480q0 57.8 18.9 108.49 18.9 50.68 53.43 91.92Zm143.87-199.12q-40.98-40.86-40.98-100.81 0-59.96 40.98-100.94 40.97-40.97 100.93-40.97 59.96 0 100.93 40.97 40.98 40.98 40.98 100.94 0 59.95-40.98 100.81-40.97 40.86-100.93 40.86-59.96 0-100.93-40.86ZM480-71.87q-84.67 0-159.11-32.1-74.43-32.1-129.63-87.29-55.19-55.2-87.29-129.63-32.1-74.44-32.1-159.11 0-84.67 32.1-159.11 32.1-74.43 87.29-129.63 55.2-55.19 129.63-87.29 74.44-32.1 159.11-32.1 84.67 0 159.11 32.1 74.43 32.1 129.63 87.29 55.19 55.2 87.29 129.63 32.1 74.44 32.1 159.11 0 84.67-32.1 159.11-32.1 74.43-87.29 129.63-55.2 55.19-129.63 87.29-74.44 32.1-159.11 32.1Z"/></svg>Войти</a></li>
+<li class="align-self-center"><a id="menu-button" class="d-block" role="button" tabindex="0" data-bs-toggle="offcanvas" data-bs-target="#menu" aria-controls="menu"><svg fill="#111" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24px" height="24px"><path d="M 3 5 A 1.0001 1.0001 0 1 0 3 7 L 21 7 A 1.0001 1.0001 0 1 0 21 5 L 3 5 z M 3 11 A 1.0001 1.0001 0 1 0 3 13 L 21 13 A 1.0001 1.0001 0 1 0 21 11 L 3 11 z M 3 17 A 1.0001 1.0001 0 1 0 3 19 L 21 19 A 1.0001 1.0001 0 1 0 21 17 L 3 17 z"/></svg></a></li>
+</ul>
+<div class="offcanvas offcanvas-end" tabindex="-1" id="menu" style="width:340px">
+<div class="offcanvas-header"><span></span><button type="button" class="btn-close btn-close-white text-reset" data-bs-dismiss="offcanvas" aria-label="Закрыть"></button></div>
+<div class="offcanvas-body" style="margin-top:-26px">
+<ul class="nav flex-column">
+<li class="nav-item"><a class="nav-link" href="/company/select?code=all">Организации</a></li>
+<li class="nav-item"><a class="nav-link" href="/entrepreneur/select?code=all">Индивидуальные предприниматели</a></li>
+<hr>
+<li class="nav-item"><a class="nav-link" href="/by">Беларусь</a></li>
+<hr>
+<li class="nav-item"><a class="nav-link" href="/pro">Подписка PRO</a></li>
+<li class="nav-item"><a class="nav-link" href="/business/about">Мой бизнес</a></li>
+<li class="nav-item"><a class="nav-link" href="/databases">Базы данных</a></li>
+<li class="nav-item"><a class="nav-link" href="/integration/api">API</a></li>
+<hr>
+<li class="nav-item"><a rel="nofollow" class="nav-link" href="/legality">Правовая информация</a></li>
+<li class="nav-item"><a rel="nofollow" class="nav-link" href="/sources">Источники данных</a></li>
+<li class="nav-item"><a rel="nofollow" class="nav-link" href="/agreement">Пользовательское соглашение</a></li>
+<li class="nav-item"><a rel="nofollow" class="nav-link" href="/privacy">Политика конфиденциальности</a></li>
+<li class="nav-item"><a rel="nofollow" class="nav-link" href="/offer">Публичная оферта</a></li>
+<hr>
+<li class="nav-item"><a rel="nofollow" class="nav-link" href="/login">Личный кабинет</a></li>
+<hr>
+<li class="nav-item"><a rel="nofollow" class="nav-link" href="/feedback">Обратная связь</a></li>
+</ul>
+</div></div></div>
+
+<div class="search-panel"><div class="container-xl">
+<div class="d-flex" id="search-flex">
+<div class="flex-fill">
+<form id="search-form" action="/search" method="get"><div>
+<input autocomplete="off" id="search" name="query" type="search" class="form-control" placeholder="Поиск по ОГРН, ИНН, названию или ФИО" aria-label="Поиск">
+<div class="advanced-search-link d-none d-md-block"><a rel="nofollow" class="link fs-14" href="/search/advanced">Расширенный поиск</a></div>
+<button class="search-button" type="submit" aria-label="Быстрый поиск" title="Быстрый поиск">
+<svg width="24" height="24" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#73829f" d="M21.71,20.29,18,16.61A9,9,0,1,0,16.61,18l3.68,3.68a1,1,0,0,0,1.42,0A1,1,0,0,0,21.71,20.29ZM11,18a7,7,0,1,1,7-7A7,7,0,0,1,11,18Z"/></svg>
+</button></div></form>
+</div>
+</div>
+<div id="search-help-dropdown" data-bs-toggle="dropdown" data-bs-offset="0,0"></div><div class="dropdown-menu" id="search-help">Быстрый поиск по названию организации или ИП / реквизитам / ФИО руководителя или учредителя<br>
+Например: <span class="pseudo">ооо ромашка москва</span> или <span class="pseudo">7707049388</span> или <span class="pseudo">кузнецов андрей калуга</span>
+<hr style="margin:0.9rem 0 0.9rem 0">
+Также у нас есть <span class="pseudo">расширенный поиск</span> с фильтрами и выгрузкой в Excel</div>
+<div id="search-tips-dropdown" data-bs-toggle="dropdown" data-bs-offset="0,0"></div><ul class="dropdown-menu" id="search-tips"></ul>
+</div></div>
+
+</header>
+
+<main class="flex-shrink-0 select-page"><div id="loader" style="display:none"></div>
+
+
+<div class="container-xl">
+<div class="d-flex flex-row">
+
+<div class="left" style="padding-top:1rem;width:325px;background:var(--bs-gray-100);border-right:none">
+<div class="lsb position-static" id="lsc" style="padding-right:16px"> 
+<div id="vue">
+<div class="mt-0 mb-2 pt-0">
+<q-option-group
+v-model="entity"
+class="q-gutter-x-lg"
+:options="[{label: 'Организации', value: 'organizations'}, {label: 'ИП', value: 'entrepreneurs'}]"
+type="radio"
+inline
+color="black"
+@update:model-value="entity_change()"
+></q-option-group>
+</div>
+
+<div class="mb-3">
+<q-toggle
+v-model="active_checkbox"
+label="Только действующие"
+color="green"
+@update:model-value="update()"
+></q-toggle>
+</div>
+
+<div id="activity_select_button" class="mb-3">
+<q-input
+v-model="activity_select_button"
+readonly
+outlined
+@click="open_activity_modal"
+>
+<template v-slot:append>
+<q-btn flat round dense icon="close" size="md" color="grey-7" @click.stop="clear_activities()" />
+</template>
+</q-input>
+</div>
+
+<div id="location_select_button" class="mb-2">
+<q-input
+v-model="location_select_button"
+readonly
+outlined
+@click="open_location_modal"
+>
+<template v-slot:append>
+<q-btn flat round dense icon="close" size="md" color="grey-7" @click.stop="clear_locations()" />
+</template>
+</q-input>
+</div>
+
+<div class="mt-4">
+<div>Название или часть названия</div>
+<q-input
+class="mt-2 mb-3"
+v-model="search"
+outlined
+>
+<template v-slot:append>
+<q-btn flat round dense icon="search" size="md" color="grey-7" @click="update()" />
+</template>
+</q-input>
+</div>
+
+<div class="accordion accordion-flush pb-4" id="select-accordion">
+
+<div class="accordion-item">
+<strong class="accordion-header" id="flush-heading-1">
+<button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#flush-collapse-1" aria-expanded="false" aria-controls="flush-collapse-1">Дата регистрации</button>
+</strong>
+<div id="flush-collapse-1" class="accordion-collapse show" aria-labelledby="flush-heading-1">
+<div class="accordion-body">
+
+<q-input
+class="pt-1"
+v-model="reg_date_range_text"
+readonly
+outlined
+placeholder="Выберите период"
+clearable
+@clear="clear_reg_date"
+>
+<q-popup-proxy transition-show="fade" transition-hide="fade" @before-show="init_reg_date">
+<q-date
+v-model="reg_date_range"
+range
+mask="YYYY-MM-DD"
+:locale="quasarLocaleRu"
+>
+<div class="q-pa-sm" style="display:flex; justify-content:flex-end">
+<q-btn v-close-popup label="OK" flat color="dark" />
+</div>
+</q-date>
+</q-popup-proxy>
+
+<template v-slot:append>
+<q-icon name="event" color="grey-7" />
+</template>
+</q-input>
+
+</div>
+</div>
+</div>
+
+<div class="accordion-item">
+<strong class="accordion-header" id="flush-heading-2">
+<button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#flush-collapse-2" aria-expanded="false" aria-controls="flush-collapse-2">Реестр МСП</button>
+</strong>
+<div id="flush-collapse-2" class="accordion-collapse collapse" aria-labelledby="flush-heading-2">
+<div class="accordion-body">
+
+<div class="mb-2"><q-toggle
+v-model="smb_checkbox"
+color="primary"
+><template v-slot:default>Входит в реестр МСП<span class="question" data-bs-toggle="tooltip" data-bs-animation="false" data-bs-title="Единый реестр субъектов малого и среднего предпринимательства"></span></template></q-toggle></div>
+<q-select
+v-model="smb_select"
+:disable="!smb_checkbox"
+:options="smb_select_options"
+emit-value
+map-options
+outlined
+></q-select>
+
+</div>
+</div>
+</div>
+
+<div class="fv accordion-item">
+<strong class="accordion-header" id="flush-heading-3">
+<button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#flush-collapse-3" aria-expanded="false" aria-controls="flush-collapse-3">Среднесписочная численность</button>
+</strong>
+<div id="flush-collapse-3" class="accordion-collapse collapse" aria-labelledby="flush-heading-3">
+<div class="accordion-body">
+
+<div class="mb-2"><q-toggle
+v-model="employee_checkbox"
+label="Есть данные по ССЧ от ФНС"
+color="primary"
+></q-toggle></div>
+<div class="d-inline-block me-2">От</div>
+<q-input
+class="d-inline-block"
+style="width: 70px"
+:disable="!employee_checkbox"
+v-model="employee_from"
+outlined
+></q-input>
+<div class="d-inline-block ps-2 pe-2">до</div>
+<q-input
+class="d-inline-block"
+style="width: 70px"
+:disable="!employee_checkbox"
+v-model="employee_to"
+outlined
+></q-input><div class="d-inline-block ms-2">человек</div>
+
+</div>
+</div>
+</div>
+    
+<div class="fv accordion-item">
+<strong class="accordion-header" id="flush-heading-4">
+<button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#flush-collapse-4" aria-expanded="false" aria-controls="flush-collapse-4">Уставный капитал</button>
+</strong>
+<div id="flush-collapse-4" class="accordion-collapse collapse" aria-labelledby="flush-heading-4">
+<div class="accordion-body">
+
+<div class="mb-2"><q-toggle
+v-model="capital_checkbox"
+label="Имеется уставный капитал"
+color="primary"
+></q-toggle></div>
+<div class="d-inline-block me-2">От</div>
+<q-input
+class="d-inline-block"
+style="width: 140px"
+:disable="!capital_checkbox"
+v-model="capital_from"
+outlined
+></q-input>
+<div class="d-inline-block ms-2">руб.</div>
+
+</div>
+</div>
+</div>
+    
+<div class="fv accordion-item">
+<strong class="accordion-header" id="flush-heading-5">
+<button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#flush-collapse-5" aria-expanded="false" aria-controls="flush-collapse-5">Финансовая отчетность</button>
+</strong>
+<div id="flush-collapse-5" class="accordion-collapse collapse" aria-labelledby="flush-heading-5">
+<div class="accordion-body">
+
+<div class="mb-2"><q-toggle
+v-model="fs_2110_checkbox"
+color="primary"
+><template v-slot:default>Выручка за 2025 год<span class="question" data-bs-toggle="tooltip" data-bs-animation="false" data-bs-title="Строка 2110 финансовой отчётности"></span></template></q-toggle></div>
+<div class="mb-4">
+<div class="d-inline-block me-2">От</div>
+<q-input class="d-inline-block" style="width: 87px" :disable="!fs_2110_checkbox" v-model="fs_2110_from" outlined></q-input>
+<div class="d-inline-block ms-2 me-2">до</div>
+<q-input class="d-inline-block" style="width: 87px" :disable="!fs_2110_checkbox" v-model="fs_2110_to" outlined></q-input>
+<div class="d-inline-block ms-2">руб.</div>
+</div>
+
+<div class="mb-2"><q-toggle
+v-model="fs_2400_checkbox"
+color="primary"
+><template v-slot:default>Чистая прибыль за 2025 год<span class="question" data-bs-toggle="tooltip" data-bs-animation="false" data-bs-title="Строка 2400 финансовой отчётности"></span></template></q-toggle></div>
+<div class="mb-4">
+<div class="d-inline-block me-2">От</div>
+<q-input class="d-inline-block" style="width: 87px" :disable="!fs_2400_checkbox" v-model="fs_2400_from" outlined></q-input>
+<div class="d-inline-block ms-2 me-2">до</div>
+<q-input class="d-inline-block" style="width: 87px" :disable="!fs_2400_checkbox" v-model="fs_2400_to" outlined></q-input>
+<div class="d-inline-block ms-2">руб.</div>
+</div>
+
+<div class="mb-2"><q-toggle
+v-model="fs_1300_checkbox"
+color="primary"
+><template v-slot:default>Капитал за 2025 год<span class="question" data-bs-toggle="tooltip" data-bs-animation="false" data-bs-title="Строка 1300 финансовой отчётности"></span></template></q-toggle></div>
+<div>
+<div class="d-inline-block me-2">От</div>
+<q-input class="d-inline-block" style="width: 87px" :disable="!fs_1300_checkbox" v-model="fs_1300_from" outlined></q-input>
+<div class="d-inline-block ms-2 me-2">до</div>
+<q-input class="d-inline-block" style="width: 87px" :disable="!fs_1300_checkbox" v-model="fs_1300_to" outlined></q-input>
+<div class="d-inline-block ms-2">руб.</div>
+</div>
+
+</div>
+</div>
+</div>
+    
+<div class="fv accordion-item">
+<strong class="accordion-header" id="flush-heading-6">
+<button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#flush-collapse-6" aria-expanded="false" aria-controls="flush-collapse-6">Налоги и сборы</button>
+</strong>
+<div id="flush-collapse-6" class="accordion-collapse collapse" aria-labelledby="flush-heading-6">
+<div class="accordion-body">
+
+<div class="mb-2"><q-toggle
+v-model="tax_treatment_checkbox"
+color="primary"
+><template v-slot:default>Специальный налоговый режим</template></q-toggle></div>
+<q-select
+v-model="tax_treatment_select"
+class="q-mb-lg"
+:disable="!tax_treatment_checkbox"
+:options="tax_treatment_select_options"
+emit-value
+map-options
+outlined
+></q-select>
+
+<div class="">
+<div class="mb-2"><q-toggle
+v-model="tax_amount_checkbox"
+color="primary"
+><template v-slot:default>Есть данные об уплате налогов<span class="question" data-bs-toggle="tooltip" data-bs-animation="false" data-bs-title="За прошлый отчётный период, согласно данным ФНС"></span></template></q-toggle></div>
+    
+<div class="d-inline-block me-2">От</div>
+<q-input
+class="d-inline-block"
+style="width: 100px"
+:disable="!tax_amount_checkbox"
+v-model="tax_amount_from"
+outlined
+></q-input><div class="d-inline-block ms-2">руб.</div>
+</div>
+
+</div>
+</div>
+</div>
+
+<div class="accordion-item">
+<strong class="accordion-header" id="flush-heading-7">
+<button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#flush-collapse-7" aria-expanded="false" aria-controls="flush-collapse-7">Участие в госзакупках</button>
+</strong>
+<div id="flush-collapse-7" class="accordion-collapse collapse" aria-labelledby="flush-heading-7">
+<div class="accordion-body">
+
+<div class="mb-2"><q-toggle
+v-model="purchases_checkbox"
+color="primary"
+><template v-slot:default>Участник системы госзакупок<span class="question" data-bs-toggle="tooltip" data-bs-animation="false" data-bs-title="Участник системы госзакупок по 94-ФЗ, 44-ФЗ или 223-ФЗ"></span></template></q-toggle></div>
+    
+<div class="mb-2">
+<div class="d-inline-block me-2">Заказчик, от</div>
+<q-input
+class="d-inline-block"
+style="width: 120px"
+:disable="!purchases_checkbox"
+v-model="customer_from"
+outlined
+></q-input><div class="d-inline-block ms-2">руб.<span class="question" data-bs-toggle="tooltip" data-bs-animation="false" data-bs-title="Общая сумма контрактов, в которых компания является заказчиком"></span></div>
+</div>
+<div class="mt-2">
+<div class="d-inline-block me-2">Поставщик, от</div>
+<q-input
+class="d-inline-block"
+style="width: 120px"
+:disable="!purchases_checkbox"
+v-model="supplier_from"
+outlined
+></q-input><div class="d-inline-block ms-2">руб.<span class="question" data-bs-toggle="tooltip" data-bs-animation="false" data-bs-title="Общая сумма контрактов, в которых компания является поставщиком (исполнителем)"></span></div>
+</div>
+
+</div>
+</div>
+</div>
+    
+<div class="fv accordion-item">
+<strong class="accordion-header" id="flush-heading-9">
+<button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#flush-collapse-9" aria-expanded="false" aria-controls="flush-collapse-9">Контакты</button>
+</strong>
+<div id="flush-collapse-9" class="accordion-collapse show" aria-labelledby="flush-heading-9">
+<div class="accordion-body">
+
+<div><q-toggle v-model="phones_checkbox" color="primary" label="Указан телефон"></q-toggle></div>
+<div><q-toggle v-model="emails_checkbox" color="primary" label="Указан email"></q-toggle></div>
+<div><q-toggle v-model="websites_checkbox" color="primary" label="Указан веб-сайт"></q-toggle></div>
+    
+</div>
+</div>
+</div>
+    
+<div class="accordion-item">
+<strong class="accordion-header" id="flush-heading-8">
+<button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#flush-collapse-8" aria-expanded="false" aria-controls="flush-collapse-8">Дополнительно</button>
+</strong>
+<div id="flush-collapse-8" class="accordion-collapse collapse" aria-labelledby="flush-heading-8">
+<div class="accordion-body">
+
+<div><q-toggle v-model="licenses_checkbox" color="primary">
+<template v-slot:default>Имеются лицензии<span class="question" data-bs-toggle="tooltip" data-bs-animation="false" data-bs-title="Согласно данным ЕГРЮЛ от ФНС"></span></template>
+</q-toggle></div>
+
+<div><q-toggle v-model="trademarks_checkbox" color="primary">
+<template v-slot:default>Имеются товарные знаки<span class="question" data-bs-toggle="tooltip" data-bs-animation="false" data-bs-title="Согласно данным Роспатента"></span></template>
+</q-toggle></div>
+    
+<div><q-toggle v-model="leasing_checkbox" color="primary">
+<template v-slot:default>Имеются данные о лизинге<span class="question" data-bs-toggle="tooltip" data-bs-animation="false" data-bs-title="Согласно данным Федресурса"></span></template>
+</q-toggle></div>
+    
+</div>
+</div>
+</div>
+    
+</div>
+
+<q-btn
+color="grey-800"
+unelevated
+@click="update()"
+class="me-2"
+label="Применить"
+></q-btn>
+<q-btn
+flat
+@click="reset()"
+color="grey-7"
+label="Сбросить фильтры"
+></q-btn>
+
+<div class="mt-5 mb-5">
+<hr style="border-top: 1px solid var(--bs-gray-300)">
+<div style="float:left;margin-left:-9px"><img src="/cdn/images/db_icons/excel.png" width="64" height="48" class="me-1" /></div>
+<div class="mb-2"><a class="link" target="_blank" rel="nofollow" href="https://selecom.pro">Скачать базы данных компаний</a><br>Excel + JSON + CSV</div>
+</div>
+</div>
+</div></div>
+    
+<div class="rc overflow-x-hidden" id="top" style="min-height: 75vh">
+    
+<div class="select-section" style="min-height: 90vh">
+
+<div class="d-inline-block d-lg-none mb-3 me-2" style="margin-left:-12px">
+<a class="btn btn-primary" style="border-top-left-radius:0;border-bottom-left-radius:0;padding-left:8px;padding-right:16px" id="menu-button" role="button" tabindex="0" onclick="document.getElementById('sb-content').appendChild(document.getElementById('vue')); var sidebar_offcanvas = bootstrap.Offcanvas.getOrCreateInstance(document.getElementById('sb')); sidebar_offcanvas.toggle();"><span><svg width="24" height="24" aria-hidden="true"><use href="/cdn/icons.260717.svg#icon-menu-open"></use></svg></span>Фильтры</a>
+</div>
+
+<div class="text-secondary mb-2">Компании с 1 по 25 из 11196</div>
+    
+    
+
+<table class="table table-lg">
+<tbody>
+<tr>
+<td class="count">1.</td>
+<td>
+
+
+<a class="link" title="ОБЩЕСТВО С ОГРАНИЧЕННОЙ ОТВЕТСТВЕННОСТЬЮ &quot;ТЕХСТРОЙПРОЕКТ-МСК&quot;" href="/company/tsp-msk-1267700215441">ООО &quot;ТСП-МСК&quot;</a>
+
+<div>Деятельность заказчика-застройщика, генерального подрядчика</div>
+
+<div>127473, г. Москва, вн. тер. г. муниципальный округ Тверской, ул. Краснопролетарская, д. 16, стр. 2, помещ. 1/5</div>
+    
+<div><span class="text-meta text-nowrap">Управляющая организация</span> ООО &quot;УПРАВЛЕНИЕ ГОРОДСКИМИ АКТИВАМИ&quot;&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta text-nowrap">Дата регистрации</span> 25 июня 2026 года&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta">ИНН</span> 9707059414</div>
+
+<div><span class="text-meta text-nowrap">Уставный капитал</span> 40,2 млрд руб.</div>
+    
+
+
+
+    
+</td>
+</tr>
+<tr>
+<td class="count">2.</td>
+<td>
+
+
+<a class="link" title="АКЦИОНЕРНОЕ ОБЩЕСТВО &quot;ИРКУТСКАВТОДОР&quot; Г. ИРКУТСКА" href="/company/irkutskavtodor-g-irkutska-1263800008130">АО &quot;ИРКУТСКАВТОДОР&quot; Г. ИРКУТСКА</a>
+
+<div>Деятельность по чистке и уборке прочая, не включенная в другие группировки</div>
+
+<div>664035, Иркутская область, г. о. город Иркутск, г. Иркутск, ул. Рабочего Штаба, д. 138</div>
+    
+<div><span class="text-meta text-nowrap">Генеральный директор</span> Пономарёв Андрей Николаевич&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta text-nowrap">Дата регистрации</span> 26 июня 2026 года&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta">ИНН</span> 3808298922</div>
+
+<div><span class="text-meta text-nowrap">Уставный капитал</span> 60,1 млн руб.</div>
+    
+
+
+
+    
+</td>
+</tr>
+<tr>
+<td class="count">3.</td>
+<td>
+
+
+<a class="link" title="ОБЩЕСТВО С ОГРАНИЧЕННОЙ ОТВЕТСТВЕННОСТЬЮ ШАР" href="/company/shar-1268700000337">ООО ШАР</a>
+
+<div>Добыча руд и песков драгоценных металлов (золота, серебра и металлов платиновой группы)</div>
+
+<div>689450, Чукотский автономный округ, м. р-н Билибинский, г. п. Билибино, г. Билибино, ул. Комарова, д. 32А</div>
+    
+<div><span class="text-meta text-nowrap">Генеральный директор</span> Афанасьев Владислав Юрьевич&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta text-nowrap">Дата регистрации</span> 10 июля 2026 года&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta">ИНН</span> 8700002777</div>
+
+<div><span class="text-meta text-nowrap">Уставный капитал</span> 15 млрд руб.</div>
+    
+
+
+
+    
+</td>
+</tr>
+<tr>
+<td class="count">4.</td>
+<td>
+
+
+<a class="link" title="АКЦИОНЕРНОЕ ОБЩЕСТВО &quot;ЭКОЛОГИЯ&quot;" href="/company/ehkologiya-1266700004900">АО &quot;ЭКОЛОГИЯ&quot;</a>
+
+<div>Захоронение твердых коммунальных отходов</div>
+
+<div>214038, Смоленская область, г. о. город Смоленск, г. Смоленск, ул. Кловская, д. 13</div>
+    
+<div><span class="text-meta text-nowrap">Генеральный директор</span> Герасимов Дмитрий Михайлович&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta text-nowrap">Дата регистрации</span> 23 июня 2026 года&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta">ИНН</span> 6700045819</div>
+
+<div><span class="text-meta text-nowrap">Уставный капитал</span> 261,6 млн руб.</div>
+    
+
+
+
+    
+</td>
+</tr>
+<tr>
+<td class="count">5.</td>
+<td>
+
+
+<a class="link" title="АКЦИОНЕРНОЕ ОБЩЕСТВО &quot;АРЕНДНОЕ ЖИЛЬЕ&quot;" href="/company/arendnoe-zhilye-1268900001380">АО &quot;АРЕНДНОЕ ЖИЛЬЕ&quot;</a>
+
+<div>Аренда и управление собственным или арендованным жилым недвижимым имуществом</div>
+
+<div>629004, Ямало-Ненецкий автономный округ, г. о. город Салехард, г. Салехард, ул. Мира, влд. 2А</div>
+    
+<div><span class="text-meta text-nowrap">Генеральный директор</span> Глухов Александр Петрович&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta text-nowrap">Дата регистрации</span> 26 июня 2026 года&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta">ИНН</span> 8901044960</div>
+
+<div><span class="text-meta text-nowrap">Уставный капитал</span> 237,3 млн руб.</div>
+    
+
+
+
+    
+</td>
+</tr>
+<tr>
+<td class="count">6.</td>
+<td>
+
+
+<a class="link" title="АКЦИОНЕРНОЕ ОБЩЕСТВО &quot;ФАРМАЦИЯ И МЕДИЦИНСКАЯ ТЕХНИКА ОСЕТИИ&quot;" href="/company/osfarm-1261500002796">АО &quot;ОСФАРМ&quot;</a>
+
+<div>Торговля оптовая фармацевтической продукцией</div>
+
+<div>362020, Республика Северная Осетия - Алания, г. о. город Владикавказ, г. Владикавказ, пр-кт Коста, д. 215</div>
+    
+<div><span class="text-meta text-nowrap">Генеральный директор</span> Баскаев Марат Заурович&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta text-nowrap">Дата регистрации</span> 1 июля 2026 года&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta">ИНН</span> 1500031714</div>
+
+<div><span class="text-meta text-nowrap">Уставный капитал</span> 26,7 млн руб.</div>
+    
+
+
+
+    
+</td>
+</tr>
+<tr>
+<td class="count">7.</td>
+<td>
+
+
+<a class="link" title="ОБЩЕСТВО С ОГРАНИЧЕННОЙ ОТВЕТСТВЕННОСТЬЮ &quot;АЛЕКСИНСКАЯ ЭЛЕКТРОСЕТЕВАЯ КОМПАНИЯ&quot;" href="/company/aehsk-1267100004522">ООО &quot;АЭСК&quot;</a>
+
+<div>Передача электроэнергии</div>
+
+<div>301361, Тульская область, г. о. город Алексин, г. Алексин, ул. Тургенева, д. 34</div>
+    
+<div><span class="text-meta text-nowrap">Генеральный директор</span> Сафронов Сергей Александрович&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta text-nowrap">Дата регистрации</span> 10 июля 2026 года&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta">ИНН</span> 7100075348</div>
+
+<div><span class="text-meta text-nowrap">Уставный капитал</span> 300,9 млн руб.</div>
+    
+
+
+
+    
+</td>
+</tr>
+<tr>
+<td class="count">8.</td>
+<td>
+
+
+<a class="link" title="АКЦИОНЕРНОЕ ОБЩЕСТВО &quot;ГОРОДСКОЕ УПРАВЛЕНИЕ КАПИТАЛЬНОГО СТРОИТЕЛЬСТВА&quot;" href="/company/goruks-1264200006608">АО &quot;ГОРУКС&quot;</a>
+
+<div>Деятельность заказчика-застройщика, генерального подрядчика</div>
+
+<div>650044, Кемеровская область - Кузбасс, г. о. Кемеровский, г. Кемерово, пр-кт Шахтеров, д. 1</div>
+    
+<div><span class="text-meta text-nowrap">Генеральный директор</span> Соснов Сергей Федорович&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta text-nowrap">Дата регистрации</span> 10 июля 2026 года&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta">ИНН</span> 4205435560</div>
+
+<div><span class="text-meta text-nowrap">Уставный капитал</span> 47,3 млн руб.</div>
+    
+
+
+
+    
+</td>
+</tr>
+<tr>
+<td class="count">9.</td>
+<td>
+
+
+<a class="link" title="ОБЩЕСТВО С ОГРАНИЧЕННОЙ ОТВЕТСТВЕННОСТЬЮ &quot;ВЕРЕЩАГИНСКАЯ СЛУЖБА БЛАГОУСТРОЙСТВА&quot;" href="/company/vereshchaginskaya-sluzhba-blagoustroystva-1265900008296">ООО &quot;ВЕРЕЩАГИНСКАЯ СЛУЖБА БЛАГОУСТРОЙСТВА&quot;</a>
+
+<div>Деятельность по эксплуатации автомобильных дорог и автомагистралей</div>
+
+<div>617123, Пермский край, м. о. Верещагинский, г. Верещагино, ул. К. Маркса, д. 122</div>
+    
+<div><span class="text-meta text-nowrap">Директор</span> Нечаев Анатолий Григорьевич&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta text-nowrap">Дата регистрации</span> 30 июня 2026 года&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta">ИНН</span> 5919036718</div>
+
+<div><span class="text-meta text-nowrap">Уставный капитал</span> 29,8 млн руб.</div>
+    
+
+
+
+    
+</td>
+</tr>
+<tr>
+<td class="count">10.</td>
+<td>
+
+
+<a class="link" title="ОБЩЕСТВО С ОГРАНИЧЕННОЙ ОТВЕТСТВЕННОСТЬЮ &quot;КОСКИСИЛВА+&quot;" href="/company/koskisilva-1263500004998">ООО &quot;КОСКИСИЛВА+&quot;</a>
+
+<div>Распиловка и строгание древесины</div>
+
+<div>162562, Вологодская область, м. о. Шекснинский, рп. Шексна, ул. Промышленная, д. 2</div>
+    
+<div><span class="text-meta text-nowrap">Генеральный директор</span> Кузнецов Виктор Васильевич&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta text-nowrap">Дата регистрации</span> 3 июля 2026 года&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta">ИНН</span> 3500024870</div>
+
+<div><span class="text-meta text-nowrap">Уставный капитал</span> 118,4 млн руб.</div>
+    
+
+
+
+    
+</td>
+</tr>
+<tr>
+<td class="count">11.</td>
+<td>
+
+
+<a class="link" title="АКЦИОНЕРНОЕ ОБЩЕСТВО ИНВЕСТИЦИОННАЯ КОМПАНИЯ &quot;САВ КАПИТАЛ&quot;" href="/company/ik-sav-kapital-1267700222184">АО ИК &quot;САВ КАПИТАЛ&quot;</a>
+
+<div>Деятельность по управлению ценными бумагами</div>
+
+<div>123112, г. Москва, вн. тер. г. муниципальный округ Пресненский, ул. Тестовская, д. 10, помещ. 1/16</div>
+    
+<div><span class="text-meta text-nowrap">Генеральный директор</span> Яровой Владимир Владимирович&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta text-nowrap">Дата регистрации</span> 1 июля 2026 года&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta">ИНН</span> 9703250755</div>
+
+<div><span class="text-meta text-nowrap">Уставный капитал</span> 33,1 млн руб.</div>
+    
+
+
+
+    
+</td>
+</tr>
+<tr>
+<td class="count">12.</td>
+<td>
+
+
+<a class="link" title="ОБЩЕСТВО С ОГРАНИЧЕННОЙ ОТВЕТСТВЕННОСТЬЮ &quot;СТАРОРУССКАЯ ЛЬНОСЕМСТАНЦИЯ&quot;" href="/company/starorusskaya-lnosemstanciya-1265300002758">ООО &quot;СТАРОРУССКАЯ ЛЬНОСЕМСТАНЦИЯ&quot;</a>
+
+<div>Предоставление услуг в области растениеводства</div>
+
+<div>175202, Новгородская область, м. о. Старорусский, г. Старая Русса, ул. Садовая, зд. 13А</div>
+    
+<div><span class="text-meta text-nowrap">Генеральный директор</span> Корельский Денис Иванович&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta text-nowrap">Дата регистрации</span> 20 июля 2026 года&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta">ИНН</span> 5300024940</div>
+
+<div><span class="text-meta text-nowrap">Уставный капитал</span> 14,2 млн руб.</div>
+    
+
+
+
+    
+</td>
+</tr>
+<tr>
+<td class="count">13.</td>
+<td>
+
+
+<a class="link" title="ОБЩЕСТВО С ОГРАНИЧЕННОЙ ОТВЕТСТВЕННОСТЬЮ &quot;ЦЕРЕРА&quot;" href="/company/cerera-1265300002736">ООО &quot;ЦЕРЕРА&quot;</a>
+
+<div>Вложения в ценные бумаги</div>
+
+<div>109004, г. Москва, вн. тер. г. муниципальный округ Таганский, пер. Товарищеский, д. 36/16</div>
+    
+<div><span class="text-meta text-nowrap">Генеральный директор</span> Пискарев Никита Владимирович&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta text-nowrap">Дата регистрации</span> 17 июля 2026 года&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta">ИНН</span> 9709136791</div>
+
+<div><span class="text-meta text-nowrap">Уставный капитал</span> 71,8 млн руб.</div>
+    
+
+
+
+    
+</td>
+</tr>
+<tr>
+<td class="count">14.</td>
+<td>
+
+
+<a class="link" title="ОБЩЕСТВО С ОГРАНИЧЕННОЙ ОТВЕТСТВЕННОСТЬЮ &quot;ЗАПАДНЫЙ ПРОЕКТНО-ИЗЫСКАТЕЛЬСКИЙ ИНСТИТУТ &quot;ЗАПВОДПРОЕКТ&quot;" href="/company/institut-zapvodproekt-1263900006347">ООО ИНСТИТУТ &quot;ЗАПВОДПРОЕКТ&quot;</a>
+
+<div>Деятельность в области архитектуры, связанная с созданием архитектурного объекта</div>
+
+<div>236028, Калининградская область, г. о. город Калининград, г. Калининград, ул. А. Суворова, д. 115А</div>
+    
+<div><span class="text-meta text-nowrap">Директор</span> Рябов Максим Борисович&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta text-nowrap">Дата регистрации</span> 23 июня 2026 года&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta">ИНН</span> 3900055544</div>
+
+<div><span class="text-meta text-nowrap">Уставный капитал</span> 110,8 тыс. руб.</div>
+    
+
+
+
+    
+</td>
+</tr>
+<tr>
+<td class="count">15.</td>
+<td>
+
+
+<a class="link" title="ОБЩЕСТВО С ОГРАНИЧЕННОЙ ОТВЕТСТВЕННОСТЬЮ &quot;СЕТИ&quot;" href="/company/seti-1269600023000">ООО &quot;СЕТИ&quot;</a>
+
+<div>Строительство инженерных коммуникаций для водоснабжения и водоотведения, газоснабжения</div>
+
+<div>620144, Свердловская область, г. о. город Екатеринбург, г. Екатеринбург, ул. Серова, д. 45, кв. 147</div>
+    
+<div><span class="text-meta text-nowrap">Генеральный директор</span> Хлебников Станислав Александрович&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta text-nowrap">Дата регистрации</span> 21 июля 2026 года&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta">ИНН</span> 6679191010</div>
+
+<div><span class="text-meta text-nowrap">Уставный капитал</span> 2 млн руб.</div>
+    
+
+
+
+    
+</td>
+</tr>
+<tr>
+<td class="count">16.</td>
+<td>
+
+
+<a class="link" title="ОБЩЕСТВО С ОГРАНИЧЕННОЙ ОТВЕТСТВЕННОСТЬЮ &quot;ТЕРМИНАЛ С&quot;" href="/company/terminal-s-1267700260695">ООО &quot;ТЕРМИНАЛ С&quot;</a>
+
+<div>Аренда и управление собственным или арендованным недвижимым имуществом</div>
+
+<div>115230, г. Москва, вн. тер. г. муниципальный округ Нагатино-Садовники, Каширское шоссе, д. 13Б, стр. 1</div>
+    
+<div><span class="text-meta text-nowrap">Генеральный директор</span> Габдулхаев Тагир Габдулгаделевич&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta text-nowrap">Дата регистрации</span> 3 августа 2026 года&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta">ИНН</span> 9724245153</div>
+
+<div><span class="text-meta text-nowrap">Уставный капитал</span> 11,2 млн руб.</div>
+    
+
+
+
+    
+</td>
+</tr>
+<tr>
+<td class="count">17.</td>
+<td>
+
+
+<a class="link" title="АКЦИОНЕРНОЕ ОБЩЕСТВО &quot;КОМПЛЕКСНОЕ РАЗВИТИЕ&quot;" href="/company/kompleksnoe-razvitie-1267700252665">АО &quot;КОМПЛЕКСНОЕ РАЗВИТИЕ&quot;</a>
+
+<div>Предоставление прочих финансовых услуг, кроме услуг по страхованию и пенсионному обеспечению, не включенных в другие группировки</div>
+
+<div>117418, г. Москва, вн. тер. г. муниципальный округ Черемушки, ул. Новочерёмушкинская, д. 58, помещ. 7З/1П</div>
+    
+<div><span class="text-meta text-nowrap">Генеральный директор</span> Осипов Алексей Васильевич&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta text-nowrap">Дата регистрации</span> 27 июля 2026 года&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta">ИНН</span> 9727134050</div>
+
+<div><span class="text-meta text-nowrap">Уставный капитал</span> 2,8 млрд руб.</div>
+    
+
+
+
+    
+</td>
+</tr>
+<tr>
+<td class="count">18.</td>
+<td>
+
+
+<a class="link" title="ОБЩЕСТВО С ОГРАНИЧЕННОЙ ОТВЕТСТВЕННОСТЬЮ &quot;АЛЬКОР&quot;" href="/company/alkor-1265600005220">ООО &quot;АЛЬКОР&quot;</a>
+
+<div>Торговля оптовая моторным топливом, включая авиационный бензин</div>
+
+<div>461637, Оренбургская область, г. о. город Бугуруслан, г. Бугуруслан, ул. 9 Января, зд. 86</div>
+    
+<div><span class="text-meta text-nowrap">Ген. директор</span> Мартынов Сергей Александрович&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta text-nowrap">Дата регистрации</span> 30 июля 2026 года&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta">ИНН</span> 5602026968</div>
+
+<div><span class="text-meta text-nowrap">Уставный капитал</span> 3,3 млн руб.</div>
+    
+
+
+
+    
+</td>
+</tr>
+<tr>
+<td class="count">19.</td>
+<td>
+
+
+<a class="link" title="ОБЩЕСТВО С ОГРАНИЧЕННОЙ ОТВЕТСТВЕННОСТЬЮ &quot;ЧЖУНТЯНЬ&quot;" href="/company/chzhuntyan-1267500003077">ООО &quot;ЧЖУНТЯНЬ&quot;</a>
+
+<div>Консультирование по вопросам коммерческой деятельности и управления</div>
+
+<div>672007, Забайкальский край, г. о. город Чита, г. Чита, ул. Чкалова, д. 149, стр. 1</div>
+    
+<div><span class="text-meta text-nowrap">Генеральный директор</span> Спиридонов Артур Игоревич&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta text-nowrap">Дата регистрации</span> 23 июня 2026 года&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta">ИНН</span> 7500035815</div>
+
+<div><span class="text-meta text-nowrap">Уставный капитал</span> 510 тыс. руб.</div>
+    
+
+
+
+    
+</td>
+</tr>
+<tr>
+<td class="count">20.</td>
+<td>
+
+
+<a class="link" title="АКЦИОНЕРНОЕ ОБЩЕСТВО &quot;ТРИО&quot;" href="/company/trio-1265100002089">АО &quot;ТРИО&quot;</a>
+
+<div>Аренда и управление собственным или арендованным недвижимым имуществом</div>
+
+<div>183038, Мурманская область, г. о. город Мурманск, г. Мурманск, ул. Ленинградская, д. 20/3</div>
+    
+<div><span class="text-meta text-nowrap">Генеральный директор</span> Глухова Мария Александровна&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta text-nowrap">Дата регистрации</span> 3 июля 2026 года&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta">ИНН</span> 5190241138</div>
+
+<div><span class="text-meta text-nowrap">Уставный капитал</span> 1,2 млн руб.</div>
+    
+
+
+
+    
+</td>
+</tr>
+<tr>
+<td class="count">21.</td>
+<td>
+
+
+<a class="link" title="ОБЩЕСТВО С ОГРАНИЧЕННОЙ ОТВЕТСТВЕННОСТЬЮ &quot;КРАСНОЕ ЗНАМЯ&quot;" href="/company/krasnoe-znamya-1262100003043">ООО &quot;КРАСНОЕ ЗНАМЯ&quot;</a>
+
+<div>Разведение молочного крупного рогатого скота, производство сырого молока</div>
+
+<div>429356, Чувашская Республика - Чувашия, м. о. Батыревский, с. Сугуты, ул. Советская, зд. 1</div>
+    
+<div><span class="text-meta text-nowrap">Директор</span> Никифоров Николай Петрович&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta text-nowrap">Дата регистрации</span> 3 июля 2026 года&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta">ИНН</span> 2100033099</div>
+
+<div><span class="text-meta text-nowrap">Уставный капитал</span> 2,5 млн руб.</div>
+    
+
+
+
+    
+</td>
+</tr>
+<tr>
+<td class="count">22.</td>
+<td>
+
+
+<a class="link" title="ОБЩЕСТВО С ОГРАНИЧЕННОЙ ОТВЕТСТВЕННОСТЬЮ &quot;РТС&quot;" href="/company/rts-1267900000400">ООО &quot;РТС&quot;</a>
+
+<div>Аренда и управление собственным или арендованным нежилым недвижимым имуществом</div>
+
+<div>679016, Еврейская Автономная область, г. о. город Биробиджан, г. Биробиджан, ул. Калинина, д. 5А</div>
+    
+<div><span class="text-meta text-nowrap">Генеральный директор</span> Маркин Виталий Викторович&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta text-nowrap">Дата регистрации</span> 8 июля 2026 года&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta">ИНН</span> 7900008534</div>
+
+<div><span class="text-meta text-nowrap">Уставный капитал</span> 4 млн руб.</div>
+    
+
+
+
+    
+</td>
+</tr>
+<tr>
+<td class="count">23.</td>
+<td>
+
+
+<a class="link" title="ОБЩЕСТВО С ОГРАНИЧЕННОЙ ОТВЕТСТВЕННОСТЬЮ &quot;РАНГЕЛ ПИТАНИЕ&quot;" href="/company/rangel-pitanie-1263800008790">ООО &quot;РАНГЕЛ ПИТАНИЕ&quot;</a>
+
+<div>Деятельность столовых и буфетов при предприятиях и учреждениях</div>
+
+<div>664075, Иркутская область, г. о. город Иркутск, г. Иркутск, ул. Байкальская, стр. 249</div>
+    
+<div><span class="text-meta text-nowrap">Генеральный директор</span> Снятинская Евгения Валерьевна&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta text-nowrap">Дата регистрации</span> 13 июля 2026 года&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta">ИНН</span> 3808299588</div>
+
+<div><span class="text-meta text-nowrap">Уставный капитал</span> 500 тыс. руб.</div>
+    
+
+
+
+    
+</td>
+</tr>
+<tr>
+<td class="count">24.</td>
+<td>
+
+
+<a class="link" title="ОБЩЕСТВО С ОГРАНИЧЕННОЙ ОТВЕТСТВЕННОСТЬЮ &quot;МЕРИДИАН&quot;" href="/company/meridian-1265400017300">ООО &quot;МЕРИДИАН&quot;</a>
+
+<div>Аренда и управление собственным или арендованным нежилым недвижимым имуществом</div>
+
+<div>630090, Новосибирская область, г. о. город Новосибирск, г. Новосибирск, пр-кт Морской, д. 56, кв. 21</div>
+    
+<div><span class="text-meta text-nowrap">Директор</span> Салимов Аскар Рустамович&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta text-nowrap">Дата регистрации</span> 21 июля 2026 года&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta">ИНН</span> 5473026283</div>
+
+<div><span class="text-meta text-nowrap">Уставный капитал</span> 2 млн руб.</div>
+    
+
+
+
+    
+</td>
+</tr>
+<tr>
+<td class="count">25.</td>
+<td>
+
+
+<a class="link" title="ОБЩЕСТВО С ОГРАНИЧЕННОЙ ОТВЕТСТВЕННОСТЬЮ &quot;ЦЕНТР ТРАДИЦИОННОЙ МСТЕРСКОЙ МИНИАТЮРЫ&quot;" href="/company/ctmm-1263300004296">ООО &quot;ЦТММ&quot;</a>
+
+<div>Производство изделий народных художественных промыслов</div>
+
+<div>601408, Владимирская область, м. р-н Вязниковский, г. п. поселок Мстера, п. Мстёра, пл. Ленина, д. 2</div>
+    
+<div><span class="text-meta text-nowrap">Генеральный директор</span> Соколов Евгений Викторович&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta text-nowrap">Дата регистрации</span> 24 июля 2026 года&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-meta">ИНН</span> 3300034013</div>
+
+<div><span class="text-meta text-nowrap">Уставный капитал</span> 92,2 тыс. руб.</div>
+    
+
+
+
+    
+</td>
+</tr>
+</tbody>
+</table>
+    
+    
+
+<br><ul class="pagination justify-content-center mt-3 mb-3">
+<li class="page-item active"><a class="page-link" role=button>1</a></li>
+<li class="page-item"><a href="/search/advanced?page=2" class = "page-link"  rel="next" ><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M16.1716 10.9999L10.8076 5.63589L12.2218 4.22168L20 11.9999L12.2218 19.778L10.8076 18.3638L16.1716 12.9999H4V10.9999H16.1716Z"></path></svg></a></li>
+</ul>
+
+</div>
+</div>
+
+<div class="offcanvas offcanvas-start" tabindex="-1" id="sb" style="width: 100%">
+<div class="offcanvas-header">
+<div class="offcanvas-title fw-700">Расширенный поиск</div>
+<button type="button" class="btn-close text-reset" data-bs-dismiss="offcanvas" aria-label="Закрыть"></button>
+</div>
+<div class="offcanvas-body" id="sb-content"></div>
+</div>
+    
+<div id="activity_tree_modal" class="modal" tabindex="-1">
+<div class="modal-dialog modal-dialog-centered modal-xl modal-dialog-scrollable">
+<div class="modal-content">
+<div class="modal-header">
+<div class="modal-title">Виды деятельности</div>
+<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+</div>
+<div class="modal-body">
+<div id="vue_activity">
+
+<q-input
+class="q-mb-md"
+v-model="activity_search"
+placeholder="Быстрый поиск"
+outlined
+>
+<template v-slot:append>
+<q-btn v-if="activity_search" flat round dense icon="close" size="md" @click="activity_search = ''" />
+</template>
+</q-input>
+
+<q-tree
+class="activity-tree"
+ref="activityTreeRef"
+:nodes="activities"
+node-key="id"
+label-key="name"
+tick-strategy="leaf"
+v-model:ticked="activity_tree"
+v-model:expanded="activity_tree_open"
+:filter="activity_search"
+:filter-method="activityFilterMethod"
+accordion
+no-transition
+icon="arrow_forward_ios"
+>
+<template v-slot:default-header="prop">
+<div><span class="tree-code">{{prop.node.code}}</span> {{prop.node.name}}</div>
+</template>
+</q-tree>
+
+<div class="d-flex mt-3">
+<div class="me-auto align-self-center fw-500">
+<span id="activity_select_desc" class="fw-700">Все виды деятельности</span>
+</div>
+<div class="d-inline-block align-self-center"><q-btn class="me-2" unelevated color="primary" @click="update()" label="Готово"></q-btn></div>
+<div class="d-inline-block align-self-center"><q-btn flat color="grey-7" @click="clear_tree" label="Все виды деятельности"></q-btn></div>
+</div>
+    
+</div>
+</div>
+</div>
+</div>
+</div>
+    
+<div id="location_tree_modal" class="modal" tabindex="-1">
+<div class="modal-dialog modal-dialog-centered modal-xl modal-dialog-scrollable">
+<div class="modal-content">
+<div class="modal-header">
+<div class="modal-title">Регионы и города</div>
+<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+</div>
+<div class="modal-body">
+<div id="vue_location">
+
+<q-input
+class="q-mb-md"
+v-model="location_search"
+placeholder="Быстрый поиск"
+outlined
+>
+<template v-slot:append>
+<q-btn v-if="location_search" flat round dense icon="close" size="md" @click="location_search = ''" />
+</template>
+</q-input>
+
+<q-tree
+class="location-tree"
+ref="locationTreeRef"
+:nodes="locations"
+node-key="id"
+label-key="name"
+tick-strategy="leaf"
+v-model:ticked="location_tree"
+v-model:expanded="location_tree_open"
+:filter="location_search"
+:filter-method="locationFilterMethod"
+accordion
+no-transition
+icon="arrow_forward_ios"
+>
+<template v-slot:default-header="prop">
+<div><span class="tree-code" v-if="prop.node.id.length == 2">{{prop.node.id}}</span> {{prop.node.name}}</div>
+</template>
+</q-tree>
+
+<div class="d-flex mt-3">
+<div class="me-auto align-self-center fw-500">
+<span id="location_select_desc" class="fw-700">Все регионы</span>
+</div>
+<div class="d-inline-block align-self-center"><q-btn class="me-2" unelevated color="primary" @click="update()" label="Готово"></q-btn></div>
+<div class="d-inline-block align-self-center"><q-btn flat color="grey-7" @click="clear_tree" label="Все регионы"></q-btn></div>
+</div>
+    
+</div>
+</div>
+</div>
+</div>
+</div>
+    
+</div>
+</div>
+
+<script src="/cdn/vue3.js"></script>
+<script src="/cdn/quasar2.js"></script>
+
+<script>
+
+const quasarLocaleRu = {
+  days: ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'],
+  daysShort: ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'],
+  months: ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'],
+  monthsShort: ['Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек'],
+  firstDayOfWeek: 1,
+  format24h: true,
+  pluralDay: 'дней'
+};
+
+const vue_app = Vue.createApp({
+    
+    data() {
+        return {
+            entity: "organizations",
+            active_checkbox: false,
+            location_select_button: "Все регионы",
+            activity_select_button: "Все виды деятельности",
+            search: "",
+            reg_date_range: {from: "2026-06-23", to: "2026-08-07"},
+            smb_checkbox: false,
+            smb_select: "0",
+            smb_select_options: [{value: '0', label: 'Все типы'}, {value: '1', label: 'Микропредприятия'}, {value: '2', label: 'Малые предприятия'}, {value: '3', label: 'Средние предприятия'}],
+            employee_checkbox: false,
+            employee_from: "",
+            employee_to: "",
+            capital_checkbox: false,
+            capital_from: "",
+            fs_2110_checkbox: false,
+            fs_2400_checkbox: false,
+            fs_1300_checkbox: false,
+            fs_2110_from: "",
+            fs_2110_to: "",
+            fs_2400_from: "",
+            fs_2400_to: "",
+            fs_1300_from: "",
+            fs_1300_to: "",
+            tax_treatment_checkbox: false,
+            tax_treatment_select: "1",
+            tax_treatment_select_options: [{value: '1', label: 'УСН'}, {value: '2', label: 'АУСН'}, {value: '3', label: 'СРП'}, {value: '4', label: 'ЕСХН'}, {value: '0', label: 'Не используется'}],
+            tax_amount_checkbox: false,
+            tax_amount_from: "",
+            purchases_checkbox: false,
+            customer_from: "",
+            supplier_from: "",
+            licenses_checkbox: false,
+            trademarks_checkbox: false,
+            leasing_checkbox: false,
+            phones_checkbox: false,
+            emails_checkbox: true,
+            websites_checkbox: false,
+            quasarLocaleRu: quasarLocaleRu,
+        }
+    },
+    
+    methods: {
+        update() { update(); },
+        reset() { reset(); },
+        entity_change() { entity_change(); },
+        clear_activities() { clear_activities(); },
+        clear_locations() { clear_locations(); },
+        open_activity_modal() { open_activity_modal(); },
+        open_location_modal() { open_location_modal(); },
+        clear_reg_date() { this.reg_date_range = null; },
+        init_reg_date() {
+            if (this.reg_date_range) return;
+            const today = new Date();
+            const yesterday = new Date();
+            yesterday.setDate(today.getDate() - 1);
+            const fmt = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+            this.reg_date_range = { from: fmt(yesterday), to: fmt(today) };
+        },
+    },
+    
+    computed: {
+        reg_date_range_text() {
+            if (!this.reg_date_range) return '';
+            const fmt = (s) => {
+                if (!s) return '';
+                const [y, m, d] = s.split('-');
+                return `${d}.${m}.${y}`;
+            };
+            if (typeof this.reg_date_range === 'string') return fmt(this.reg_date_range);
+            return fmt(this.reg_date_range.from) + ' — ' + fmt(this.reg_date_range.to);
+        },
+        todayYearMonth() {
+            const d = new Date();
+            return d.getFullYear() + '/' + String(d.getMonth() + 1).padStart(2, '0');
+        },
+    },
+
+}).use(Quasar).mount('#vue');
+
+/* ═══════════════════════════════════
+   Vue 3 + Quasar — дерево регионов
+   ═══════════════════════════════════ */
+
+const vue_location_app = Vue.createApp({
+    
+    data() {
+        return {
+            locations: [],
+            location_tree: [],
+            location_tree_open: [],
+            location_search: "",
+            descendantsCache: {},
+        }
+    },
+    
+    watch: {
+        locations: {
+            immediate: true,
+            handler(roots) {
+                const desc = {};
+                const walk = (node) => {
+                    const set = new Set();
+                    if (node.children) {
+                        for (const child of node.children) {
+                            set.add(child.id);
+                            const childSet = walk(child);
+                            childSet.forEach(id => set.add(id));
+                        }
+                    }
+                    desc[node.id] = set;
+                    return set;
+                };
+                for (const root of roots) walk(root);
+                this.descendantsCache = desc;
+            }
+        },
+        location_tree(arr) {
+            const el = document.getElementById('location_select_desc');
+            if (!el) return;
+            el.innerHTML = arr.length > 0
+                ? "Выбрано регионов и городов: " + arr.length
+                : "Все регионы России";
+        },
+    },
+    
+    methods: {
+    
+        update() { update(); },
+        
+        clear_tree() {
+            this.location_tree = [];
+        },
+        
+        locationFilterMethod(node, filter) {
+            const f = filter.toLowerCase();
+            const name = (node.name || '').toLowerCase();
+            return name.indexOf(f) > -1;
+        },
+    
+    }
+
+}).use(Quasar).mount('#vue_location');
+    
+/* ═══════════════════════════════════
+   Vue 3 + Quasar — дерево видов деятельности
+   ═══════════════════════════════════ */
+
+const vue_activity_app = Vue.createApp({
+    
+    data() {
+        return {
+            activities: [],
+            activity_tree: [],
+            activity_tree_open: [],
+            activity_search: "",
+            descendantsCache: {},
+        }
+    },
+    
+    watch: {
+        activities: {
+            immediate: true,
+            handler(roots) {
+                const desc = {};
+                const walk = (node) => {
+                    const set = new Set();
+                    if (node.children) {
+                        for (const child of node.children) {
+                            set.add(child.id);
+                            const childSet = walk(child);
+                            childSet.forEach(id => set.add(id));
+                        }
+                    }
+                    desc[node.id] = set;
+                    return set;
+                };
+                for (const root of roots) walk(root);
+                this.descendantsCache = desc;
+            }
+        },
+        activity_tree(arr) {
+            const el = document.getElementById('activity_select_desc');
+            if (!el) return;
+            el.innerHTML = arr.length > 0
+                ? "Выбрано видов деятельности: " + arr.length
+                : "Все виды деятельности";
+        },
+    },
+    
+    methods: {
+    
+        update() { update(); },
+        
+        clear_tree() {
+            this.activity_tree = [];
+        },
+        
+        activityFilterMethod(node, filter) {
+            const f = filter.toLowerCase();
+            const name = (node.name || '').toLowerCase();
+            const code = (node.code || '').toLowerCase();
+            return name.indexOf(f) > -1 || code.indexOf(f) > -1;
+        },
+    
+    }
+
+}).use(Quasar).mount('#vue_activity');
+
+/* ═══════════════════════════════════
+   Общие функции
+   ═══════════════════════════════════ */
+    
+function open_activity_modal() {
+    const openModal = () => {
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('activity_tree_modal')).show();
+    };
+    if (activityDataLoaded) {
+        openModal();
+        return;
+    }
+    activityDataLoaded = true;
+    loadScript('/cdn/activity_data.js').then(() => {
+        vue_activity_app.activities = JSON.parse(activity_data);
+        vue_activity_app.$nextTick(openModal);
+    });
+}
+
+function open_location_modal() {
+    const openModal = () => {
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('location_tree_modal')).show();
+    };
+    if (locationDataLoaded) {
+        openModal();
+        return;
+    }
+    locationDataLoaded = true;
+    loadScript('/cdn/location_data.js').then(() => {
+        vue_location_app.locations = JSON.parse(location_data);
+        vue_location_app.$nextTick(openModal);
+    });
+}
+    
+// Ленивая загрузка JS-файла
+function loadScript(src) {
+    return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = src;
+        script.onload = resolve;
+        script.onerror = reject;
+        document.head.appendChild(script);
+    });
+}
+
+// Флаги, чтобы не грузить повторно
+let activityDataLoaded = false;
+let locationDataLoaded = false;
+
+document.addEventListener('DOMContentLoaded', function() {
+
+    // Уже существующий обработчик sidebar offcanvas
+    document.getElementById('sb').addEventListener('hide.bs.offcanvas', event => {
+        document.getElementById('lsc').appendChild(document.getElementById('vue'));
+    });
+    
+});
+
+// Возвращает массив листьев плюс id всех родителей, у которых
+// все потомки тикнуты. Используется перед отправкой в бэкенд,
+// чтобы фильтр Elastic срабатывал и по кодам разделов целиком.
+function withFullyTickedAncestors(tickedArray, descendantsCache) {
+    const ticked = new Set(tickedArray);
+    const result = new Set(tickedArray);
+    for (const id in descendantsCache) {
+        const descs = descendantsCache[id];
+        if (descs.size === 0) continue;
+        let allTicked = true;
+        for (const d of descs) {
+            if (!ticked.has(d)) { allTicked = false; break; }
+        }
+        if (allTicked) result.add(id);
+    }
+    return Array.from(result);
+}
+
+function update() {
+    
+    document.getElementById('loader').setAttribute('style', '');
+    
+    url = url_remove_key('page', window.location.href);
+    
+    var advanced_search_data = {};
+    
+    advanced_search_data['entity'] = vue_app.entity;
+    advanced_search_data['active'] = vue_app.active_checkbox;
+    advanced_search_data['activities'] = withFullyTickedAncestors(
+        vue_activity_app.activity_tree,
+        vue_activity_app.descendantsCache
+    );
+    advanced_search_data['locations'] = withFullyTickedAncestors(
+        vue_location_app.location_tree,
+        vue_location_app.descendantsCache
+    );
+    advanced_search_data['search'] = vue_app.search;
+    if (vue_app.reg_date_range && typeof vue_app.reg_date_range === 'object') {
+        advanced_search_data['date_from'] = vue_app.reg_date_range.from;
+        advanced_search_data['date_to'] = vue_app.reg_date_range.to;
+    } else if (typeof vue_app.reg_date_range === 'string') {
+        advanced_search_data['date_from'] = vue_app.reg_date_range;
+        advanced_search_data['date_to'] = vue_app.reg_date_range;
+    } else {
+        advanced_search_data['date_from'] = '';
+        advanced_search_data['date_to'] = '';
+    }
+    advanced_search_data['smb'] = vue_app.smb_checkbox;
+    advanced_search_data['smb_code'] = vue_app.smb_select;
+    advanced_search_data['employee'] = vue_app.employee_checkbox;
+    advanced_search_data['employee_min'] = vue_app.employee_from;
+    advanced_search_data['employee_max'] = vue_app.employee_to;
+    advanced_search_data['capital'] = vue_app.capital_checkbox;
+    advanced_search_data['capital_min'] = vue_app.capital_from;
+    advanced_search_data['fs_2110'] = vue_app.fs_2110_checkbox;
+    advanced_search_data['fs_2110_min'] = vue_app.fs_2110_from;
+    advanced_search_data['fs_2110_max'] = vue_app.fs_2110_to;
+    advanced_search_data['fs_2400'] = vue_app.fs_2400_checkbox;
+    advanced_search_data['fs_2400_min'] = vue_app.fs_2400_from;
+    advanced_search_data['fs_2400_max'] = vue_app.fs_2400_to;
+    advanced_search_data['fs_1300'] = vue_app.fs_1300_checkbox;
+    advanced_search_data['fs_1300_min'] = vue_app.fs_1300_from;
+    advanced_search_data['fs_1300_max'] = vue_app.fs_1300_to;
+    advanced_search_data['tax_treatment'] = vue_app.tax_treatment_checkbox;
+    advanced_search_data['tax_treatment_code'] = vue_app.tax_treatment_select;
+    advanced_search_data['tax_amount'] = vue_app.tax_amount_checkbox;
+    advanced_search_data['tax_amount_min'] = vue_app.tax_amount_from;
+    advanced_search_data['cn'] = vue_app.purchases_checkbox;
+    advanced_search_data['cncs_min'] = vue_app.customer_from;
+    advanced_search_data['cnsp_min'] = vue_app.supplier_from;
+    advanced_search_data['licenses'] = vue_app.licenses_checkbox;
+    advanced_search_data['trademarks'] = vue_app.trademarks_checkbox;
+    advanced_search_data['leasing'] = vue_app.leasing_checkbox;
+    advanced_search_data['phones'] = vue_app.phones_checkbox;
+    advanced_search_data['emails'] = vue_app.emails_checkbox;
+    advanced_search_data['websites'] = vue_app.websites_checkbox;
+    
+    localStorage.setItem("advanced_search", JSON.stringify(advanced_search_data));
+    
+    var local_storage_update_request = new XMLHttpRequest();         
+    local_storage_update_request.open('POST', '/local-storage/update/advanced-search');
+    local_storage_update_request.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
+    local_storage_update_request.onreadystatechange = function() {
+        if (local_storage_update_request.readyState === XMLHttpRequest.DONE) {
+        if (local_storage_update_request.readyState == 4 && local_storage_update_request.status == 200) {
+            window.location.href = url;
+		} else {
+        }};};
+    local_storage_update_request.send('data='+JSON.stringify(advanced_search_data));
+}
+    
+function reset() {
+    
+    document.getElementById('loader').setAttribute('style', '');
+    
+    url = url_remove_key('page', window.location.href);
+    
+    var advanced_search_data = {};
+    
+    advanced_search_data['entity'] = 'organizations';
+    advanced_search_data['active'] = 'true';
+    advanced_search_data['activities'] = [];
+    advanced_search_data['locations'] = [];
+    advanced_search_data['search'] = '';
+    advanced_search_data['date_from'] = '';
+    advanced_search_data['date_to'] = '';
+    advanced_search_data['smb'] = '';
+    advanced_search_data['smb_code'] = '';
+    advanced_search_data['employee'] = '';
+    advanced_search_data['employee_min'] = '';
+    advanced_search_data['employee_max'] = '';
+    advanced_search_data['capital'] = '';
+    advanced_search_data['capital_min'] = '';
+    advanced_search_data['fs_2110'] = '';
+    advanced_search_data['fs_2110_min'] = '';
+    advanced_search_data['fs_2110_max'] = '';
+    advanced_search_data['fs_2400'] = '';
+    advanced_search_data['fs_2400_min'] = '';
+    advanced_search_data['fs_2400_max'] = '';
+    advanced_search_data['fs_1300'] = '';
+    advanced_search_data['fs_1300_min'] = '';
+    advanced_search_data['fs_1300_max'] = '';
+    advanced_search_data['tax_treatment'] = '';
+    advanced_search_data['tax_treatment_code'] = '';
+    advanced_search_data['tax_amount'] = '';
+    advanced_search_data['tax_amount_min'] = '';
+    advanced_search_data['cn'] = '';
+    advanced_search_data['cncs_min'] = '';
+    advanced_search_data['cnsp_min'] = '';
+    advanced_search_data['licenses'] = '';
+    advanced_search_data['trademarks'] = '';
+    advanced_search_data['leasing'] = '';
+    advanced_search_data['phones'] = '';
+    advanced_search_data['emails'] = '';
+    advanced_search_data['websites'] = '';
+    
+    localStorage.setItem("advanced_search", JSON.stringify(advanced_search_data));
+    
+    var local_storage_update_request = new XMLHttpRequest();         
+    local_storage_update_request.open('POST', '/local-storage/update/advanced-search');
+    local_storage_update_request.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
+    local_storage_update_request.onreadystatechange = function() {
+        if (local_storage_update_request.readyState === XMLHttpRequest.DONE) {
+        if (local_storage_update_request.readyState == 4 && local_storage_update_request.status == 200) {
+            window.location.href = url;
+		} else {
+        }};};
+    local_storage_update_request.send('data='+JSON.stringify(advanced_search_data));
+    
+}
+
+function entity_change() {
+    if (vue_app.entity == 'entrepreneurs') { document.querySelectorAll('.fv').forEach(function(x) { x.classList.add('d-none') }); }
+    else { document.querySelectorAll('.fv').forEach(function(x) { x.classList.remove('d-none') }); }
+    update();
+}
+
+function clear_activities() {
+    vue_activity_app.activity_tree = [];
+    update();
+}
+
+function clear_locations() {
+    vue_location_app.location_tree = [];
+    update();
+}
+
+</script></main>
+<footer>
+<div class="container-xl">
+<div class="bs-row">
+<div class="col-12 col-md-4">
+<div class="fs-20 mb-2">Портал &quot;Чекко&quot;</div>
+<a class="link-light" href="/legality">Правовые основания размещения информации</a><br>
+<a class="link-light" href="/agreement">Пользовательское соглашение</a><br>
+<a class="link-light" href="/privacy">Политика конфиденциальности</a><br>
+<a class="link-light" href="/offer">Публичная оферта</a>
+<div class="fs-20 mt-4 mb-2">Контакты</div>
+<a class="link-light" href="/feedback">Отправить сообщение</a>
+</div>
+
+<div class="col-12 col-md-8"><div class="gap-md"></div><div class="gap-md"></div>
+
+<div class="fs-20 mb-2">Наши преимущества</div>
+<ul><li>&bull;&nbsp;&nbsp;Удобство использования &mdash; четкое и структурированное представление ключевых данных контрагентов</li><li class="mt-1">&bull;&nbsp;&nbsp;Анализ связей &mdash; узнайте больше о деятельности вашего поставщика или конкурента, изучив аффилированные организации</li><li class="mt-1">&bull;&nbsp;&nbsp;Официальные данные &mdash; мы публикуем открытую и общедоступную информацию только из официальных источников</li><li class="mt-1">&bull;&nbsp;&nbsp;Ежедневные обновления &mdash; информация из баз ФНС (ЕГРЮЛ и ЕГРИП) обновляется ежедневно</li><li class="mt-1">&bull;&nbsp;&nbsp;Полностью бесплатно &mdash; доступ ко всему функционалу портала полностью бесплатен и не требует регистрации</li><li class="mt-1">&bull;&nbsp;&nbsp;API &mdash; интеграция данных ФНС, Росстата, ФССП, ФАС и Генпрокуратуры в ваши информационные системы</li>
+</ul><br><a class="link-light" rel="nofollow" href="/download/yandex">Скачать Яндекс Браузер с поиском &quot;Чекко&quot;</a><br><a class="link-light d-inline-block mt-1" target="_blank" rel="nofollow" href="https://chrome.google.com/webstore/detail/%D1%87%D0%B5%D0%BA%D0%BA%D0%BE/oagaeikjnjbjcgelefgmomonfhpidclg">Скачать расширение для Chrome и Яндекс Браузера</a><br>
+<a class="link-light d-inline-block mt-1" rel="nofollow" href="/widget">Виджет &quot;Проверенная компания&quot;</a>
+</div></div><hr><div class="text-center mt-4">&copy; 2019&ndash;2026 checko.ru</div></div></footer>
+
+<script src="/cdn/default.260328.min.js" defer></script><script>(function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)}; m[i].l=1*new Date();k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)}) (window, document, "script", "https://mc.yandex.ru/metrika/tag.js", "ym"); ym(56298238, "init", {trackLinks:true, accurateTrackBounce:true });</script><noscript><div><img src="https://mc.yandex.ru/watch/56298238" style="position:absolute; left:-9999px;" alt="" /></div></noscript></body>
+</html>

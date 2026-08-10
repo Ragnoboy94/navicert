@@ -9,6 +9,8 @@ import {
   readOutreachSchedule,
   writeOutreachSchedule,
 } from "./schedule";
+import { isFsaOutreachCategory, isNewRegistrationsCategory } from "./category";
+import { isCheckoBlocked } from "./checko-guard";
 import type { OutreachCategory, OutreachQueue } from "./types";
 
 const TIMEZONE = "Europe/Moscow";
@@ -229,6 +231,7 @@ export async function runCronMaintenance(
 
   let morningSync: CronSyncResult = { ran: false, reason: "outside_window" };
 
+  // ФСА и checko: утренняя догрузка + часовой append в один контур оркестратора.
   if (isMorningSyncWindow(now) && schedule.lastFsaSyncDate !== dateKey) {
     morningSync = await runMorningFsaSync(category);
     writeOutreachSchedule({
@@ -244,18 +247,28 @@ export async function runCronMaintenance(
   const enrichBudget = Math.max(maxMs - elapsed, 0);
   const queue = readOutreachQueue(category);
   const enrichStatus = getEnrichRunnerStatus(category);
+  // ФСА: карточки из API. Checko: список срочно, email — сессиями с паузами.
+  const checkoOk =
+    !isNewRegistrationsCategory(category) || !isCheckoBlocked();
   if (
+    (isFsaOutreachCategory(category) || isNewRegistrationsCategory(category)) &&
+    checkoOk &&
     enrichBudget > 30_000 &&
     (queue?.enrichQueue.length ?? 0) > 0 &&
     !queue?.enrichPaused &&
     !enrichStatus.running
   ) {
+    const batchMs = isNewRegistrationsCategory(category) ? 60_000 : 20_000;
     enqueueFsaJob({
       type: "enrich",
       category,
       priority: "low",
       source: "cron_maintenance_enrich",
-      payload: { maxBatches: Math.max(Math.floor(enrichBudget / 20_000), 1) },
+      payload: {
+        maxBatches: isNewRegistrationsCategory(category)
+          ? 1
+          : Math.max(Math.floor(enrichBudget / batchMs), 1),
+      },
     });
   }
   const enrich =

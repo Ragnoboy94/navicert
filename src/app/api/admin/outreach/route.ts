@@ -15,6 +15,7 @@ import {
   readSentRecordsByCategory,
 } from "@/lib/outreach/mailer";
 import { getExpiringMonthRange, readOutreachQueue } from "@/lib/outreach/queue";
+import { getNewRegistrationsRange } from "@/lib/outreach/checko-range";
 import { getEnrichRunnerStatus } from "@/lib/outreach/enrich-runner";
 import { getFsaQueueStatus } from "@/lib/outreach/fsa-orchestrator";
 import { getScheduleStats } from "@/lib/outreach/schedule";
@@ -29,6 +30,12 @@ import {
   listUnsubscribesByCategory,
 } from "@/lib/outreach/unsubscribe";
 import type { OutreachCategory, OutreachQueueItem } from "@/lib/outreach/types";
+import { parseOutreachCategory } from "@/lib/outreach/category";
+import {
+  getCheckoBlockReason,
+  getCheckoBlockRemainingMs,
+  isCheckoBlocked,
+} from "@/lib/outreach/checko-guard";
 
 /** Большой JSON очереди на проде — не рвать proxy/server на 60s. */
 export const maxDuration = 300;
@@ -36,10 +43,6 @@ export const maxDuration = 300;
 /** Сколько карточек отдавать в полном ответе по умолчанию (0 = все). */
 const DEFAULT_LIST_LIMIT = 300;
 const DEFAULT_SENT_LIMIT = 200;
-
-function parseCategory(raw: string | null): OutreachCategory {
-  return raw === "expiring_certificates" ? "expiring_certificates" : "expiring";
-}
 
 function parseLimit(raw: string | null, fallback: number): number {
   if (raw == null || raw === "") return fallback;
@@ -90,7 +93,7 @@ export async function GET(request: Request) {
   }
 
   const url = new URL(request.url);
-  const category = parseCategory(url.searchParams.get("category"));
+  const category = parseOutreachCategory(url.searchParams.get("category"));
   const lite =
     url.searchParams.get("lite") === "1" ||
     url.searchParams.get("view") === "status";
@@ -105,7 +108,11 @@ export async function GET(request: Request) {
 
   const queue = readOutreachQueue(category);
   const sent = readSentRecordsByCategory(category);
-  const range = queue?.range ?? getExpiringMonthRange();
+  const range =
+    queue?.range ??
+    (category === "new_registrations"
+      ? getNewRegistrationsRange()
+      : getExpiringMonthRange());
   const scheduleStats = getScheduleStats(category);
   const fsaQueue = getFsaQueueStatus(category);
   const itemsRaw = queue?.items ?? [];
@@ -116,21 +123,36 @@ export async function GET(request: Request) {
     categoryLabel:
       category === "expiring_certificates"
         ? "Заканчивающиеся сертификаты"
-        : "Заканчивающиеся декларации",
+        : category === "new_registrations"
+          ? "Новые организации"
+          : "Заканчивающиеся декларации",
     range,
     scannedAt: queue?.scannedAt ?? null,
     nextApiPage: queue?.nextApiPage ?? 0,
     apiCursor: queue?.apiCursor ?? null,
-    cursorLabel: queue?.apiCursor
-      ? describeFsaCursor(
-          queue.apiCursor,
-          splitRangeIntoSlices(queue.range ?? range)
-        )
-      : null,
+    cursorLabel:
+      queue?.apiCursor && category !== "new_registrations"
+        ? describeFsaCursor(
+            queue.apiCursor,
+            splitRangeIntoSlices(queue.range ?? range)
+          )
+        : queue?.apiCursor && category === "new_registrations"
+          ? `checko стр. ${Math.max(queue.apiCursor.page, 1)}${
+              queue.hasMore ? "+" : ""
+            }`
+          : null,
     pageSize: queue?.pageSize ?? 100,
     hasMore: queue?.hasMore ?? false,
     enrichPending: queue?.enrichQueue?.length ?? 0,
     enrichStatus: getEnrichRunnerStatus(category),
+    checkoBlock:
+      category === "new_registrations" && isCheckoBlocked()
+        ? {
+            active: true,
+            remainingMs: getCheckoBlockRemainingMs(),
+            reason: getCheckoBlockReason(),
+          }
+        : { active: false, remainingMs: 0, reason: null },
     fsaQueue,
     testMode: isOutreachTestMode(),
     testEmail: isOutreachTestMode() ? getOutreachTestEmail() : null,

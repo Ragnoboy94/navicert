@@ -2,10 +2,7 @@ import { NextResponse } from "next/server";
 import { isAuthenticated } from "@/lib/auth";
 import { setExcludeFromAutoSend } from "@/lib/outreach/queue";
 import type { OutreachCategory } from "@/lib/outreach/types";
-
-function parseCategory(raw: string | null | undefined): OutreachCategory {
-  return raw === "expiring_certificates" ? "expiring_certificates" : "expiring";
-}
+import { parseOutreachCategory } from "@/lib/outreach/category";
 
 export async function POST(request: Request) {
   if (!(await isAuthenticated())) {
@@ -15,7 +12,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const url = new URL(request.url);
-    const category = parseCategory(body.category ?? url.searchParams.get("category"));
+    const category = parseOutreachCategory(body.category ?? url.searchParams.get("category"));
     const id = Number(body.id);
     const exclude = Boolean(body.exclude);
 

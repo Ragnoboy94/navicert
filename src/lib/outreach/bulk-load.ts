@@ -32,7 +32,16 @@ import {
   type FsaLoadCursor,
 } from "./fsa-pagination";
 import { getExpiringMonthRange } from "./queue";
-import { isEndDateInRange, pruneOutreachQueue } from "./queue-cleanup";
+import {
+  getNewRegistrationsRange,
+  ruDateToIso as checkoRuDateToIso,
+  scanCheckoNewRegistrations,
+  enrichCheckoCompanyEmails,
+  checkoCompanyToDeclaration,
+} from "./checko";
+import { isCheckoBlocked } from "./checko-guard";
+import { isNewRegistrationsCategory } from "./category";
+import { isEndDateInRange, isEnrichItemInRange, pruneOutreachQueue } from "./queue-cleanup";
 import type {
   FsaDeclaration,
   OutreachQueue,
@@ -103,6 +112,8 @@ export type EnrichBatchResult = {
   rejected: OutreachQueueItem[];
   enrichQueue: FsaDeclaration[];
   problemDeclaration?: { id: number; url: string };
+  /** checko: капча/лимит — не продолжать enrich */
+  blocked?: boolean;
 };
 
 const DEFAULT_PAGE_SIZE = 100;
@@ -156,6 +167,14 @@ function toQueueItem(
   doc: FsaDeclaration,
   category: OutreachCategory
 ): OutreachQueueItem {
+  if (isNewRegistrationsCategory(category)) {
+    const { status, reason } = classifyEmail(doc.applicant?.email);
+    return {
+      ...doc,
+      emailStatus: status,
+      emailRejectReason: reason,
+    };
+  }
   const normalize = category === "expiring_certificates"
     ? normalizeCertificate
     : normalizeDeclaration;
@@ -272,12 +291,124 @@ function collectKnownIds(queue: OutreachQueue | null): Set<number> {
   return ids;
 }
 
-/** Быстрая загрузка списка из API ФСА — без детального обогащения */
+async function bulkLoadCheckoList(
+  options: BulkLoadListOptions
+): Promise<BulkLoadListResult> {
+  const range = options.range ?? getNewRegistrationsRange();
+  const maxItems = Math.min(
+    Math.max(options.maxItems ?? DEFAULT_MAX_ITEMS, 10),
+    1000
+  );
+  const mode = options.mode ?? "reset";
+  const existing = mode === "append" ? (options.existingQueue ?? null) : null;
+  const knownIds = collectKnownIds(existing);
+  const skipOgrns = [...knownIds].map(String);
+  const startPage = Math.max(
+    mode === "append" ? (existing?.apiCursor?.page ?? 1) : 1,
+    1
+  );
+
+  // Срочно: только список. Email — фоном по одной карточке.
+  const scan = await scanCheckoNewRegistrations({
+    dateFrom: checkoRuDateToIso(range.from),
+    dateTo: checkoRuDateToIso(range.to),
+    listOnly: true,
+    emailsOnly: false,
+    maxItems,
+    startPage,
+    skipOgrns,
+    delayMs: Number(process.env.OUTREACH_CHECKO_DELAY_MS || 1800),
+  });
+
+  const items: OutreachQueueItem[] = [];
+  const rejected: OutreachQueueItem[] = [];
+  const enrichQueue: FsaDeclaration[] = [];
+  let emailsFromList = 0;
+
+  for (const declaration of scan.declarations) {
+    if (knownIds.has(declaration.id)) continue;
+    knownIds.add(declaration.id);
+
+    const email = declaration.applicant?.email?.trim();
+    if (!email) {
+      enrichQueue.push(declaration);
+      continue;
+    }
+
+    emailsFromList += 1;
+    const verdict = classifyEmail(email);
+    const row: OutreachQueueItem = {
+      ...declaration,
+      applicant: {
+        ...declaration.applicant,
+        email: email.toLowerCase(),
+      },
+      emailStatus: verdict.status,
+      emailRejectReason: verdict.reason,
+    };
+    if (row.emailStatus === "eligible") items.push(row);
+    else rejected.push(row);
+  }
+
+  const mergedItems =
+    mode === "append" && existing ? [...existing.items, ...items] : items;
+  const mergedRejected =
+    mode === "append" && existing
+      ? [...existing.rejected, ...rejected]
+      : rejected;
+  const mergedEnrich =
+    mode === "append" && existing
+      ? [...existing.enrichQueue, ...enrichQueue]
+      : enrichQueue;
+
+  const pruned = pruneOutreachQueue(
+    mergedItems,
+    mergedRejected,
+    range,
+    "new_registrations"
+  );
+
+  const nextPage = scan.nextPage;
+  const hasMore = scan.hasMore;
+  const addedAfterPrune =
+    mode === "append" && existing
+      ? Math.max(
+          pruned.items.length +
+            pruned.rejected.length -
+            ((existing.items?.length ?? 0) + (existing.rejected?.length ?? 0)),
+          0
+        )
+      : pruned.items.length + pruned.rejected.length;
+
+  return {
+    range,
+    nextApiPage: nextPage,
+    apiCursor: { page: Math.max(nextPage, 1), sortIndex: 0, sliceIndex: 0 },
+    pageSize: 25,
+    hasMore,
+    items: pruned.items,
+    rejected: pruned.rejected,
+    enrichQueue: mergedEnrich.filter((item) =>
+      isEnrichItemInRange(item, range, "new_registrations")
+    ),
+    loadedFromApi: scan.declarations.length,
+    addedNew: addedAfterPrune,
+    emailsFromList,
+    cursorLabel: `checko page=${nextPage}${hasMore ? "+" : ""} (${scan.pagesFetched} за проход, email в фоне)`,
+    paginationVersion: 2,
+  };
+}
+
+/** Быстрая загрузка списка — ФСА или checko в зависимости от категории */
 export async function bulkLoadList(
   options: BulkLoadListOptions = {}
 ): Promise<BulkLoadListResult> {
-  const range = options.range ?? getExpiringMonthRange();
   const category = options.category ?? "expiring";
+  if (isNewRegistrationsCategory(category)) {
+    return bulkLoadCheckoList(options);
+  }
+
+  const range = options.range ?? getExpiringMonthRange();
   const pageSize = Math.min(
     Math.max(options.pageSize ?? DEFAULT_PAGE_SIZE, 10),
     100
@@ -560,6 +691,155 @@ export async function enrichQueueBatch(
   batchSize = getEnrichBatchSize(),
   options?: { shouldAbort?: () => boolean }
 ): Promise<EnrichBatchResult> {
+  // Checko: несколько карточек в ОДНОЙ сессии браузера, паузы между ними.
+  // Раньше брали по 1 и рвали job — UI снова показывал «Продолжить».
+  if (isNewRegistrationsCategory(queue.category)) {
+    if (isCheckoBlocked()) {
+      return {
+        processed: 0,
+        requeued: queue.enrichQueue.length,
+        emailsFound: 0,
+        enrichedFromCards: 0,
+        enrichPending: queue.enrichQueue.length,
+        items: queue.items,
+        rejected: queue.rejected,
+        enrichQueue: queue.enrichQueue,
+        blocked: true,
+      };
+    }
+
+    const checkoBatchSize = Math.min(
+      Math.max(Number(process.env.OUTREACH_CHECKO_ENRICH_PER_JOB || 12), 1),
+      25
+    );
+    const batch = queue.enrichQueue.slice(0, checkoBatchSize);
+    if (batch.length === 0) {
+      return {
+        processed: 0,
+        requeued: 0,
+        emailsFound: 0,
+        enrichedFromCards: 0,
+        enrichPending: 0,
+        items: queue.items,
+        rejected: queue.rejected,
+        enrichQueue: [],
+      };
+    }
+
+    if (options?.shouldAbort?.()) {
+      return {
+        processed: 0,
+        requeued: queue.enrichQueue.length,
+        emailsFound: 0,
+        enrichedFromCards: 0,
+        enrichPending: queue.enrichQueue.length,
+        items: queue.items,
+        rejected: queue.rejected,
+        enrichQueue: queue.enrichQueue,
+      };
+    }
+
+    const withEmail: OutreachQueueItem[] = [];
+    const stillNeed: FsaDeclaration[] = [];
+    const rejectedExtra: OutreachQueueItem[] = [];
+    let emailsFound = 0;
+    let blocked = false;
+
+    const urls = batch.map((item) => item.registryUrl || "");
+    const results = await enrichCheckoCompanyEmails(
+      urls.filter(Boolean),
+      { shouldAbort: options?.shouldAbort }
+    );
+    // Сопоставляем по порядку (batch без url отдельно).
+    let resultIdx = 0;
+    for (const item of batch) {
+      const url = item.registryUrl || "";
+      if (!url) {
+        rejectedExtra.push({
+          ...item,
+          emailStatus: "no_email",
+          emailRejectReason: "нет ссылки на карточку checko",
+        });
+        continue;
+      }
+      const result = results[resultIdx++];
+      if (!result || result.blocked) {
+        blocked = true;
+        stillNeed.push(item);
+        continue;
+      }
+      if (result.error || !result.company) {
+        if (/CHECKO_ACCESS_LIMITED|капч|большое количество/i.test(result.error || "")) {
+          blocked = true;
+          stillNeed.push(item);
+          continue;
+        }
+        if (process.env.OUTREACH_DEBUG === "1" || process.env.NODE_ENV !== "production") {
+          console.warn(`[checko-enrich] ${item.id}: ${result.error || "empty"}`);
+        }
+        stillNeed.push(item);
+        continue;
+      }
+
+      const company = result.company;
+      const email = company.email?.trim();
+      const mergedDecl = checkoCompanyToDeclaration({
+        ...company,
+        path: company.path,
+        ogrn: company.ogrn || String(item.applicant?.ogrn || item.id),
+        shortName: company.shortName || item.applicant?.shortName,
+        fullName: company.fullName || item.applicant?.fullName,
+        inn: company.inn || item.applicant?.inn,
+        okved: company.okved || item.productName,
+      });
+      if (!email) {
+        rejectedExtra.push({
+          ...mergedDecl,
+          id: item.id,
+          emailStatus: "no_email",
+          emailRejectReason: "нет email на карточке checko",
+        });
+        continue;
+      }
+      emailsFound += 1;
+      const verdict = classifyEmail(email);
+      if (process.env.OUTREACH_DEBUG === "1" || process.env.NODE_ENV !== "production") {
+        console.info(
+          `[checko-enrich] → ${verdict.status} id=${item.id} ${email} (${verdict.reason || "ok"})`
+        );
+      }
+      const row: OutreachQueueItem = {
+        ...mergedDecl,
+        id: item.id,
+        applicant: {
+          ...mergedDecl.applicant,
+          email: email.toLowerCase(),
+        },
+        emailStatus: verdict.status,
+        emailRejectReason: verdict.reason,
+      };
+      if (row.emailStatus === "eligible") withEmail.push(row);
+      else rejectedExtra.push(row);
+    }
+
+    const enrichQueue = [
+      ...stillNeed,
+      ...queue.enrichQueue.slice(batch.length),
+    ];
+
+    return {
+      processed: withEmail.length + rejectedExtra.length,
+      requeued: stillNeed.length,
+      emailsFound,
+      enrichedFromCards: emailsFound,
+      enrichPending: enrichQueue.length,
+      items: [...queue.items, ...withEmail],
+      rejected: [...queue.rejected, ...rejectedExtra],
+      enrichQueue,
+      blocked,
+    };
+  }
+
   const normalize =
     queue.category === "expiring_certificates"
       ? normalizeCertificate

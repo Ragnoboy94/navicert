@@ -18,15 +18,33 @@ function parseAnyDate(value: string): Date | null {
 }
 
 export function isEndDateInRange(
-  declaration: Pick<FsaDeclaration, "endDate">,
+  declaration: Pick<FsaDeclaration, "endDate" | "registrationDate">,
   range: { from: string; to: string }
 ): boolean {
-  const endDate = parseAnyDate(declaration.endDate);
+  // Для новых орг. в endDate кладём дату регистрации; если пусто — берём registrationDate.
+  const endDate =
+    parseAnyDate(declaration.endDate) ||
+    parseAnyDate(declaration.registrationDate || "");
   if (!endDate) return false;
 
   const from = new Date(`${ruDateToIso(range.from)}T00:00:00`);
   const to = new Date(`${ruDateToIso(range.to)}T23:59:59`);
   return endDate >= from && endDate <= to;
+}
+
+/** List-only checko: даты часто нет до карточки — не выкидываем из enrichQueue. */
+export function isEnrichItemInRange(
+  declaration: Pick<FsaDeclaration, "endDate" | "registrationDate">,
+  range: { from: string; to: string },
+  category: OutreachCategory = "expiring"
+): boolean {
+  if (category === "new_registrations") {
+    const hasDate =
+      Boolean(parseAnyDate(declaration.endDate)) ||
+      Boolean(parseAnyDate(declaration.registrationDate || ""));
+    if (!hasDate) return true;
+  }
+  return isEndDateInRange(declaration, range);
 }
 
 function sortByEndDate(items: OutreachQueueItem[]): OutreachQueueItem[] {
@@ -50,6 +68,13 @@ export function pruneOutreachQueue(
 
   const keep = (item: OutreachQueueItem) => {
     if (sentIds.has(item.id)) return false;
+    // checko уже отфильтрован по дате на сайте; без даты регистрации не выкидываем.
+    if (category === "new_registrations") {
+      const hasDate =
+        Boolean(parseAnyDate(item.endDate)) ||
+        Boolean(parseAnyDate(item.registrationDate || ""));
+      if (!hasDate) return true;
+    }
     if (!isEndDateInRange(item, range)) return false;
     return true;
   };

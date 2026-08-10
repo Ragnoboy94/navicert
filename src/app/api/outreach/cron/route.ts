@@ -17,6 +17,7 @@ export const maxDuration = 300;
 const CRON_CATEGORIES: OutreachCategory[] = [
   "expiring",
   "expiring_certificates",
+  "new_registrations",
 ];
 
 async function runCategoryCron(category: OutreachCategory, maxMs: number) {

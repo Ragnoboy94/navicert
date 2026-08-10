@@ -52,6 +52,7 @@ function runtime(): EnrichRuntime {
       byCategory: {
         expiring: emptyCategoryRuntime(),
         expiring_certificates: emptyCategoryRuntime(),
+        new_registrations: emptyCategoryRuntime(),
       },
     };
   }
@@ -59,7 +60,11 @@ function runtime(): EnrichRuntime {
 }
 
 function catRuntime(category: OutreachCategory): CategoryRuntime {
-  return runtime().byCategory[category];
+  const rt = runtime();
+  if (!rt.byCategory[category]) {
+    rt.byCategory[category] = emptyCategoryRuntime();
+  }
+  return rt.byCategory[category];
 }
 
 function queueStats(queue: OutreachQueue | null) {

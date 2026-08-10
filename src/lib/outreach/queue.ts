@@ -1,8 +1,9 @@
 import fs from "fs";
 import path from "path";
 import { normalizeCertificate, normalizeDeclaration } from "./fsa";
-import { pruneOutreachQueue, isEndDateInRange } from "./queue-cleanup";
+import { pruneOutreachQueue, isEnrichItemInRange } from "./queue-cleanup";
 import { healFsaPagination } from "./fsa-pagination";
+import { getNewRegistrationsRange } from "./checko-range";
 import type { OutreachQueue } from "./types";
 import type { OutreachCategory } from "./types";
 
@@ -10,7 +11,9 @@ function queuePath(category: OutreachCategory): string {
   const file =
     category === "expiring_certificates"
       ? "outreach-certificates-queue.json"
-      : "outreach-queue.json";
+      : category === "new_registrations"
+        ? "outreach-new-registrations-queue.json"
+        : "outreach-queue.json";
   return path.join(process.cwd(), "data", file);
 }
 
@@ -59,10 +62,13 @@ export function readOutreachQueue(
   const raw = JSON.parse(text) as OutreachQueue;
   // Категория берётся из пути файла — иначе запись может уйти в чужой контур
   const stamped: OutreachQueue = { ...raw, category };
-  const { queue: healed, changed } = healFsaPagination(stamped);
-  const withCategory: OutreachQueue = { ...healed, category };
+  const healedResult =
+    category === "new_registrations"
+      ? { queue: stamped, changed: false }
+      : healFsaPagination(stamped);
+  const withCategory: OutreachQueue = { ...healedResult.queue, category };
   const prettyPrinted = text.includes("\n  ");
-  if (changed || raw.category !== category || prettyPrinted) {
+  if (healedResult.changed || raw.category !== category || prettyPrinted) {
     // compact JSON сильно ускоряет последующие parse (файл ~в 2–3 раза меньше)
     writeOutreachQueue(withCategory);
     return rememberQueue(
@@ -83,7 +89,10 @@ export function readOutreachQueue(
  *  но не делаем полный reset очереди с нуля через API. */
 export function sanitizeOutreachQueue(queue: OutreachQueue): OutreachQueue {
   const normalized = normalizeQueue(queue);
-  const current = getExpiringMonthRange();
+  const current =
+    normalized.category === "new_registrations"
+      ? getNewRegistrationsRange()
+      : getExpiringMonthRange();
   const rangeChanged =
     !normalized.range ||
     normalized.range.from !== current.from ||
@@ -98,7 +107,7 @@ export function sanitizeOutreachQueue(queue: OutreachQueue): OutreachQueue {
   );
 
   const enrichQueue = normalized.enrichQueue.filter((item) =>
-    isEndDateInRange(item, range)
+    isEnrichItemInRange(item, range, normalized.category)
   );
 
   const cleaned: OutreachQueue = {
@@ -109,8 +118,13 @@ export function sanitizeOutreachQueue(queue: OutreachQueue): OutreachQueue {
     enrichQueue,
     ...(rangeChanged
       ? {
-          apiCursor: { page: 0, sortIndex: 0, sliceIndex: 0 },
-          nextApiPage: 0,
+          // checko — страницы 1-based; ФСА — с 0. Не смешивать.
+          apiCursor: {
+            page: normalized.category === "new_registrations" ? 1 : 0,
+            sortIndex: 0,
+            sliceIndex: 0,
+          },
+          nextApiPage: normalized.category === "new_registrations" ? 1 : 0,
           hasMore: true,
           paginationVersion: 2,
         }
@@ -176,6 +190,29 @@ function migrateEnrichCounters(queue: OutreachQueue): OutreachQueue {
 
 function normalizeQueue(queue: OutreachQueue): OutreachQueue {
   const migrated = migrateEnrichCounters(queue);
+  if (queue.category === "new_registrations") {
+    const apiCursor = migrated.apiCursor ?? {
+      page: migrated.nextApiPage ?? 0,
+      sortIndex: 0,
+      sliceIndex: 0,
+    };
+    return {
+      ...migrated,
+      category: "new_registrations",
+      nextApiPage: apiCursor.page,
+      apiCursor,
+      paginationVersion: Math.max(migrated.paginationVersion ?? 1, 2),
+      pageSize: queue.pageSize ?? 25,
+      hasMore: queue.hasMore ?? false,
+      enrichQueue: queue.enrichQueue ?? [],
+      enrichPaused: Boolean(queue.enrichPaused),
+      enrichProcessedTotal: queue.enrichProcessedTotal ?? 0,
+      enrichEmailsFoundTotal: queue.enrichEmailsFoundTotal ?? 0,
+      enrichSessionInitialPending: queue.enrichSessionInitialPending,
+      items: queue.items ?? [],
+      rejected: queue.rejected ?? [],
+    };
+  }
   const { queue: healed } = healFsaPagination(migrated);
   const apiCursor = healed.apiCursor ?? {
     page: healed.nextApiPage ?? 0,

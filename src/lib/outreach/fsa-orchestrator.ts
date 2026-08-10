@@ -3,6 +3,11 @@ import path from "path";
 import { listResultToQueue, bulkLoadList, enrichQueueBatch, applyEnrichResult } from "./bulk-load";
 import { probeFsaTransport } from "./fsa-network";
 import { readOutreachQueue, writeOutreachQueue } from "./queue";
+import {
+  isCheckoBlocked,
+  getCheckoBlockReason,
+  markCheckoBlocked,
+} from "./checko-guard";
 import type { OutreachCategory } from "./types";
 
 type FsaJobPriority = "high" | "low";
@@ -90,6 +95,12 @@ function recoverStaleLock(state: FsaOrchestratorState): FsaOrchestratorState {
   // Lock «сирота»: running=true, а ни одна задача не running — drain вечно no-op.
   if (state.running && !hasRunningJob) {
     return { ...state, running: false, updatedAt: nowIso() };
+  }
+
+  // Обратная сирота: задача running, а глобальный lock сброшен параллельным drain.
+  // Иначе UI показывает «0 срочных» и «не идёт», хотя работа жива.
+  if (!state.running && hasRunningJob) {
+    return { ...state, running: true, updatedAt: nowIso() };
   }
 
   if (!state.running) return state;
@@ -217,7 +228,10 @@ async function runScanJob(job: Extract<FsaJob, { type: "scan" }>): Promise<strin
       category: job.category,
       priority: "low",
       source: "scan_followup",
-      payload: { maxBatches: 2 },
+      // checko: 1 сессия (~десяток карточек с паузами), дальше continue.
+      payload: {
+        maxBatches: job.category === "new_registrations" ? 1 : 2,
+      },
     });
   }
   return `Добавили ${result.addedNew}, в обработке email ${result.enrichQueue.length}`;
@@ -226,9 +240,21 @@ async function runScanJob(job: Extract<FsaJob, { type: "scan" }>): Promise<strin
 async function runEnrichJob(
   job: Extract<FsaJob, { type: "enrich" }>
 ): Promise<string> {
-  const maxBatches = Math.min(Math.max(job.payload?.maxBatches ?? 2, 1), 10);
+  if (job.category === "new_registrations" && isCheckoBlocked()) {
+    // Не помечаем как «успех без continue» молча — очередь ждёт cooldown/cron.
+    return getCheckoBlockReason() || "checko на паузе после капчи";
+  }
+
+  // checko: 1 сессия (много карточек с паузами внутри) за job, потом continue.
+  const isChecko = job.category === "new_registrations";
+  const defaultBatches = isChecko ? 1 : 2;
+  const maxBatches = Math.min(
+    Math.max(job.payload?.maxBatches ?? defaultBatches, 1),
+    isChecko ? 3 : 10
+  );
   let processed = 0;
   let emails = 0;
+  let blocked = false;
 
   for (let i = 0; i < maxBatches; i++) {
     const queue = readOutreachQueue(job.category);
@@ -243,21 +269,39 @@ async function runEnrichJob(
     processed += result.processed;
     emails += result.emailsFound;
 
+    if (result.blocked) {
+      blocked = true;
+      break;
+    }
     if (result.enrichPending === 0) break;
     if (result.processed === 0 && result.requeued === 0) break;
+    // Раньше при processed===0 (таймаут/профиль) цепочку рвали → «Продолжить».
+    // Для checko выходим из цикла job, но ниже всё равно поставим continue, если не blocked.
+    if (isChecko && result.processed === 0 && result.requeued > 0) {
+      break;
+    }
   }
 
   const latest = readOutreachQueue(job.category);
   const pending = latest?.enrichQueue.length ?? 0;
-  // На паузе не переставляем задачу — иначе «Продолжить» и stop конфликтуют.
-  if (pending > 0 && !latest?.enrichPaused) {
+  const softBlocked = isChecko && isCheckoBlocked();
+  // Паузы ≠ стоп. Стоп только капча/ручная пауза/пустая очередь.
+  const shouldContinue =
+    pending > 0 &&
+    !latest?.enrichPaused &&
+    !blocked &&
+    !softBlocked;
+  if (shouldContinue) {
     enqueueFsaJob({
       type: "enrich",
       category: job.category,
       priority: "low",
       source: "enrich_continue",
-      payload: { maxBatches },
+      payload: { maxBatches: isChecko ? 1 : maxBatches },
     });
+  }
+  if (blocked || softBlocked) {
+    return `Email: пауза из‑за защиты сайта. Обработано ${processed}, найдено ${emails}, осталось ${pending}`;
   }
   return `Email обработка: ${processed}, найдено: ${emails}, осталось: ${pending}`;
 }
@@ -282,6 +326,7 @@ export function enqueueFsaJob(options: EnqueueOptions): {
   duplicate: boolean;
   jobId: string;
   pendingAppendScans?: number;
+  rejectedReason?: string;
 } {
   const state = readState();
   const duplicate = isDuplicatePending(state, options);
@@ -292,6 +337,37 @@ export function enqueueFsaJob(options: EnqueueOptions): {
       jobId: duplicate.id,
       pendingAppendScans: countPendingAppendScans(state, options.category),
     };
+  }
+
+  if (
+    options.category === "new_registrations" &&
+    (options.type === "scan" || options.type === "enrich") &&
+    isCheckoBlocked()
+  ) {
+    return {
+      accepted: false,
+      duplicate: true,
+      jobId: "",
+      pendingAppendScans: countPendingAppendScans(state, options.category),
+      rejectedReason:
+        getCheckoBlockReason() ||
+        "Сайт недавно отклонил загрузку. Подождите перед повторной попыткой.",
+    };
+  }
+
+  if (options.type === "scan") {
+    const blocked = recentNewRegistrationsBlock(state, options.category);
+    if (blocked) {
+      return {
+        accepted: false,
+        duplicate: true,
+        jobId: blocked.id,
+        pendingAppendScans: countPendingAppendScans(state, options.category),
+        rejectedReason:
+          blocked.error ||
+          "Сайт недавно отклонил загрузку. Подождите перед повторной попыткой.",
+      };
+    }
   }
 
   if (
@@ -349,6 +425,24 @@ export function enqueueFsaJob(options: EnqueueOptions): {
 }
 
 export async function drainFsaJobs(
+  options: { maxMs?: number; category?: OutreachCategory } = {}
+): Promise<{ ran: number; ok: number; failed: number }> {
+  // Сериализуем drain: двойной kick (scan + after) иначе сбрасывает чужой lock.
+  return enqueueDrain(() => drainFsaJobsUnlocked(options));
+}
+
+let drainChain: Promise<unknown> = Promise.resolve();
+
+function enqueueDrain<T>(fn: () => Promise<T>): Promise<T> {
+  const run = drainChain.then(fn, fn);
+  drainChain = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run;
+}
+
+async function drainFsaJobsUnlocked(
   options: { maxMs?: number; category?: OutreachCategory } = {}
 ): Promise<{ ran: number; ok: number; failed: number }> {
   const maxMs = Math.max(options.maxMs ?? 90_000, 1_000);
@@ -410,6 +504,15 @@ export async function drainFsaJobs(
       writeState(complete);
       ok += 1;
     } catch (error) {
+      const rawMsg = error instanceof Error ? error.message : "Ошибка задачи";
+      if (
+        next.category === "new_registrations" &&
+        /CHECKO_ACCESS_LIMITED|капч|большое количество|429|не пускает/i.test(
+          rawMsg
+        )
+      ) {
+        markCheckoBlocked(rawMsg.slice(0, 120));
+      }
       const complete = readState();
       const completeIdx = complete.jobs.findIndex((job) => job.id === next.id);
       if (completeIdx !== -1) {
@@ -417,7 +520,7 @@ export async function drainFsaJobs(
           ...complete.jobs[completeIdx],
           status: "failed",
           finishedAt: nowIso(),
-          error: error instanceof Error ? error.message : "Ошибка задачи ФСА",
+          error: sanitizeJobError(rawMsg),
         } as FsaJob;
       }
       complete.running = false;
@@ -430,7 +533,79 @@ export async function drainFsaJobs(
     ran += 1;
   }
 
+  // Не оставляем pending enrich «висеть» до cron — иначе UI снова «Продолжить».
+  if (ran > 0) {
+    const leftover = readState().jobs.some(
+      (job) =>
+        job.status === "pending" &&
+        (!options.category || job.category === options.category)
+    );
+    if (leftover) {
+      setTimeout(() => {
+        void drainFsaJobs({
+          category: options.category,
+          maxMs: Math.max(maxMs, 120_000),
+        }).catch(() => undefined);
+      }, 1500);
+    }
+  }
+
   return { ran, ok, failed };
+}
+
+function sanitizeJobError(msg: string): string {
+  if (/spawn\s+EINVAL|EINVAL/i.test(msg)) {
+    return "Не удалось запустить загрузчик. Попробуйте ещё раз — если повторится, перезапустите приложение на сервере.";
+  }
+  if (
+    /TOCHKA_ACCESS_LIMITED|COMPANIUM_ACCESS_LIMITED|CHECKO_ACCESS_LIMITED|подтвердите, что вы человек|капч|большое количество запросов/i.test(
+      msg
+    )
+  ) {
+    return "Сайт сейчас не пускает автоматическую загрузку (защита от ботов). Записи в очередь не попали. Подождите и попробуйте снова.";
+  }
+  if (
+    /OUTREACH_|playwright|checko-pw-profile|npx playwright|Executable doesn't exist/i.test(
+      msg
+    )
+  ) {
+    return "Не удалось загрузить данные с сайта. Записи в очередь не попали.";
+  }
+  if (/HTTP 429|HTTP 503|перегружен/i.test(msg)) {
+    return "Сайт временно перегружен (слишком много запросов). Записи в очередь не попали. Подождите несколько минут.";
+  }
+  if (/Timeout|timeout|не ответил/i.test(msg)) {
+    return "Сайт не ответил вовремя. Записи в очередь не попали.";
+  }
+  return msg.length > 280 ? `${msg.slice(0, 277)}…` : msg;
+}
+
+/** После капчи/429 повторные клики только жгут лимит — держим паузу. */
+const NEW_REG_COOLDOWN_MS = 25 * 60_000;
+
+function recentNewRegistrationsBlock(
+  state: FsaOrchestratorState,
+  category: OutreachCategory
+): FsaJob | null {
+  if (category !== "new_registrations") return null;
+  const cutoff = Date.now() - NEW_REG_COOLDOWN_MS;
+  const blocked = state.jobs
+    .filter(
+      (job) =>
+        job.category === category &&
+        (job.type === "scan" || job.type === "enrich") &&
+        job.status === "failed" &&
+        job.finishedAt &&
+        Date.parse(job.finishedAt) >= cutoff &&
+        /CHECKO_ACCESS|не пускает|капч|перегружен|429|защит/i.test(
+          job.error || ""
+        )
+    )
+    .sort(
+      (a, b) =>
+        Date.parse(b.finishedAt || "") - Date.parse(a.finishedAt || "")
+    )[0];
+  return blocked ?? null;
 }
 
 /** Запуск drain после ответа админке — не ждать ближайший cron (до 20 мин). */
@@ -540,18 +715,23 @@ export function getFsaQueueStatus(category?: OutreachCategory): {
     if (!err) return Boolean(job.summary);
     return !/снято с очереди|остановлено вручную/i.test(err);
   });
+  const hasActive =
+    Boolean(runningJob) || pendingHigh > 0 || pendingLow > 0 || scanQueued;
   return {
     pendingHigh,
     pendingLow,
-    running: state.running,
+    // Для UI категории: «идёт» = есть running-задача ЭТОЙ категории
+    // (глобальный lock один на все категории и врёт при гонках drain).
+    running: Boolean(runningJob) || (category ? false : state.running),
     runningType: runningJob?.type ?? null,
     runningSince: runningJob?.startedAt ?? null,
     enrichQueued,
     enrichRunning,
     scanQueued,
     pendingScanAppend,
-    lastSummary: latestMeaningful?.summary ?? null,
-    lastError: latestMeaningful?.error ?? null,
+    lastSummary: hasActive ? null : (latestMeaningful?.summary ?? null),
+    // Пока есть активные задачи — не показываем прошлый fail.
+    lastError: hasActive ? null : (latestMeaningful?.error ?? null),
   };
 }
 

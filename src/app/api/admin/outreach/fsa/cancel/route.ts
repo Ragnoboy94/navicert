@@ -6,10 +6,7 @@ import {
 } from "@/lib/outreach/fsa-orchestrator";
 import { pauseBackgroundEnrich } from "@/lib/outreach/enrich-runner";
 import type { OutreachCategory } from "@/lib/outreach/types";
-
-function parseCategory(raw: string | null | undefined): OutreachCategory {
-  return raw === "expiring_certificates" ? "expiring_certificates" : "expiring";
-}
+import { parseOutreachCategory } from "@/lib/outreach/category";
 
 export async function POST(request: Request) {
   if (!(await isAuthenticated())) {
@@ -18,7 +15,7 @@ export async function POST(request: Request) {
 
   const body = await request.json().catch(() => ({}));
   const url = new URL(request.url);
-  const category = parseCategory(
+  const category = parseOutreachCategory(
     body.category ?? url.searchParams.get("category")
   );
 

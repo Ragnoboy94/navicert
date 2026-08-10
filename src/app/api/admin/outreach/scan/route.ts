@@ -7,12 +7,9 @@ import {
 } from "@/lib/outreach/fsa-orchestrator";
 import { readOutreachQueue } from "@/lib/outreach/queue";
 import type { OutreachCategory } from "@/lib/outreach/types";
+import { parseOutreachCategory } from "@/lib/outreach/category";
 
 export const maxDuration = 300;
-
-function parseCategory(raw: string | null | undefined): OutreachCategory {
-  return raw === "expiring_certificates" ? "expiring_certificates" : "expiring";
-}
 
 export async function POST(request: Request) {
   if (!(await isAuthenticated())) {
@@ -21,7 +18,7 @@ export async function POST(request: Request) {
 
   const body = await request.json().catch(() => ({}));
   const url = new URL(request.url);
-  const category = parseCategory(body.category ?? url.searchParams.get("category"));
+  const category = parseOutreachCategory(body.category ?? url.searchParams.get("category"));
   const mode = body.mode === "append" ? "append" : "reset";
   const defaultMaxItems = mode === "append" ? 100 : 1000;
   const minItems = mode === "append" ? 10 : 50;
@@ -56,9 +53,10 @@ export async function POST(request: Request) {
         pendingAppendScans: enqueued.pendingAppendScans ?? 0,
         fsaQueue: getFsaQueueStatus(category),
         error:
-          mode === "append"
+          enqueued.rejectedReason ||
+          (mode === "append"
             ? `Уже стоит ${enqueued.pendingAppendScans ?? 0} догрузок в очереди (лимит). Дождитесь cron или очистите очередь.`
-            : "Задача уже в очереди",
+            : "Задача уже в очереди"),
       },
       { status: 409 }
     );

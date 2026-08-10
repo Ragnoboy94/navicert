@@ -25,7 +25,9 @@ function sentPath(category: OutreachCategory): string {
   const file =
     category === "expiring_certificates"
       ? "outreach-certificates-sent.json"
-      : "outreach-sent.json";
+      : category === "new_registrations"
+        ? "outreach-new-registrations-sent.json"
+        : "outreach-sent.json";
   return path.join(process.cwd(), "data", file);
 }
 
@@ -175,13 +177,15 @@ export function getSendBlockReason(
     category?: OutreachCategory;
   } = {}
 ): string | null {
+  const category = options.category ?? DEFAULT_CATEGORY;
+  if (options.force) return null;
+
+  // И ручная отправка тоже не должна молча слать повтор по той же записи.
+  if (wasAlreadySent(declaration.id, category)) return "already_sent";
+
   if (options.manual) {
     return declaration.applicant?.email?.trim() ? null : "no_email";
   }
-
-  const category = options.category ?? DEFAULT_CATEGORY;
-  if (options.force) return null;
-  if (wasAlreadySent(declaration.id, category)) return "already_sent";
 
   const email =
     declaration.applicant?.email?.trim().toLowerCase() ||

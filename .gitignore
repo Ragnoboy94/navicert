@@ -70,5 +70,10 @@ scripts/outreach/_*
 scripts/vpn/*.json
 scripts/vpn/*.py
 
-# браузеры Playwright для парсера ФСА
+# браузеры Playwright для парсера ФСА / checko
 .playwright-browsers/
+data/checko-pw-profile/
+data/checko-pw-profile-test/
+data/companium-pw-profile/
+data/checko-access-block.json
+data/checko-pw-profile.lock

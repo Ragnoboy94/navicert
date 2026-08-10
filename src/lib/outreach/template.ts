@@ -68,6 +68,8 @@ function documentNoun(category: OutreachCategory): string {
   switch (category) {
     case "expiring_certificates":
       return "сертификатов";
+    case "new_registrations":
+      return "регистрации";
     case "expiring":
     default:
       return "деклараций";
@@ -80,6 +82,9 @@ export function buildOutreachSubject(
 ): string {
   const category = options?.category ?? "expiring";
   const company = companyName(declaration);
+  if (category === "new_registrations") {
+    return `Поздравляем с регистрацией ${company}: сертификация и декларации`;
+  }
   if (category === "expiring_certificates") {
     return `Мониторинг реестра ФСА: завершение срока действия документации ${company}`;
   }
@@ -163,10 +168,46 @@ function certificateBodyBlocks(declaration: FsaDeclaration): BodyBlock[] {
   ];
 }
 
+function newRegistrationBodyBlocks(declaration: FsaDeclaration): BodyBlock[] {
+  const senderName = getOutreachSenderName();
+  const recipient = companyName(declaration);
+  const fromName = getOutreachFromName();
+
+  return [
+    { type: "p", text: `Здравствуйте, ${recipient}!` },
+    {
+      type: "p",
+      text: `Поздравляем с государственной регистрацией вашей организации. ${senderName} помогает новым компаниям быстро пройти обязательную оценку соответствия: декларации и сертификаты по ТР ТС / ТР ЕАЭС.`,
+    },
+    {
+      type: "p",
+      text: "Мы подскажем, какие документы нужны именно для вашего ОКВЭД и ассортимента, и сопроводим регистрацию в реестре ФСА.",
+    },
+    {
+      type: "ul",
+      items: [
+        "Бесплатная первичная консультация по схемам сертификации",
+        "Подготовка комплекта документов и испытания",
+        "Регистрация деклараций и сертификатов в реестре",
+      ],
+    },
+    {
+      type: "p",
+      text: "Ответьте на это письмо — специалист свяжется с вами и уточнит задачу.",
+    },
+    { type: "p", text: "С уважением," },
+    { type: "p", text: fromName },
+    { type: "p", text: "Экспертный центр Нависерт" },
+  ];
+}
+
 function bodyBlocks(
   declaration: FsaDeclaration,
   category: OutreachCategory
 ): BodyBlock[] {
+  if (category === "new_registrations") {
+    return newRegistrationBodyBlocks(declaration);
+  }
   return category === "expiring_certificates"
     ? certificateBodyBlocks(declaration)
     : declarationBodyBlocks(declaration);
