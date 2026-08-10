@@ -57,6 +57,9 @@ if [ -d "$BK/data-snapshot" ]; then
     outreach-certificates-sent.json \
     outreach-certificates-schedule.json \
     outreach-certificates-queue.json \
+    outreach-new-registrations-sent.json \
+    outreach-new-registrations-schedule.json \
+    outreach-new-registrations-queue.json \
     outreach-fsa-jobs.json \
     fsa-token.json
   do
