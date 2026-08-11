@@ -220,8 +220,9 @@ function blocksToHtml(blocks: BodyBlock[]): string {
 
 function footerLine(): { text: string; html: string } {
   const site = getSite();
+  // В актуальных шаблонах ДС/СС — navicert-info.ru (не основной SITE_URL).
   const siteUrl =
-    process.env.NEXT_PUBLIC_SITE_URL?.trim() || "https://navicert.pro";
+    process.env.OUTREACH_SITE_URL?.trim() || "https://navicert-info.ru";
   const tel = site.phoneRaw || site.phone.replace(/\D/g, "");
   const telHref = tel.startsWith("+") ? tel : `+${tel}`;
 
