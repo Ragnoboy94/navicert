@@ -99,6 +99,8 @@ export function emailFilterLabel(reason?: string): string {
       return "опечатка: .ogr вместо .org";
     case "domain_double_ru":
       return "опечатка: .ru.ru";
+    case "okved_not_allowed":
+      return "ОКВЭД вне списка для парсинга";
     default:
       return reason ?? "не прошёл фильтр";
   }
@@ -111,5 +113,6 @@ export function isDisplayRejectedItem(item: {
 }): boolean {
   if (item.emailStatus === "no_email") return false;
   if (item.emailRejectReason === "email_missing") return false;
+  if (item.emailRejectReason === "okved_not_allowed") return false;
   return item.emailStatus === "rejected";
 }

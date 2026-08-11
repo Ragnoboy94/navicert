@@ -23,6 +23,7 @@ import {
   markCheckoBlocked,
   withCheckoProfileLock,
 } from "./checko-guard";
+import { NEW_REG_CHECKO_ACTIVITY_IDS } from "./new-reg-okved-data";
 
 export const CHECKO_BASE = "https://checko.ru";
 export const CHECKO_ADVANCED_PATH = "/search/advanced";
@@ -397,7 +398,8 @@ function buildFilterPayload(dateFrom: string, dateTo: string) {
   return {
     entity: "organizations",
     active_checkbox: "true",
-    activities: [],
+    // Узлы allowlist + потомки из activity_data (114 кодов → ~588 id).
+    activities: NEW_REG_CHECKO_ACTIVITY_IDS as unknown as string[],
     locations: [],
     search: "",
     date_from: dateFrom,

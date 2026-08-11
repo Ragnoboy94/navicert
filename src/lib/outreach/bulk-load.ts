@@ -1,4 +1,5 @@
 import { classifyEmail } from "./email-filter";
+import { isAllowedNewRegOkved } from "./okved";
 import { enrichApplicantsFromCards } from "./enrich-applicants";
 import {
   certificateApplicantUrl,
@@ -792,6 +793,15 @@ export async function enrichQueueBatch(
         inn: company.inn || item.applicant?.inn,
         okved: company.okved || item.productName,
       });
+      if (!isAllowedNewRegOkved(mergedDecl)) {
+        rejectedExtra.push({
+          ...mergedDecl,
+          id: item.id,
+          emailStatus: "rejected",
+          emailRejectReason: "okved_not_allowed",
+        });
+        continue;
+      }
       if (!email) {
         rejectedExtra.push({
           ...mergedDecl,

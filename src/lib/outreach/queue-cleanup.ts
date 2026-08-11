@@ -1,5 +1,10 @@
 import { readSentRecordsByCategory } from "./mailer";
-import type { FsaDeclaration, OutreachCategory, OutreachQueueItem } from "./types";
+import { hasKnownOkved, isAllowedNewRegOkved } from "./okved";
+import type {
+  FsaDeclaration,
+  OutreachCategory,
+  OutreachQueueItem,
+} from "./types";
 import { ruDateToIso } from "./bulk-load";
 
 function parseAnyDate(value: string): Date | null {
@@ -34,11 +39,18 @@ export function isEndDateInRange(
 
 /** List-only checko: даты часто нет до карточки — не выкидываем из enrichQueue. */
 export function isEnrichItemInRange(
-  declaration: Pick<FsaDeclaration, "endDate" | "registrationDate">,
+  declaration: Pick<FsaDeclaration, "endDate" | "registrationDate"> & {
+    productGroup?: string;
+    productName?: string;
+  },
   range: { from: string; to: string },
   category: OutreachCategory = "expiring"
 ): boolean {
   if (category === "new_registrations") {
+    // Уже знаем ОКВЭД и он вне allowlist — не тратим карточку.
+    if (hasKnownOkved(declaration) && !isAllowedNewRegOkved(declaration)) {
+      return false;
+    }
     const hasDate =
       Boolean(parseAnyDate(declaration.endDate)) ||
       Boolean(parseAnyDate(declaration.registrationDate || ""));
@@ -55,7 +67,21 @@ function sortByEndDate(items: OutreachQueueItem[]): OutreachQueueItem[] {
   });
 }
 
-/** Убираем из очереди отправленные, вне периода и без email — история остаётся в outreach-sent.json */
+function inDateWindow(
+  item: OutreachQueueItem,
+  range: { from: string; to: string },
+  category: OutreachCategory
+): boolean {
+  if (category === "new_registrations") {
+    const hasDate =
+      Boolean(parseAnyDate(item.endDate)) ||
+      Boolean(parseAnyDate(item.registrationDate || ""));
+    if (!hasDate) return true;
+  }
+  return isEndDateInRange(item, range);
+}
+
+/** Убираем из очереди отправленные, вне периода; для checko — фильтр ОКВЭД. */
 export function pruneOutreachQueue(
   items: OutreachQueueItem[],
   rejected: OutreachQueueItem[],
@@ -66,23 +92,69 @@ export function pruneOutreachQueue(
     readSentRecordsByCategory(category).map((record) => record.declarationId)
   );
 
-  const keep = (item: OutreachQueueItem) => {
-    if (sentIds.has(item.id)) return false;
-    // checko уже отфильтрован по дате на сайте; без даты регистрации не выкидываем.
-    if (category === "new_registrations") {
-      const hasDate =
-        Boolean(parseAnyDate(item.endDate)) ||
-        Boolean(parseAnyDate(item.registrationDate || ""));
-      if (!hasDate) return true;
-    }
-    if (!isEndDateInRange(item, range)) return false;
-    return true;
+  if (category !== "new_registrations") {
+    const keep = (item: OutreachQueueItem) => {
+      if (sentIds.has(item.id)) return false;
+      return inDateWindow(item, range, category);
+    };
+    return {
+      items: sortByEndDate(items.filter(keep)),
+      rejected: sortByEndDate(rejected.filter(keep)),
+    };
+  }
+
+  const nextItems: OutreachQueueItem[] = [];
+  const nextRejected: OutreachQueueItem[] = [];
+  const seen = new Set<number>();
+
+  const pushRejected = (item: OutreachQueueItem, okvedReject = false) => {
+    if (seen.has(item.id) || sentIds.has(item.id)) return;
+    if (!inDateWindow(item, range, category)) return;
+    seen.add(item.id);
+    nextRejected.push(
+      okvedReject
+        ? {
+            ...item,
+            emailStatus: "rejected",
+            emailRejectReason: "okved_not_allowed",
+          }
+        : item
+    );
   };
 
+  for (const item of rejected) {
+    if (sentIds.has(item.id)) continue;
+    if (item.emailRejectReason === "okved_not_allowed") {
+      pushRejected(item);
+      continue;
+    }
+    if (hasKnownOkved(item) && !isAllowedNewRegOkved(item)) {
+      pushRejected(item, true);
+      continue;
+    }
+    // Без кода в rejected не держим (ждём enrich или отбрасываем мусор).
+    if (!hasKnownOkved(item)) continue;
+    if (!inDateWindow(item, range, category)) continue;
+    seen.add(item.id);
+    nextRejected.push(item);
+  }
+
+  for (const item of items) {
+    if (sentIds.has(item.id) || seen.has(item.id)) continue;
+    if (hasKnownOkved(item) && !isAllowedNewRegOkved(item)) {
+      pushRejected(item, true);
+      continue;
+    }
+    if (!hasKnownOkved(item)) continue;
+    if (!inDateWindow(item, range, category)) continue;
+    seen.add(item.id);
+    nextItems.push(item);
+  }
+
   return {
-    items: sortByEndDate(items.filter(keep)),
-    // no_email оставляем в файле (чтобы append не тащил их снова в enrich),
+    items: sortByEndDate(nextItems),
+    // no_email / okved_not_allowed остаются в файле (append не тащит снова),
     // в UI «Личные ящики» их режет isDisplayRejectedItem.
-    rejected: sortByEndDate(rejected.filter(keep)),
+    rejected: sortByEndDate(nextRejected),
   };
 }
