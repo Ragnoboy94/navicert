@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { isNewRegistrationsCategory } from "./category";
 import { classifyEmail, isCorporateEmail } from "./email-filter";
 import {
   prepareOutreachQueueForSending,
@@ -20,6 +21,56 @@ import type {
 import { isUnsubscribed } from "./unsubscribe";
 
 const DEFAULT_CATEGORY: OutreachCategory = "expiring";
+
+/** SMTP для категории рассылки. Новые организации — отдельный ящик mail@. */
+export function resolveOutreachSmtpAccount(category: OutreachCategory): {
+  host: string;
+  user: string | undefined;
+  pass: string | undefined;
+  from: string | undefined;
+  portEnv: string | undefined;
+} {
+  const defaultHost =
+    process.env.OUTREACH_SMTP_HOST?.trim() ||
+    process.env.SMTP_HOST?.trim() ||
+    "smtp.yandex.ru";
+
+  if (isNewRegistrationsCategory(category)) {
+    const user =
+      process.env.OUTREACH_NEW_REG_SMTP_USER?.trim() ||
+      "mail@navicert-info.ru";
+    const pass = process.env.OUTREACH_NEW_REG_SMTP_PASS?.trim();
+    const from =
+      process.env.OUTREACH_NEW_REG_SMTP_FROM?.trim() ||
+      user;
+    return {
+      host:
+        process.env.OUTREACH_NEW_REG_SMTP_HOST?.trim() || defaultHost,
+      user,
+      pass,
+      from,
+      portEnv:
+        process.env.OUTREACH_NEW_REG_SMTP_PORT?.trim() ||
+        process.env.OUTREACH_SMTP_PORT?.trim(),
+    };
+  }
+
+  const user =
+    process.env.OUTREACH_SMTP_USER?.trim() || process.env.SMTP_USER?.trim();
+  const pass =
+    process.env.OUTREACH_SMTP_PASS?.trim() || process.env.SMTP_PASS?.trim();
+  const from =
+    process.env.OUTREACH_SMTP_FROM?.trim() ||
+    process.env.SMTP_FROM?.trim() ||
+    user;
+  return {
+    host: defaultHost,
+    user,
+    pass,
+    from,
+    portEnv: process.env.OUTREACH_SMTP_PORT?.trim(),
+  };
+}
 
 function sentPath(category: OutreachCategory): string {
   const file =
@@ -259,23 +310,14 @@ export async function sendOutreachEmail(
     return { ok: false, reason: "no_corporate_email" };
   }
 
-  const host =
-    process.env.OUTREACH_SMTP_HOST?.trim() ||
-    process.env.SMTP_HOST?.trim() ||
-    "smtp.mail.ru";
-  const user = process.env.OUTREACH_SMTP_USER?.trim() || process.env.SMTP_USER?.trim();
-  const pass = process.env.OUTREACH_SMTP_PASS?.trim() || process.env.SMTP_PASS?.trim();
-  if (!user || !pass) {
+  const category = options.category ?? DEFAULT_CATEGORY;
+  const smtp = resolveOutreachSmtpAccount(category);
+  if (!smtp.user || !smtp.pass) {
     return { ok: false, reason: "smtp_not_configured" };
   }
 
-  const from =
-    process.env.OUTREACH_SMTP_FROM?.trim() ||
-    process.env.SMTP_FROM?.trim() ||
-    user;
   const testMode = isOutreachTestMode();
   const to = testMode ? getOutreachTestEmail() : originalRecipient;
-  const category = options.category ?? DEFAULT_CATEGORY;
   const { subject, text, html } = buildOutreachEmail(declaration, {
     recipientEmail: originalRecipient,
     category,
@@ -289,7 +331,7 @@ export async function sendOutreachEmail(
     html: string;
     replyTo?: string;
   } = {
-    from: `"${getOutreachFromName()}" <${from}>`,
+    from: `"${getOutreachFromName()}" <${smtp.from || smtp.user}>`,
     to,
     subject,
     text,
@@ -303,12 +345,12 @@ export async function sendOutreachEmail(
 
   let lastSmtpError: string | undefined;
 
-  for (const attempt of outreachSmtpAttempts()) {
+  for (const attempt of outreachSmtpAttempts(smtp.portEnv)) {
     try {
       const transporter = createOutreachTransporter({
-        host,
-        user,
-        pass,
+        host: smtp.host,
+        user: smtp.user,
+        pass: smtp.pass,
         port: attempt.port,
         secure: attempt.secure,
         requireTLS: attempt.requireTLS,

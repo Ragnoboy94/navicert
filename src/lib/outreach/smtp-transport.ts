@@ -17,8 +17,12 @@ export function getOutreachSmtpProxy(): string | undefined {
 }
 
 /** Yandex: 587 (STARTTLS), отдельно от заявок на mail.ru:2525 */
-export function outreachSmtpAttempts(): SmtpAttempt[] {
-  const configured = Number(process.env.OUTREACH_SMTP_PORT || "587");
+export function outreachSmtpAttempts(
+  portOverride?: string | number | null
+): SmtpAttempt[] {
+  const configured = Number(
+    portOverride ?? process.env.OUTREACH_SMTP_PORT ?? "587"
+  );
   const attempts: SmtpAttempt[] = [];
 
   const add = (port: number) => {
@@ -29,7 +33,7 @@ export function outreachSmtpAttempts(): SmtpAttempt[] {
     });
   };
 
-  add(configured);
+  add(Number.isFinite(configured) && configured > 0 ? configured : 587);
   if (configured !== 587) add(587);
   if (configured !== 465) add(465);
 
