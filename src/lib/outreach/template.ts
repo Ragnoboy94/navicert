@@ -67,7 +67,7 @@ export function buildOutreachSubject(
   const category = options?.category ?? "expiring";
   const company = companyName(declaration);
   if (category === "new_registrations") {
-    return `Поздравляем с регистрацией ${company}: сертификация и декларации`;
+    return `Требования к документам ${company} в 2026 году.`;
   }
   if (category === "expiring_certificates") {
     return `Уведомление о завершении сертификата ${company}!`;
@@ -144,36 +144,45 @@ function certificateBodyBlocks(declaration: FsaDeclaration): BodyBlock[] {
   ];
 }
 
+/** Шаблон «Недавно зарегистрированным ООО» (актуальный). */
 function newRegistrationBodyBlocks(declaration: FsaDeclaration): BodyBlock[] {
-  const senderName = getOutreachSenderName();
   const recipient = companyName(declaration);
+  const site = getSite();
+  const siteUrl =
+    process.env.OUTREACH_SITE_URL?.trim() || "https://navicert-info.ru";
   const fromName = getOutreachFromName();
 
   return [
-    { type: "p", text: `Здравствуйте, ${recipient}!` },
+    { type: "p", text: "Здравствуйте!" },
     {
       type: "p",
-      text: `Поздравляем с государственной регистрацией вашей организации. ${senderName} помогает новым компаниям быстро пройти обязательную оценку соответствия: декларации и сертификаты по ТР ТС / ТР ЕАЭС.`,
+      text: "Это Громов Андрей, руководитель направления в центре сертификации «Нависерт».",
     },
     {
       type: "p",
-      text: "Мы подскажем, какие документы нужны именно для вашего ОКВЭД и ассортимента, и сопроводим регистрацию в реестре ФСА.",
-    },
-    {
-      type: "ul",
-      items: [
-        "Бесплатная первичная консультация по схемам сертификации",
-        "Подготовка комплекта документов и испытания",
-        "Регистрация деклараций и сертификатов в реестре",
-      ],
+      text: "Мы помогаем бизнесу защитить себя и следим за тем, чтобы документация компаний была в полном порядке.",
     },
     {
       type: "p",
-      text: "Ответьте на это письмо — специалист свяжется с вами и уточнит задачу.",
+      text: "Поводом для моего письма стало введение новых критериев оценки соответствия товаров в 2026 году. Усилился контроль документов при поставках, заключении контрактов, выходе на маркетплейсы и проверках госорганов.",
+    },
+    {
+      type: "p",
+      text: "Подскажите, вы уже определились с необходимой документацией?",
+    },
+    {
+      type: "p",
+      text: "Если нет — укажите, что именно вы планируете производить или продавать, и я вышлю список необходимых вам документов и подходящие варианты их оформления.",
+    },
+    {
+      type: "p",
+      text: `В любом случае желаю ${recipient} успешного развития и легкого прохождения любых проверок!`,
     },
     { type: "p", text: "С уважением," },
     { type: "p", text: fromName },
-    { type: "p", text: "Экспертный центр Нависерт" },
+    { type: "p", text: "Руководитель направления, ЦС «Нависерт»" },
+    { type: "p", text: `Тел.: ${site.phone}` },
+    { type: "p", text: siteUrl },
   ];
 }
 
@@ -248,7 +257,6 @@ export function buildOutreachBody(
   declaration: FsaDeclaration,
   options?: { recipientEmail?: string; category?: OutreachCategory }
 ): string {
-  const footer = footerLine();
   const recipientEmail = options?.recipientEmail?.trim().toLowerCase();
   const outreachCategory = options?.category ?? "expiring";
   const unsub = recipientEmail
@@ -256,19 +264,23 @@ export function buildOutreachBody(
     : null;
 
   const lines = blocksToText(bodyBlocks(declaration, outreachCategory));
+  // У новых организаций контакты уже в подписи шаблона — общий футер не дублируем.
+  const withFooter =
+    outreachCategory === "new_registrations"
+      ? lines
+      : `${lines}\n\n${footerLine().text}`;
 
   if (unsub) {
-    return `${lines}\n\n${footer.text}\n\n${unsub.text}`;
+    return `${withFooter}\n\n${unsub.text}`;
   }
 
-  return `${lines}\n\n${footer.text}`;
+  return withFooter;
 }
 
 export function buildOutreachHtml(
   declaration: FsaDeclaration,
   options?: { recipientEmail?: string; category?: OutreachCategory }
 ): string {
-  const footer = footerLine();
   const recipientEmail = options?.recipientEmail?.trim().toLowerCase();
   const outreachCategory = options?.category ?? "expiring";
   const unsub = recipientEmail
@@ -280,12 +292,16 @@ export function buildOutreachHtml(
     : null;
 
   const htmlBody = blocksToHtml(bodyBlocks(declaration, outreachCategory));
+  const footerHtml =
+    outreachCategory === "new_registrations"
+      ? ""
+      : `<p>${footerLine().html}</p>`;
 
   return `<!DOCTYPE html>
 <html lang="ru">
 <body style="font-family: Arial, sans-serif; font-size: 15px; line-height: 1.5; color: #111;">
 ${htmlBody}
-<p>${footer.html}</p>
+${footerHtml}
 ${unsub ? unsub.html : ""}
 </body>
 </html>`;
