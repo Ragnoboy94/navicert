@@ -468,6 +468,11 @@ async function drainFsaJobsUnlocked(
     );
     if (!next) break;
 
+    // Не стартуем тяжёлую задачу, если cron уже почти вышел из бюджета.
+    const remainingMs = maxMs - (Date.now() - started);
+    const minBudget = next.type === "scan" ? 90_000 : 45_000;
+    if (remainingMs < minBudget) break;
+
     const updated = readState();
     const idx = updated.jobs.findIndex((job) => job.id === next.id);
     if (idx === -1) continue;

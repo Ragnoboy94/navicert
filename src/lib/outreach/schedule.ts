@@ -196,7 +196,8 @@ function getActiveSlot(schedule: OutreachSchedule, now = new Date()) {
     const slotKey = `${dateKey}|${slot.key}`;
     if (schedule.completedSlotsToday.includes(slotKey)) continue;
     const delta = nowMinutes - slot.minutes;
-    if (delta >= 0 && delta < SLOT_WINDOW_MINUTES) {
+    // Если cron/процесс пропустил слот, добираем его позже в тот же день.
+    if (delta >= 0) {
       return { slotKey, slot };
     }
   }
@@ -217,6 +218,11 @@ export function getNextRunLabel(schedule: OutreachSchedule, now = new Date()) {
     if (slot.minutes >= nowMinutes) {
       return `Сегодня в ${slot.key} (МСК)`;
     }
+    // Окно слота ещё открыто (cron каждые ~20 мин, окно 60 мин).
+    if (nowMinutes - slot.minutes < SLOT_WINDOW_MINUTES) {
+      return `Окно ${slot.key} (МСК) — ожидаем cron`;
+    }
+    return `Пропущен слот ${slot.key} (МСК) — отправим при ближайшем cron`;
   }
 
   return "Сегодня запуски завершены";

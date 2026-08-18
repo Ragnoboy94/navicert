@@ -21,29 +21,40 @@ const CRON_CATEGORIES: OutreachCategory[] = [
 ];
 
 async function runCategoryCron(category: OutreachCategory, maxMs: number) {
-  const drainedBefore = await drainFsaJobs({
-    category,
-    maxMs: Math.min(Math.floor(maxMs * 0.35), 60_000),
-  });
-  const maintenance = await runCronMaintenance({ maxMs, category });
-
+  const startedAt = Date.now();
   const schedule = readOutreachSchedule(category);
   const stats = getScheduleStats(category);
+
+  // Сначала автоотправка — не блокируем её drain/enrich (на проде cron зависал >4 мин).
+  const send = await runScheduledOutreach({ category });
+
+  const elapsedAfterSend = Date.now() - startedAt;
+  const remainingMs = Math.max(maxMs - elapsedAfterSend, 0);
+
+  // После send — только короткое обслуживание; тяжёлые scan/enrich не ждём.
+  const maintenance =
+    remainingMs > 8_000
+      ? await runCronMaintenance({
+          category,
+          maxMs: Math.min(remainingMs - 2_000, 45_000),
+        })
+      : { morningSync: { ran: false, reason: "time_budget" }, hourlyAppend: { ran: false, reason: "time_budget" }, enrich: { ran: false, processed: 0, emailsFound: 0, enrichPending: 0 }, queueReady: 0 };
+
   const topUp =
-    schedule.enabled
+    schedule.enabled && remainingMs > 5_000
       ? await ensureQueueForScheduledSend(stats.perRunLimit, category)
       : null;
 
-  const send = await runScheduledOutreach({ category });
-  const drainedAfter = await drainFsaJobs({
-    category,
-    maxMs: Math.min(Math.floor(maxMs * 0.35), 60_000),
-  });
+  const drainBudget = Math.min(Math.floor(remainingMs * 0.25), 12_000);
+  const drainedAfter =
+    drainBudget >= 3_000
+      ? await drainFsaJobs({ category, maxMs: drainBudget })
+      : { ran: 0, ok: 0, failed: 0 };
 
   return {
     category,
     fsaQueue: {
-      before: drainedBefore,
+      before: { ran: 0, ok: 0, failed: 0 },
       after: drainedAfter,
     },
     maintenance,
