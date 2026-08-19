@@ -1,9 +1,9 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import {
   ensureQueueForScheduledSend,
   runCronMaintenance,
 } from "@/lib/outreach/cron-maintenance";
-import { drainFsaJobs } from "@/lib/outreach/fsa-orchestrator";
+import { kickFsaDrain } from "@/lib/outreach/fsa-orchestrator";
 import {
   getScheduleStats,
   readOutreachSchedule,
@@ -45,17 +45,23 @@ async function runCategoryCron(category: OutreachCategory, maxMs: number) {
       ? await ensureQueueForScheduledSend(stats.perRunLimit, category)
       : null;
 
-  const drainBudget = Math.min(Math.floor(remainingMs * 0.25), 12_000);
-  const drainedAfter =
-    drainBudget >= 3_000
-      ? await drainFsaJobs({ category, maxMs: drainBudget })
-      : { ran: 0, ok: 0, failed: 0 };
+  // Короткий await-drain здесь бесполезен: scan требует >=90s, enrich >=45s.
+  // В итоге cron копил pending-задачи, но не успевал стартовать ни одну.
+  // Пинаем длинный drain в фоне, как уже делает админка.
+  const drainBudget = Math.min(Math.max(Math.floor(remainingMs * 0.8), 45_000), 180_000);
+  const kickedDrain = drainBudget >= 45_000;
+  if (kickedDrain) {
+    kickFsaDrain(category, drainBudget);
+    after(() => kickFsaDrain(category, drainBudget));
+  }
 
   return {
     category,
     fsaQueue: {
       before: { ran: 0, ok: 0, failed: 0 },
-      after: drainedAfter,
+      after: kickedDrain
+        ? { ran: 0, ok: 0, failed: 0 }
+        : { ran: 0, ok: 0, failed: 0 },
     },
     maintenance,
     topUp,
