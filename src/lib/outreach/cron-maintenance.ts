@@ -1,6 +1,6 @@
 import { formatFsaConnectionError } from "./fsa-connection";
 import { getEnrichRunnerStatus } from "./enrich-runner";
-import { enqueueFsaJob } from "./fsa-orchestrator";
+import { enqueueFsaJob, getFsaQueueStatus } from "./fsa-orchestrator";
 import { pickSendableCandidates } from "./send-selection";
 import { readOutreachQueue } from "./queue";
 import {
@@ -127,6 +127,11 @@ export async function runHourlyFsaAppend(
   const mode: "reset" | "append" = queueNeedsInitialLoad(queue)
     ? "reset"
     : "append";
+
+  // Не плодим срочные append, пока предыдущие не отработали.
+  if (mode === "append" && getFsaQueueStatus(category).pendingScanAppend > 0) {
+    return { ran: false, reason: "append_backlog" };
+  }
 
   try {
     const queued = queueScanViaOrchestrator(category, mode, APPEND_LOAD_MAX);

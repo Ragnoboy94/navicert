@@ -38,31 +38,25 @@ async function runCategoryCron(category: OutreachCategory, maxMs: number) {
           category,
           maxMs: Math.min(remainingMs - 2_000, 45_000),
         })
-      : { morningSync: { ran: false, reason: "time_budget" }, hourlyAppend: { ran: false, reason: "time_budget" }, enrich: { ran: false, processed: 0, emailsFound: 0, enrichPending: 0 }, queueReady: 0 };
+      : {
+          morningSync: { ran: false, reason: "time_budget" },
+          hourlyAppend: { ran: false, reason: "time_budget" },
+          enrich: {
+            ran: false,
+            processed: 0,
+            emailsFound: 0,
+            enrichPending: 0,
+          },
+          queueReady: 0,
+        };
 
   const topUp =
     schedule.enabled && remainingMs > 5_000
       ? await ensureQueueForScheduledSend(stats.perRunLimit, category)
       : null;
 
-  // Короткий await-drain здесь бесполезен: scan требует >=90s, enrich >=45s.
-  // В итоге cron копил pending-задачи, но не успевал стартовать ни одну.
-  // Пинаем длинный drain в фоне, как уже делает админка.
-  const drainBudget = Math.min(Math.max(Math.floor(remainingMs * 0.8), 45_000), 180_000);
-  const kickedDrain = drainBudget >= 45_000;
-  if (kickedDrain) {
-    kickFsaDrain(category, drainBudget);
-    after(() => kickFsaDrain(category, drainBudget));
-  }
-
   return {
     category,
-    fsaQueue: {
-      before: { ran: 0, ok: 0, failed: 0 },
-      after: kickedDrain
-        ? { ran: 0, ok: 0, failed: 0 }
-        : { ran: 0, ok: 0, failed: 0 },
-    },
     maintenance,
     topUp,
     send,
@@ -98,10 +92,24 @@ export async function POST(request: Request) {
       results.push(await runCategoryCron(category, categoryBudget));
     }
 
+    // Один общий drain после всех категорий: scan требует >=90s, per-category 45s
+    // не запускали ни одну срочную задачу и backlog только рос.
+    const elapsed = Date.now() - startedAt;
+    const drainBudget = Math.min(
+      Math.max(totalBudgetMs - elapsed, 120_000),
+      240_000
+    );
+    kickFsaDrain(undefined, drainBudget);
+    after(() => kickFsaDrain(undefined, drainBudget));
+
     return NextResponse.json({
       results,
+      drain: { kicked: true, budgetMs: drainBudget },
       // Совместимость со старым ответом: первый контур (декларации)
-      maintenance: results[0] && "maintenance" in results[0] ? results[0].maintenance : null,
+      maintenance:
+        results[0] && "maintenance" in results[0]
+          ? results[0].maintenance
+          : null,
       topUp: results[0] && "topUp" in results[0] ? results[0].topUp : null,
       send: results[0] && "send" in results[0] ? results[0].send : null,
       stats: results[0] && "stats" in results[0] ? results[0].stats : null,

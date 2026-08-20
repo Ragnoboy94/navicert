@@ -167,14 +167,19 @@ function isDuplicatePending(state: FsaOrchestratorState, options: EnqueueOptions
       if (job.payload.mode === "reset") return job;
       continue;
     }
+
+    // enrich_continue ставится изнутри ещё running-задачи — иначе «продолжение»
+    // всегда считается дублем самой себя и очередь email останавливается.
+    if (options.type === "enrich" && job.status === "running") continue;
+
     return job;
   }
   return null;
 }
 
-const MAX_PENDING_APPEND_SCANS = 20;
+const MAX_PENDING_APPEND_SCANS = 3;
 
-function countPendingAppendScans(
+export function countPendingAppendScans(
   state: FsaOrchestratorState,
   category: OutreachCategory
 ): number {
@@ -191,7 +196,11 @@ function priorityWeight(priority: FsaJobPriority): number {
   return priority === "high" ? 2 : 1;
 }
 
-function pickNextJob(jobs: FsaJob[]): FsaJob | null {
+function jobMinBudgetMs(job: FsaJob): number {
+  return job.type === "scan" ? 90_000 : 45_000;
+}
+
+function pickNextJob(jobs: FsaJob[], remainingMs?: number): FsaJob | null {
   const pending = jobs.filter((job) => job.status === "pending");
   if (pending.length === 0) return null;
   pending.sort((a, b) => {
@@ -199,7 +208,10 @@ function pickNextJob(jobs: FsaJob[]): FsaJob | null {
     if (p !== 0) return p;
     return a.createdAt.localeCompare(b.createdAt);
   });
-  return pending[0];
+  if (remainingMs == null) return pending[0];
+  return (
+    pending.find((job) => remainingMs >= jobMinBudgetMs(job)) ?? null
+  );
 }
 
 async function runScanJob(job: Extract<FsaJob, { type: "scan" }>): Promise<string> {
@@ -461,17 +473,14 @@ async function drainFsaJobsUnlocked(
     const state = recoverStaleLock(readState());
     if (state.running) break;
 
+    const remainingMs = maxMs - (Date.now() - started);
     const next = pickNextJob(
       options.category
         ? state.jobs.filter((job) => job.category === options.category)
-        : state.jobs
+        : state.jobs,
+      remainingMs
     );
     if (!next) break;
-
-    // Не стартуем тяжёлую задачу, если cron уже почти вышел из бюджета.
-    const remainingMs = maxMs - (Date.now() - started);
-    const minBudget = next.type === "scan" ? 90_000 : 45_000;
-    if (remainingMs < minBudget) break;
 
     const updated = readState();
     const idx = updated.jobs.findIndex((job) => job.id === next.id);

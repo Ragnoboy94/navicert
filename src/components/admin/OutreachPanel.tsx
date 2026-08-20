@@ -628,6 +628,7 @@ export function OutreachPanel({
   const [listFilter, setListFilter] = useState<ListFilter>("pending");
   const [showLoadConfirm, setShowLoadConfirm] = useState(false);
   const [checkingFsaAccess, setCheckingFsaAccess] = useState(false);
+  const [checkingCheckoAccess, setCheckingCheckoAccess] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const loadedOnce = useRef(false);
   const lastFullRefreshAt = useRef(0);
@@ -1222,6 +1223,30 @@ export function OutreachPanel({
     }
   }
 
+  async function checkCheckoAccess() {
+    setCheckingCheckoAccess(true);
+    setError("");
+    setMessage("");
+    try {
+      const res = await fetch(`/api/admin/outreach/checko/health`, {
+        method: "POST",
+        credentials: "same-origin",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(json.error || "Не удалось проверить доступ");
+        return;
+      }
+      if (json.ok) {
+        setMessage(json.message || "Доступ к checko.ru подтверждён.");
+      } else {
+        setError(json.message || "Нет доступа к checko.ru");
+      }
+    } finally {
+      setCheckingCheckoAccess(false);
+    }
+  }
+
   async function saveSchedule(
     enabled: boolean,
     action: "enable" | "disable" | "limit" = enabled
@@ -1473,15 +1498,33 @@ export function OutreachPanel({
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
             Обновить
           </button>
-          {!isChecko && (
+          {!isChecko ? (
             <button
               type="button"
               onClick={checkFsaAccess}
               disabled={checkingFsaAccess}
               className="btn-ghost gap-2 px-4 py-2 text-sm"
             >
-              <AlertCircle className={`h-4 w-4 ${checkingFsaAccess ? "animate-pulse" : ""}`} />
+              <AlertCircle
+                className={`h-4 w-4 ${
+                  checkingFsaAccess ? "animate-pulse" : ""
+                }`}
+              />
               {checkingFsaAccess ? "Проверка..." : "Проверить доступ к ФСА"}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void checkCheckoAccess()}
+              disabled={checkingCheckoAccess}
+              className="btn-ghost gap-2 px-4 py-2 text-sm"
+            >
+              <AlertCircle
+                className={`h-4 w-4 ${
+                  checkingCheckoAccess ? "animate-pulse" : ""
+                }`}
+              />
+              {checkingCheckoAccess ? "Проверка..." : "Проверить доступ к checko.ru"}
             </button>
           )}
         </div>

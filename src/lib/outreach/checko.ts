@@ -24,6 +24,7 @@ import {
   withCheckoProfileLock,
 } from "./checko-guard";
 import { NEW_REG_CHECKO_ACTIVITY_IDS } from "./new-reg-okved-data";
+import { getFsaProxy, playwrightProxyOptions } from "./fsa-proxy-shared";
 
 export const CHECKO_BASE = "https://checko.ru";
 export const CHECKO_ADVANCED_PATH = "/search/advanced";
@@ -528,6 +529,12 @@ function resolveChromePath(browsersPath: string): string | undefined {
 }
 
 // Playwright types через dynamic import часто ломают tsc — держим loosely.
+function resolveCheckoProxy(): string | undefined {
+  const explicit = process.env.OUTREACH_CHECKO_PROXY?.trim();
+  if (explicit) return explicit;
+  return getFsaProxy();
+}
+
 async function openCheckoContext(headed: boolean): Promise<{
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   context: any;
@@ -542,6 +549,7 @@ async function openCheckoContext(headed: boolean): Promise<{
   if (!executablePath && !process.env.OUTREACH_CHECKO_CHANNEL?.trim()) {
     throw new Error("Не найден браузер для загрузки с checko.");
   }
+  const proxy = resolveCheckoProxy();
   const context = await chromium.launchPersistentContext(profileDir, {
     headless: !headed,
     executablePath: process.env.OUTREACH_CHECKO_CHANNEL?.trim()
@@ -551,6 +559,7 @@ async function openCheckoContext(headed: boolean): Promise<{
     userAgent: USER_AGENT,
     viewport: { width: 1365, height: 900 },
     locale: "ru-RU",
+    ...(proxy ? { proxy: playwrightProxyOptions(proxy) } : {}),
   });
   const page = context.pages()[0] || (await context.newPage());
   return { context, page };
