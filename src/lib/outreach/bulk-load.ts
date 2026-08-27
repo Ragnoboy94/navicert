@@ -304,10 +304,13 @@ async function bulkLoadCheckoList(
   const existing = mode === "append" ? (options.existingQueue ?? null) : null;
   const knownIds = collectKnownIds(existing);
   const skipOgrns = [...knownIds].map(String);
-  const startPage = Math.max(
-    mode === "append" ? (existing?.apiCursor?.page ?? 1) : 1,
-    1
-  );
+  // Дошли до конца списка — с следующей догрузки идём с 1-й страницы
+  // (уже известные ОГРН пропускаем, подтянутся только новые).
+  const wrapFromStart =
+    mode === "append" && existing != null && existing.hasMore === false;
+  const startPage = wrapFromStart
+    ? 1
+    : Math.max(mode === "append" ? (existing?.apiCursor?.page ?? 1) : 1, 1);
 
   // Срочно: только список. Email — фоном по одной карточке.
   const scan = await scanCheckoNewRegistrations({
@@ -395,7 +398,9 @@ async function bulkLoadCheckoList(
     loadedFromApi: scan.declarations.length,
     addedNew: addedAfterPrune,
     emailsFromList,
-    cursorLabel: `checko page=${nextPage}${hasMore ? "+" : ""} (${scan.pagesFetched} за проход, email в фоне)`,
+    cursorLabel: `checko page=${nextPage}${hasMore ? "+" : ""}${
+      wrapFromStart ? " (с начала)" : ""
+    } (${scan.pagesFetched} за проход, email в фоне)`,
     paginationVersion: 2,
   };
 }
