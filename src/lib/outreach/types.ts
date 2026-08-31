@@ -40,6 +40,8 @@ export type FsaDeclaration = {
   registrationDate: string;
   endDate: string;
   status: string;
+  /** Код статуса ФСА (6 = Действует) */
+  idStatus?: number;
   applicant: FsaApplicant;
   productName: string;
   productGroup?: string;

@@ -1,5 +1,9 @@
 import type { FsaApplicant, FsaDeclaration, OutreachSearchFilter } from "./types";
 import { fsaApiRequest } from "./fsa-connection";
+import {
+  buildFsaActiveEndDateFilter,
+  statusFromFsaRecord,
+} from "./fsa-status";
 
 const FSA_BASE = "https://pub.fsa.gov.ru";
 
@@ -216,8 +220,7 @@ function declarationFromRecord(record: JsonRecord): FsaDeclaration | null {
     endDate: formatRuDate(
       record.endDate ?? record.declEndDate ?? record.validityEndDate
     ),
-    status:
-      pickString(record, ["status", "statusName", "declStatus"]) || "unknown",
+    ...statusFromFsaRecord(record),
     applicant,
     productName,
     productGroup: pickString(record, [
@@ -299,8 +302,7 @@ function certificateFromRecord(record: JsonRecord): FsaDeclaration | null {
         record.validityEndDate ??
         record.declEndDate
     ),
-    status:
-      pickString(record, ["status", "statusName", "certStatus"]) || "unknown",
+    ...statusFromFsaRecord(record),
     applicant,
     productName,
     productGroup: pickString(record, [
@@ -377,12 +379,7 @@ export async function searchExpiringDeclarations(
     {
       size: filter.size ?? 50,
       page: filter.page ?? 0,
-      filter: {
-        endDate: {
-          minDate: `${filter.endDateFrom}T00:00:00.000Z`,
-          maxDate: `${filter.endDateTo}T23:59:59.999Z`,
-        },
-      },
+      filter: buildFsaActiveEndDateFilter(filter.endDateFrom, filter.endDateTo),
       columnsSearch: [],
       sort: filter.sort?.length ? filter.sort : ["endDate,asc"],
     },
@@ -409,6 +406,7 @@ export function getTestDeclaration(): FsaDeclaration {
     registrationDate: "29.07.2021",
     endDate: "30.07.2026",
     status: "Действует",
+    idStatus: 6,
     applicant: {
       type: "Юридическое лицо",
       ogrn: "1197746443542",
@@ -462,12 +460,7 @@ export async function searchExpiringCertificates(
     {
       size: filter.size ?? 50,
       page: filter.page ?? 0,
-      filter: {
-        endDate: {
-          minDate: `${filter.endDateFrom}T00:00:00.000Z`,
-          maxDate: `${filter.endDateTo}T23:59:59.999Z`,
-        },
-      },
+      filter: buildFsaActiveEndDateFilter(filter.endDateFrom, filter.endDateTo),
       columnsSearch: [],
       sort: filter.sort?.length ? filter.sort : ["endDate,asc"],
     },
@@ -494,6 +487,7 @@ export function getTestCertificate(): FsaDeclaration {
     registrationDate: "29.07.2021",
     endDate: "30.07.2026",
     status: "Действует",
+    idStatus: 6,
     applicant: {
       type: "Юридическое лицо",
       ogrn: "1197746443542",
