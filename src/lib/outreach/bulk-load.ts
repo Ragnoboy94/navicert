@@ -41,6 +41,16 @@ import {
   checkoCompanyToDeclaration,
 } from "./checko";
 import { isCheckoBlocked } from "./checko-guard";
+import {
+  CHECKO_PAGINATION_VERSION,
+  checkoDateSlices,
+  cursorFromCheckoQueue,
+  describeCheckoCursor,
+  freshCheckoCursor,
+  getCheckoSortQuery,
+  isCheckoCursorExhausted,
+  rotateCheckoCursor,
+} from "./checko-pagination";
 import { isNewRegistrationsCategory } from "./category";
 import { isEndDateInRange, isEnrichItemInRange, pruneOutreachQueue } from "./queue-cleanup";
 import type {
@@ -83,6 +93,8 @@ export type BulkLoadListOptions = {
   range?: { from: string; to: string };
   existingQueue?: OutreachQueue | null;
   category?: OutreachCategory;
+  /** ОГРН/id, которые не нужно тянуть с checko (например, уже на проде). */
+  skipIds?: Iterable<number>;
 };
 
 export type BulkLoadListResult = {
@@ -283,11 +295,23 @@ async function enrichEmailFromApi(
   }
 }
 
-function collectKnownIds(queue: OutreachQueue | null): Set<number> {
+function collectKnownIds(
+  queue: OutreachQueue | null,
+  skipIds?: Iterable<number>
+): Set<number> {
   const ids = new Set<number>();
-  if (!queue) return ids;
-  for (const item of [...queue.items, ...queue.rejected, ...queue.enrichQueue]) {
-    ids.add(item.id);
+  if (queue) {
+    for (const item of [
+      ...queue.items,
+      ...queue.rejected,
+      ...queue.enrichQueue,
+    ]) {
+      ids.add(item.id);
+    }
+  }
+  for (const raw of skipIds ?? []) {
+    const id = Number(raw);
+    if (Number.isFinite(id)) ids.add(id);
   }
   return ids;
 }
@@ -302,56 +326,120 @@ async function bulkLoadCheckoList(
   );
   const mode = options.mode ?? "reset";
   const existing = mode === "append" ? (options.existingQueue ?? null) : null;
-  const knownIds = collectKnownIds(existing);
-  const skipOgrns = [...knownIds].map(String);
-  // Дошли до конца списка — с следующей догрузки идём с 1-й страницы
-  // (уже известные ОГРН пропускаем, подтянутся только новые).
-  const wrapFromStart =
-    mode === "append" && existing != null && existing.hasMore === false;
-  const startPage = wrapFromStart
-    ? 1
-    : Math.max(mode === "append" ? (existing?.apiCursor?.page ?? 1) : 1, 1);
 
-  // Срочно: только список. Email — фоном по одной карточке.
-  const scan = await scanCheckoNewRegistrations({
-    dateFrom: checkoRuDateToIso(range.from),
-    dateTo: checkoRuDateToIso(range.to),
-    listOnly: true,
-    emailsOnly: false,
-    maxItems,
-    startPage,
-    skipOgrns,
-    delayMs: Number(process.env.OUTREACH_CHECKO_DELAY_MS || 1800),
-  });
+  let paginationVersion =
+    mode === "append"
+      ? Math.max(existing?.paginationVersion ?? 1, CHECKO_PAGINATION_VERSION)
+      : CHECKO_PAGINATION_VERSION;
+  let dateSlices = checkoDateSlices(range, paginationVersion);
+  let cursor =
+    mode === "append" ? cursorFromCheckoQueue(existing) : freshCheckoCursor();
+
+  if (
+    mode === "append" &&
+    existing &&
+    isCheckoCursorExhausted(cursor, dateSlices.length)
+  ) {
+    const mergedEnrich = existing.enrichQueue ?? [];
+    return {
+      range,
+      nextApiPage: cursor.page,
+      apiCursor: cursor,
+      pageSize: existing.pageSize ?? 25,
+      hasMore: false,
+      items: existing.items,
+      rejected: existing.rejected,
+      enrichQueue: mergedEnrich,
+      loadedFromApi: 0,
+      addedNew: 0,
+      emailsFromList: 0,
+      cursorLabel: `${describeCheckoCursor(cursor, dateSlices)} (исчерпано)`,
+      paginationVersion,
+    };
+  }
+
+  const knownIds = collectKnownIds(existing, options.skipIds);
+  const listDelay = Number(process.env.OUTREACH_CHECKO_DELAY_MS || 1800);
 
   const items: OutreachQueueItem[] = [];
   const rejected: OutreachQueueItem[] = [];
   const enrichQueue: FsaDeclaration[] = [];
   let emailsFromList = 0;
+  let newIdsCollected = 0;
+  let hasMore = true;
+  let exhausted = false;
+  let pagesFetchedTotal = 0;
+  let rotationSkips = 0;
+  const maxRotationSkips = dateSlices.length;
 
-  for (const declaration of scan.declarations) {
-    if (knownIds.has(declaration.id)) continue;
-    knownIds.add(declaration.id);
+  while (
+    newIdsCollected < maxItems &&
+    !exhausted &&
+    rotationSkips < maxRotationSkips
+  ) {
+    const slice = dateSlices[cursor.sliceIndex] ?? dateSlices[0];
+    const sortQuery = getCheckoSortQuery(cursor.sortIndex);
 
-    const email = declaration.applicant?.email?.trim();
-    if (!email) {
-      enrichQueue.push(declaration);
+    const scan = await scanCheckoNewRegistrations({
+      dateFrom: checkoRuDateToIso(slice.from),
+      dateTo: checkoRuDateToIso(slice.to),
+      listOnly: true,
+      emailsOnly: false,
+      maxItems: maxItems - newIdsCollected,
+      startPage: Math.max(cursor.page, 1),
+      skipOgrns: [...knownIds].map(String),
+      sortQuery,
+      delayMs: listDelay,
+      onPageProgress: (stats) => {
+        console.info(
+          `[checko list] ${describeCheckoCursor(cursor, dateSlices)} | page ${stats.page}: +${stats.newCount} new, ${stats.skipCount} skip / ${stats.total}`
+        );
+      },
+    });
+
+    pagesFetchedTotal += scan.pagesFetched;
+
+    for (const declaration of scan.declarations) {
+      if (knownIds.has(declaration.id)) continue;
+      knownIds.add(declaration.id);
+      newIdsCollected += 1;
+
+      const email = declaration.applicant?.email?.trim();
+      if (!email) {
+        enrichQueue.push(declaration);
+        continue;
+      }
+
+      emailsFromList += 1;
+      const verdict = classifyEmail(email);
+      const row: OutreachQueueItem = {
+        ...declaration,
+        applicant: {
+          ...declaration.applicant,
+          email: email.toLowerCase(),
+        },
+        emailStatus: verdict.status,
+        emailRejectReason: verdict.reason,
+      };
+      if (row.emailStatus === "eligible") items.push(row);
+      else rejected.push(row);
+    }
+
+    if (scan.hasMore && scan.nextPage > cursor.page) {
+      cursor = { ...cursor, page: scan.nextPage };
+      hasMore = true;
       continue;
     }
 
-    emailsFromList += 1;
-    const verdict = classifyEmail(email);
-    const row: OutreachQueueItem = {
-      ...declaration,
-      applicant: {
-        ...declaration.applicant,
-        email: email.toLowerCase(),
-      },
-      emailStatus: verdict.status,
-      emailRejectReason: verdict.reason,
-    };
-    if (row.emailStatus === "eligible") items.push(row);
-    else rejected.push(row);
+    const rotated = rotateCheckoCursor(cursor, dateSlices.length);
+    if (rotated.exhausted) {
+      exhausted = true;
+      hasMore = false;
+      break;
+    }
+    cursor = rotated.cursor;
+    rotationSkips += 1;
+    hasMore = true;
   }
 
   const mergedItems =
@@ -372,8 +460,6 @@ async function bulkLoadCheckoList(
     "new_registrations"
   );
 
-  const nextPage = scan.nextPage;
-  const hasMore = scan.hasMore;
   const addedAfterPrune =
     mode === "append" && existing
       ? Math.max(
@@ -386,8 +472,12 @@ async function bulkLoadCheckoList(
 
   return {
     range,
-    nextApiPage: nextPage,
-    apiCursor: { page: Math.max(nextPage, 1), sortIndex: 0, sliceIndex: 0 },
+    nextApiPage: cursor.page,
+    apiCursor: {
+      page: Math.max(cursor.page, 1),
+      sortIndex: cursor.sortIndex,
+      sliceIndex: cursor.sliceIndex,
+    },
     pageSize: 25,
     hasMore,
     items: pruned.items,
@@ -395,13 +485,13 @@ async function bulkLoadCheckoList(
     enrichQueue: mergedEnrich.filter((item) =>
       isEnrichItemInRange(item, range, "new_registrations")
     ),
-    loadedFromApi: scan.declarations.length,
+    loadedFromApi: newIdsCollected,
     addedNew: addedAfterPrune,
     emailsFromList,
-    cursorLabel: `checko page=${nextPage}${hasMore ? "+" : ""}${
-      wrapFromStart ? " (с начала)" : ""
-    } (${scan.pagesFetched} за проход, email в фоне)`,
-    paginationVersion: 2,
+    cursorLabel: `${describeCheckoCursor(cursor, dateSlices)}${
+      hasMore ? "+" : ""
+    } (${pagesFetchedTotal} стр., email в фоне)`,
+    paginationVersion,
   };
 }
 
@@ -714,9 +804,10 @@ export async function enrichQueueBatch(
       };
     }
 
+    const checkoBatchMax = process.env.OUTREACH_CHECKO_FAST === "1" ? 50 : 25;
     const checkoBatchSize = Math.min(
       Math.max(Number(process.env.OUTREACH_CHECKO_ENRICH_PER_JOB || 12), 1),
-      25
+      checkoBatchMax
     );
     const batch = queue.enrichQueue.slice(0, checkoBatchSize);
     if (batch.length === 0) {

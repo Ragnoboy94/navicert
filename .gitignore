@@ -50,6 +50,7 @@ yarn-error.log*
 /data/outreach-new-registrations-queue.json
 /data/outreach-new-registrations-sent.json
 /data/outreach-new-registrations-schedule.json
+/data/checko-prod-skip.json
 /data/outreach-unsubscribed.json
 /data/outreach-schedule.json
 /data/outreach-certificates-schedule.json

@@ -76,17 +76,18 @@ const PROFILE_LOCK = path.join(process.cwd(), "data", "checko-pw-profile.lock");
 
 export async function withCheckoProfileLock<T>(
   fn: () => Promise<T>,
-  options?: { waitMs?: number; label?: string }
+  options?: { waitMs?: number; label?: string; lockPath?: string }
 ): Promise<T> {
   const waitMs = options?.waitMs ?? 120_000;
   const label = options?.label || "checko";
+  const lockFile = options?.lockPath ?? PROFILE_LOCK;
   const started = Date.now();
-  const dir = path.dirname(PROFILE_LOCK);
+  const dir = path.dirname(lockFile);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
   while (true) {
     try {
-      const fd = fs.openSync(PROFILE_LOCK, "wx");
+      const fd = fs.openSync(lockFile, "wx");
       fs.writeFileSync(fd, `${process.pid}\n${label}\n${new Date().toISOString()}\n`);
       fs.closeSync(fd);
       break;
@@ -95,9 +96,9 @@ export async function withCheckoProfileLock<T>(
       if (code !== "EEXIST") throw error;
       // Стейл-лок: старше 15 мин — снимаем
       try {
-        const st = fs.statSync(PROFILE_LOCK);
+        const st = fs.statSync(lockFile);
         if (Date.now() - st.mtimeMs > 15 * 60_000) {
-          fs.unlinkSync(PROFILE_LOCK);
+          fs.unlinkSync(lockFile);
           continue;
         }
       } catch {
@@ -116,7 +117,7 @@ export async function withCheckoProfileLock<T>(
     return await fn();
   } finally {
     try {
-      fs.unlinkSync(PROFILE_LOCK);
+      fs.unlinkSync(lockFile);
     } catch {
       /* ignore */
     }
