@@ -18,7 +18,7 @@ import type {
   OutreachQueueItem,
   OutreachSendRecord,
 } from "./types";
-import { isUnsubscribed } from "./unsubscribe";
+import { isUnsubscribed, buildUnsubscribeApiUrl } from "./unsubscribe";
 
 const DEFAULT_CATEGORY: OutreachCategory = "expiring";
 
@@ -330,12 +330,23 @@ export async function sendOutreachEmail(
     text: string;
     html: string;
     replyTo?: string;
+    headers?: Record<string, string>;
   } = {
     from: `"${getOutreachFromName()}" <${smtp.from || smtp.user}>`,
     to,
     subject,
     text,
     html,
+    headers: {
+      "List-Unsubscribe": `<${buildUnsubscribeApiUrl(
+        originalRecipient,
+        category,
+        declaration.applicant?.shortName ||
+          declaration.applicant?.fullName ||
+          undefined
+      )}>`,
+      "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+    },
   };
 
   const replyTo = process.env.OUTREACH_REPLY_TO?.trim();

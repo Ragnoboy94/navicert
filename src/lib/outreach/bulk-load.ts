@@ -91,6 +91,10 @@ export type BulkLoadListOptions = {
   maxItems?: number;
   pageSize?: number;
   range?: { from: string; to: string };
+  /** Для ночного cron: prune/метаданные очереди при узком scan range */
+  queueRange?: { from: string; to: string };
+  /** Ночной cron: новый курсор и узкий фильтр, без продолжения полного обхода */
+  dailyScan?: boolean;
   existingQueue?: OutreachQueue | null;
   category?: OutreachCategory;
   /** ОГРН/id, которые не нужно тянуть с checko (например, уже на проде). */
@@ -319,7 +323,9 @@ function collectKnownIds(
 async function bulkLoadCheckoList(
   options: BulkLoadListOptions
 ): Promise<BulkLoadListResult> {
-  const range = options.range ?? getNewRegistrationsRange();
+  const scanRange = options.range ?? getNewRegistrationsRange();
+  const queueRange = options.queueRange ?? scanRange;
+  const dailyScan = Boolean(options.dailyScan);
   const maxItems = Math.min(
     Math.max(options.maxItems ?? DEFAULT_MAX_ITEMS, 10),
     1000
@@ -331,18 +337,27 @@ async function bulkLoadCheckoList(
     mode === "append"
       ? Math.max(existing?.paginationVersion ?? 1, CHECKO_PAGINATION_VERSION)
       : CHECKO_PAGINATION_VERSION;
-  let dateSlices = checkoDateSlices(range, paginationVersion);
+  let dateSlices = checkoDateSlices(scanRange, paginationVersion);
   let cursor =
-    mode === "append" ? cursorFromCheckoQueue(existing) : freshCheckoCursor();
+    dailyScan || mode !== "append"
+      ? freshCheckoCursor()
+      : cursorFromCheckoQueue(existing);
+
+  if (dailyScan) {
+    paginationVersion = CHECKO_PAGINATION_VERSION;
+    dateSlices = checkoDateSlices(scanRange, paginationVersion);
+    cursor = freshCheckoCursor();
+  }
 
   if (
     mode === "append" &&
     existing &&
+    !dailyScan &&
     isCheckoCursorExhausted(cursor, dateSlices.length)
   ) {
     const mergedEnrich = existing.enrichQueue ?? [];
     return {
-      range,
+      range: queueRange,
       nextApiPage: cursor.page,
       apiCursor: cursor,
       pageSize: existing.pageSize ?? 25,
@@ -456,7 +471,7 @@ async function bulkLoadCheckoList(
   const pruned = pruneOutreachQueue(
     mergedItems,
     mergedRejected,
-    range,
+    queueRange,
     "new_registrations"
   );
 
@@ -471,7 +486,7 @@ async function bulkLoadCheckoList(
       : pruned.items.length + pruned.rejected.length;
 
   return {
-    range,
+    range: queueRange,
     nextApiPage: cursor.page,
     apiCursor: {
       page: Math.max(cursor.page, 1),
@@ -483,7 +498,7 @@ async function bulkLoadCheckoList(
     items: pruned.items,
     rejected: pruned.rejected,
     enrichQueue: mergedEnrich.filter((item) =>
-      isEnrichItemInRange(item, range, "new_registrations")
+      isEnrichItemInRange(item, queueRange, "new_registrations")
     ),
     loadedFromApi: newIdsCollected,
     addedNew: addedAfterPrune,
@@ -504,7 +519,9 @@ export async function bulkLoadList(
     return bulkLoadCheckoList(options);
   }
 
-  const range = options.range ?? getExpiringMonthRange();
+  const scanRange = options.range ?? getExpiringMonthRange();
+  const queueRange = options.queueRange ?? scanRange;
+  const dailyScan = Boolean(options.dailyScan);
   const pageSize = Math.min(
     Math.max(options.pageSize ?? DEFAULT_PAGE_SIZE, 10),
     100
@@ -527,11 +544,17 @@ export async function bulkLoadList(
     mode === "append"
       ? Math.max(existing?.paginationVersion ?? 1, FSA_PAGINATION_VERSION)
       : FSA_PAGINATION_VERSION;
-  let dateSlices = dateSlicesForLoad(range, { mode, paginationVersion });
+  let dateSlices = dateSlicesForLoad(scanRange, { mode, paginationVersion });
   let cursor =
-    mode === "append"
-      ? cursorFromQueue(existing)
-      : freshFsaCursor();
+    dailyScan || mode !== "append"
+      ? freshFsaCursor()
+      : cursorFromQueue(existing);
+
+  if (dailyScan) {
+    paginationVersion = FSA_PAGINATION_VERSION;
+    dateSlices = dateSlicesForLoad(scanRange, { mode: "append", paginationVersion });
+    cursor = freshFsaCursor();
+  }
 
   // Если прошлый обход помечен исчерпанным — начинаем сетку sort×slice заново.
   // knownIds сохраняем: уже виденные не пойдут в enrich повторно, но новые id
@@ -539,12 +562,13 @@ export async function bulkLoadList(
   if (
     mode === "append" &&
     existing &&
+    !dailyScan &&
     (existing.hasMore === false ||
       isFsaCursorExhausted(cursor, dateSlices.length))
   ) {
     cursor = freshFsaCursor();
     paginationVersion = FSA_PAGINATION_VERSION;
-    dateSlices = dateSlicesForLoad(range, { mode, paginationVersion });
+    dateSlices = dateSlicesForLoad(scanRange, { mode, paginationVersion });
   }
 
   const knownIds = collectKnownIds(existing);
@@ -567,7 +591,7 @@ export async function bulkLoadList(
       const rotated = rotateFsaCursor(cursor, dateSlices.length);
       if (rotated.exhausted) {
         if (paginationVersion < 2 && mode === "append") {
-          const upgraded = upgradeLegacyPagination(range);
+          const upgraded = upgradeLegacyPagination(scanRange);
           paginationVersion = upgraded.paginationVersion;
           dateSlices = upgraded.dateSlices;
           cursor = upgraded.cursor;
@@ -627,7 +651,7 @@ export async function bulkLoadList(
         const rotated = rotateFsaCursor(cursor, dateSlices.length);
         if (rotated.exhausted) {
           if (paginationVersion < 2 && mode === "append") {
-            const upgraded = upgradeLegacyPagination(range);
+            const upgraded = upgradeLegacyPagination(scanRange);
             paginationVersion = upgraded.paginationVersion;
             dateSlices = upgraded.dateSlices;
             cursor = upgraded.cursor;
@@ -658,7 +682,7 @@ export async function bulkLoadList(
       const rotated = rotateFsaCursor(cursor, dateSlices.length);
       if (rotated.exhausted) {
         if (paginationVersion < 2 && mode === "append") {
-          const upgraded = upgradeLegacyPagination(range);
+          const upgraded = upgradeLegacyPagination(scanRange);
           paginationVersion = upgraded.paginationVersion;
           dateSlices = upgraded.dateSlices;
           cursor = upgraded.cursor;
@@ -684,7 +708,7 @@ export async function bulkLoadList(
       const rotated = rotateFsaCursor(cursor, dateSlices.length);
       if (rotated.exhausted) {
         if (paginationVersion < 2 && mode === "append") {
-          const upgraded = upgradeLegacyPagination(range);
+          const upgraded = upgradeLegacyPagination(scanRange);
           paginationVersion = upgraded.paginationVersion;
           dateSlices = upgraded.dateSlices;
           cursor = upgraded.cursor;
@@ -713,7 +737,7 @@ export async function bulkLoadList(
       const rotated = rotateFsaCursor(cursor, dateSlices.length);
       if (rotated.exhausted) {
         if (paginationVersion < 2 && mode === "append") {
-          const upgraded = upgradeLegacyPagination(range);
+          const upgraded = upgradeLegacyPagination(scanRange);
           paginationVersion = upgraded.paginationVersion;
           dateSlices = upgraded.dateSlices;
           cursor = upgraded.cursor;
@@ -739,7 +763,7 @@ export async function bulkLoadList(
   const inRange = sortByEndDate(
     rawDeclarations
       .map(normalize)
-      .filter((item) => isEndDateInRange(item, range))
+      .filter((item) => isEndDateInRange(item, scanRange))
   );
 
   const withEmail = inRange.filter((item) => item.applicant?.email?.trim());
@@ -760,12 +784,12 @@ export async function bulkLoadList(
   const merged = pruneOutreachQueue(
     mergeUnique(baseItems, eligible),
     mergeUnique(baseRejected, rejected),
-    range,
+    queueRange,
     category
   );
 
   return {
-    range,
+    range: queueRange,
     nextApiPage: cursor.page,
     apiCursor: cursor,
     pageSize,
@@ -1117,6 +1141,7 @@ export function listResultToQueue(
     mode?: "reset" | "append";
     existing?: OutreachQueue | null;
     category?: OutreachCategory;
+    queueRange?: { from: string; to: string };
   }
 ): OutreachQueue {
   const mode = options?.mode ?? "reset";
@@ -1138,7 +1163,7 @@ export function listResultToQueue(
 
   return {
     scannedAt: new Date().toISOString(),
-    range: result.range,
+    range: options?.queueRange ?? result.range,
     category,
     paginationVersion:
       mode === "reset"

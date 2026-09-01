@@ -121,6 +121,18 @@ export function buildUnsubscribeUrl(
   return `${siteUrl}/outreach/unsubscribe?token=${encodeURIComponent(token)}`;
 }
 
+/** URL для заголовка List-Unsubscribe (one-click POST на API). */
+export function buildUnsubscribeApiUrl(
+  email: string,
+  category: OutreachCategory,
+  companyName?: string
+): string {
+  const siteUrl =
+    process.env.NEXT_PUBLIC_SITE_URL?.trim() || "https://navicert.pro";
+  const token = createUnsubscribeToken(email, category, companyName);
+  return `${siteUrl}/api/outreach/unsubscribe?token=${encodeURIComponent(token)}`;
+}
+
 export function recordUnsubscribe(
   payload: UnsubscribeTokenPayload
 ): OutreachUnsubscribeRecord {

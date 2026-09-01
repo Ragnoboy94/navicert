@@ -6,6 +6,28 @@ import {
   verifyUnsubscribeToken,
 } from "@/lib/outreach/unsubscribe";
 
+async function resolveToken(request: Request): Promise<string> {
+  const url = new URL(request.url);
+  const fromQuery = url.searchParams.get("token")?.trim();
+  if (fromQuery) return fromQuery;
+
+  const contentType = request.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    const body = await request.json().catch(() => ({}));
+    return String((body as { token?: string }).token ?? "").trim();
+  }
+
+  const raw = await request.text().catch(() => "");
+  if (
+    raw.includes("List-Unsubscribe=One-Click") ||
+    request.headers.get("List-Unsubscribe") === "One-Click"
+  ) {
+    return "";
+  }
+
+  return "";
+}
+
 export async function GET(request: Request) {
   const token = new URL(request.url).searchParams.get("token")?.trim();
   if (!token) {
@@ -27,8 +49,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const body = await request.json().catch(() => ({}));
-  const token = String(body.token ?? "").trim();
+  const token = await resolveToken(request);
   if (!token) {
     return NextResponse.json({ error: "Токен не указан" }, { status: 400 });
   }

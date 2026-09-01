@@ -2,12 +2,14 @@ import fs from "fs";
 import path from "path";
 import { listResultToQueue, bulkLoadList, enrichQueueBatch, applyEnrichResult } from "./bulk-load";
 import { probeFsaTransport } from "./fsa-network";
-import { readOutreachQueue, writeOutreachQueue } from "./queue";
+import { readOutreachQueue, writeOutreachQueue, getExpiringMonthRange, getFsaDailyScanRange } from "./queue";
 import {
   isCheckoBlocked,
   getCheckoBlockReason,
   markCheckoBlocked,
 } from "./checko-guard";
+import { isNewRegistrationsCategory } from "./category";
+import { getCheckoDailyScanRange, getNewRegistrationsRange } from "./checko-range";
 import type { OutreachCategory } from "./types";
 
 type FsaJobPriority = "high" | "low";
@@ -32,6 +34,8 @@ type FsaScanPayload = {
   mode: "reset" | "append";
   maxItems: number;
   pageSize: number;
+  /** Ночной cron: узкий фильтр (FSA to / checko вчера→сегодня) */
+  dailyScan?: boolean;
 };
 
 type FsaJob =
@@ -160,6 +164,7 @@ function isDuplicatePending(state: FsaOrchestratorState, options: EnqueueOptions
 
     if (job.type === "scan" && options.type === "scan") {
       const incoming = options.payload as FsaScanPayload | undefined;
+      if (incoming?.dailyScan && job.payload.dailyScan) return job;
       // append (+100 / +1000): можно ставить пачкой. Каждая задача при старте
       // читает актуальный apiCursor (page/sort/slice) из очереди и двигает дальше.
       // Схлопываем только повторный reset, пока первая полная загрузка ждёт/идёт.
@@ -219,12 +224,31 @@ async function runScanJob(job: Extract<FsaJob, { type: "scan" }>): Promise<strin
   // предыдущий scan уже мог сдвинуть page/sort/slice.
   const existing =
     job.payload.mode === "append" ? readOutreachQueue(job.category) : null;
+  const dailyScan = Boolean(job.payload.dailyScan);
+  let scanRange: { from: string; to: string } | undefined;
+  let queueRange: { from: string; to: string } | undefined;
+
+  if (dailyScan) {
+    scanRange = isNewRegistrationsCategory(job.category)
+      ? getCheckoDailyScanRange()
+      : getFsaDailyScanRange();
+    queueRange = isNewRegistrationsCategory(job.category)
+      ? existing?.range ?? getNewRegistrationsRange()
+      : existing?.range ?? getExpiringMonthRange();
+  }
+
   const result = await bulkLoadList({
     mode: job.payload.mode,
     maxItems: job.payload.maxItems,
     pageSize: job.payload.pageSize,
     existingQueue: existing,
-    range: job.payload.mode === "append" ? existing?.range : undefined,
+    range: dailyScan
+      ? scanRange
+      : job.payload.mode === "append"
+        ? existing?.range
+        : undefined,
+    queueRange: dailyScan ? queueRange : undefined,
+    dailyScan,
     category: job.category,
   });
   writeOutreachQueue(
@@ -232,6 +256,7 @@ async function runScanJob(job: Extract<FsaJob, { type: "scan" }>): Promise<strin
       mode: job.payload.mode,
       existing: existing ?? undefined,
       category: job.category,
+      queueRange: dailyScan ? queueRange : undefined,
     })
   );
   if (result.enrichQueue.length > 0) {

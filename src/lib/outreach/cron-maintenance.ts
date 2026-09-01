@@ -14,11 +14,21 @@ import { isCheckoBlocked } from "./checko-guard";
 import type { OutreachCategory, OutreachQueue } from "./types";
 
 const TIMEZONE = "Europe/Moscow";
-const MORNING_SYNC_CENTER_MINUTES = 6 * 60;
-const MORNING_SYNC_WINDOW_MINUTES = 90;
+/** Окно ±45 мин вокруг центра (как было для утренней синхронизации). */
+const DAILY_SCAN_WINDOW_MINUTES = 90;
 const INITIAL_LOAD_MAX = 1000;
 const APPEND_LOAD_MAX = 100;
+const DAILY_SCAN_MAX = 500;
+
+/** @deprecated Почасовой append отключён; оставлено для совместимости тестов. */
 export const HOURLY_FSA_APPEND_INTERVAL_MS = 60 * 60 * 1000;
+
+/** Ночные слоты сбора данных (МСК): декларации, сертификаты, checko. */
+const DAILY_SCAN_CENTER_MINUTES: Record<OutreachCategory, number> = {
+  expiring: 2 * 60,
+  expiring_certificates: 3 * 60,
+  new_registrations: 4 * 60,
+};
 
 export type CronSyncResult = {
   ran: boolean;
@@ -44,6 +54,7 @@ export type CronMaintenanceResult = {
   queueReady: number;
 };
 
+/** @deprecated Почасовой append отключён. */
 export function isHourlyFsaAppendDue(
   lastAt: string | null,
   now = Date.now()
@@ -54,10 +65,14 @@ export function isHourlyFsaAppendDue(
   return now - ts >= HOURLY_FSA_APPEND_INTERVAL_MS;
 }
 
-function isMorningSyncWindow(now = new Date()): boolean {
+export function isDailyScanWindow(
+  category: OutreachCategory,
+  now = new Date()
+): boolean {
+  const center = DAILY_SCAN_CENTER_MINUTES[category];
   const { minutes } = getZonedParts(now, TIMEZONE);
-  const delta = Math.abs(minutes - MORNING_SYNC_CENTER_MINUTES);
-  return delta <= MORNING_SYNC_WINDOW_MINUTES / 2;
+  const delta = Math.abs(minutes - center);
+  return delta <= DAILY_SCAN_WINDOW_MINUTES / 2;
 }
 
 function queueNeedsInitialLoad(queue: OutreachQueue | null): boolean {
@@ -78,17 +93,19 @@ function countSendable(
 function queueScanViaOrchestrator(
   category: OutreachCategory,
   mode: "reset" | "append",
-  maxItems = mode === "append" ? APPEND_LOAD_MAX : INITIAL_LOAD_MAX
+  maxItems = mode === "append" ? APPEND_LOAD_MAX : INITIAL_LOAD_MAX,
+  dailyScan = false
 ) {
   return enqueueFsaJob({
     type: "scan",
     category,
     priority: "high",
-    source: "cron_maintenance",
+    source: dailyScan ? "cron_daily_scan" : "cron_maintenance",
     payload: {
       mode,
       maxItems,
       pageSize: 100,
+      dailyScan,
     },
   });
 }
@@ -97,6 +114,17 @@ export async function processEnrichBacklog(
   maxMs: number,
   category: OutreachCategory = "expiring"
 ): Promise<CronEnrichResult> {
+  const queue = readOutreachQueue(category);
+  const enrichPending = queue?.enrichQueue.length ?? 0;
+  if (!enrichPending || queue?.enrichPaused) {
+    return {
+      ran: false,
+      processed: 0,
+      emailsFound: 0,
+      enrichPending,
+    };
+  }
+
   enqueueFsaJob({
     type: "enrich",
     category,
@@ -104,44 +132,61 @@ export async function processEnrichBacklog(
     source: "cron_enrich_backlog",
     payload: { maxBatches: Math.max(Math.floor(maxMs / 20_000), 1) },
   });
-  const empty: CronEnrichResult = {
-    ran: false,
+  return {
+    ran: true,
     processed: 0,
     emailsFound: 0,
-    enrichPending: readOutreachQueue(category)?.enrichQueue.length ?? 0,
+    enrichPending,
   };
-  return empty;
 }
 
-/** Каждый час: +100 документов поверх очереди (append), без сброса данных. */
+/** @deprecated Почасовой append отключён — сбор данных только ночным cron. */
 export async function runHourlyFsaAppend(
-  now = new Date(),
-  category: OutreachCategory = "expiring"
+  _now = new Date(),
+  _category: OutreachCategory = "expiring"
 ): Promise<CronSyncResult> {
+  return { ran: false, reason: "disabled" };
+}
+
+/** Ночной cron: один append-скан узкого дня (FSA to / checko вчера→сегодня). */
+export async function runDailyScanCron(
+  category: OutreachCategory = "expiring",
+  now = new Date()
+): Promise<CronSyncResult> {
+  if (!isDailyScanWindow(category, now)) {
+    return { ran: false, reason: "outside_window" };
+  }
+
+  const dateKey = getDateKey(now, TIMEZONE);
   const schedule = readOutreachSchedule(category);
-  if (!isHourlyFsaAppendDue(schedule.lastHourlyFsaAppendAt, now.getTime())) {
-    return { ran: false, reason: "interval_not_elapsed" };
+  if (schedule.lastFsaSyncDate === dateKey) {
+    return { ran: false, reason: "already_ran_today" };
   }
 
   const queue = readOutreachQueue(category);
-  const mode: "reset" | "append" = queueNeedsInitialLoad(queue)
-    ? "reset"
-    : "append";
+  if (queueNeedsInitialLoad(queue)) {
+    return { ran: false, reason: "needs_initial_load" };
+  }
 
-  // Не плодим срочные append, пока предыдущие не отработали.
-  if (mode === "append" && getFsaQueueStatus(category).pendingScanAppend > 0) {
-    return { ran: false, reason: "append_backlog" };
+  if (getFsaQueueStatus(category).pendingScanAppend > 0) {
+    return { ran: false, reason: "scan_backlog" };
   }
 
   try {
-    const queued = queueScanViaOrchestrator(category, mode, APPEND_LOAD_MAX);
+    const queued = queueScanViaOrchestrator(
+      category,
+      "append",
+      DAILY_SCAN_MAX,
+      true
+    );
     writeOutreachSchedule({
       category,
-      lastHourlyFsaAppendAt: now.toISOString(),
+      lastFsaSyncDate: dateKey,
+      lastFsaSyncAt: now.toISOString(),
     });
     return {
       ran: true,
-      mode,
+      mode: "append",
       reason: queued.duplicate ? "already_queued" : "queued",
     };
   } catch (error) {
@@ -152,21 +197,11 @@ export async function runHourlyFsaAppend(
   }
 }
 
+/** @deprecated Используйте runDailyScanCron. */
 export async function runMorningFsaSync(
   category: OutreachCategory = "expiring"
 ): Promise<CronSyncResult> {
-  const queue = readOutreachQueue(category);
-  // Утром только догрузка; полный reset — кнопка в админке.
-  const mode: "reset" | "append" = queueNeedsInitialLoad(queue)
-    ? "reset"
-    : "append";
-
-  const queued = queueScanViaOrchestrator(category, mode);
-  return {
-    ran: true,
-    mode,
-    reason: queued.duplicate ? "already_queued" : "queued",
-  };
+  return runDailyScanCron(category);
 }
 
 export type CronTopUpResult = CronSyncResult & {
@@ -174,12 +209,12 @@ export type CronTopUpResult = CronSyncResult & {
   queueReady: number;
 };
 
-/** Дозагрузка из ФСА, когда для автоотправки не хватает кандидатов */
+/** Дозагрузка перед автоотправкой: только enrich, без scan (сбор — ночной cron). */
 export async function topUpQueueForSend(
   minReady: number,
   category: OutreachCategory = "expiring"
 ): Promise<CronTopUpResult> {
-  let queue = readOutreachQueue(category);
+  const queue = readOutreachQueue(category);
   let ready = countSendable(queue, category);
 
   if (ready >= minReady) {
@@ -196,20 +231,15 @@ export async function topUpQueueForSend(
     };
   }
 
-  const mode: "reset" | "append" = queueNeedsInitialLoad(queue)
-    ? "reset"
-    : "append";
-  const queued = queueScanViaOrchestrator(category, mode, APPEND_LOAD_MAX);
   const enrich = await processEnrichBacklog(120_000, category);
-  queue = readOutreachQueue(category);
-  ready = countSendable(queue, category);
+  const refreshed = readOutreachQueue(category);
+  ready = countSendable(refreshed, category);
 
   return {
-    ran: !queued.duplicate,
-    mode,
-    reason: queued.duplicate ? "already_queued" : "queued",
-    enrichPending: queue?.enrichQueue.length ?? 0,
-    eligible: queue?.items.length ?? 0,
+    ran: enrich.ran,
+    reason: enrich.ran ? "enrich_queued" : "no_enrich_backlog",
+    enrichPending: refreshed?.enrichQueue.length ?? 0,
+    eligible: refreshed?.items.length ?? 0,
     enrich,
     queueReady: ready,
   };
@@ -231,28 +261,14 @@ export async function runCronMaintenance(
   const maxMs = options.maxMs ?? 240_000;
   const startedAt = Date.now();
   const now = new Date();
-  const dateKey = getDateKey(now, TIMEZONE);
-  const schedule = readOutreachSchedule(category);
 
-  let morningSync: CronSyncResult = { ran: false, reason: "outside_window" };
-
-  // ФСА и checko: утренняя догрузка + часовой append в один контур оркестратора.
-  if (isMorningSyncWindow(now) && schedule.lastFsaSyncDate !== dateKey) {
-    morningSync = await runMorningFsaSync(category);
-    writeOutreachSchedule({
-      category,
-      lastFsaSyncDate: dateKey,
-      lastFsaSyncAt: new Date().toISOString(),
-    });
-  }
-
-  const hourlyAppend = await runHourlyFsaAppend(now, category);
+  const morningSync = await runDailyScanCron(category, now);
+  const hourlyAppend: CronSyncResult = { ran: false, reason: "disabled" };
 
   const elapsed = Date.now() - startedAt;
   const enrichBudget = Math.max(maxMs - elapsed, 0);
   const queue = readOutreachQueue(category);
   const enrichStatus = getEnrichRunnerStatus(category);
-  // ФСА: карточки из API. Checko: список срочно, email — сессиями с паузами.
   const checkoOk =
     !isNewRegistrationsCategory(category) || !isCheckoBlocked();
   if (

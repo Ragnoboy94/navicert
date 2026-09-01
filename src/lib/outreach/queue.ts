@@ -301,3 +301,9 @@ export function getExpiringMonthRange(now = new Date()): { from: string; to: str
   const toIso = addCalendarDaysIso(fromIso, OUTREACH_EXPIRY_WINDOW_DAYS);
   return { from: isoToRuDate(fromIso), to: isoToRuDate(toIso) };
 }
+
+/** Ночной cron ФСА: только правый край скользящего окна (endDate = to). */
+export function getFsaDailyScanRange(now = new Date()): { from: string; to: string } {
+  const { to } = getExpiringMonthRange(now);
+  return { from: to, to };
+}
