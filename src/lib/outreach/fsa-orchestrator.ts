@@ -36,7 +36,7 @@ type FsaScanPayload = {
   mode: "reset" | "append";
   maxItems: number;
   pageSize: number;
-  /** Ночной cron: узкий фильтр (FSA to / checko вчера→сегодня) */
+  /** Ночной cron: узкий фильтр (FSA to / checko сегодня−2…сегодня) */
   dailyScan?: boolean;
 };
 

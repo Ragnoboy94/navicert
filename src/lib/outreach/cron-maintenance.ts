@@ -148,7 +148,7 @@ export async function runHourlyFsaAppend(
   return { ran: false, reason: "disabled" };
 }
 
-/** Ночной cron: один append-скан узкого дня (FSA to / checko вчера→сегодня). */
+/** Ночной cron: один append-скан узкого окна (FSA to / checko сегодня−2…сегодня). */
 export async function runDailyScanCron(
   category: OutreachCategory = "expiring",
   now = new Date()

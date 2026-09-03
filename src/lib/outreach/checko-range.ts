@@ -41,13 +41,13 @@ export function getNewRegistrationsRange(now = new Date()): {
   return { from: isoToRuDate(fromIso), to: isoToRuDate(toIso) };
 }
 
-/** Ночной cron: вчера 00:00 МСК … сегодня (МСК). */
+/** Ночной cron: сегодня−2 … сегодня (МСК) — текущий день и два предыдущих. */
 export function getCheckoDailyScanRange(now = new Date()): {
   from: string;
   to: string;
 } {
   const toIso = todayIsoMoscow(now);
-  const fromIso = addCalendarDaysIso(toIso, -1);
+  const fromIso = addCalendarDaysIso(toIso, -2);
   return { from: isoToRuDate(fromIso), to: isoToRuDate(toIso) };
 }
 
