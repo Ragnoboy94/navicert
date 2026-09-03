@@ -27,7 +27,8 @@ export const HOURLY_FSA_APPEND_INTERVAL_MS = 60 * 60 * 1000;
 const DAILY_SCAN_CENTER_MINUTES: Record<OutreachCategory, number> = {
   expiring: 2 * 60,
   expiring_certificates: 3 * 60,
-  new_registrations: 4 * 60,
+  /** Временно: ~+1ч от теста 03.09 (~11:20 МСК). Вернуть на 4*60 после проверки. */
+  new_registrations: 11 * 60 + 20,
 };
 
 export type CronSyncResult = {
