@@ -25,7 +25,7 @@ import {
 } from "./checko-guard";
 import { NEW_REG_CHECKO_ACTIVITY_IDS } from "./new-reg-okved-data";
 import { buildCheckoAdvancedListUrl } from "./checko-pagination";
-import { playwrightProxyOptions } from "./fsa-proxy-shared";
+import { getFsaProxy, playwrightProxyOptions } from "./fsa-proxy-shared";
 
 export const CHECKO_BASE = "https://checko.ru";
 export const CHECKO_ADVANCED_PATH = "/search/advanced";
@@ -578,9 +578,10 @@ function resolveChromePath(browsersPath: string): string | undefined {
 }
 
 // Playwright types через dynamic import часто ломают tsc — держим loosely.
-/** Только OUTREACH_CHECKO_PROXY. FSA-прокси сюда не тащим — через него Checko отдаёт пустую выдачу. */
 function resolveCheckoProxy(): string | undefined {
-  return process.env.OUTREACH_CHECKO_PROXY?.trim() || undefined;
+  const explicit = process.env.OUTREACH_CHECKO_PROXY?.trim();
+  if (explicit) return explicit;
+  return getFsaProxy();
 }
 
 async function openCheckoContext(
