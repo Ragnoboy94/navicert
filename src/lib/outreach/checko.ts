@@ -25,7 +25,7 @@ import {
 } from "./checko-guard";
 import { NEW_REG_CHECKO_ACTIVITY_IDS } from "./new-reg-okved-data";
 import { buildCheckoAdvancedListUrl } from "./checko-pagination";
-import { getFsaProxy, playwrightProxyOptions } from "./fsa-proxy-shared";
+import { playwrightProxyOptions } from "./fsa-proxy-shared";
 
 export const CHECKO_BASE = "https://checko.ru";
 export const CHECKO_ADVANCED_PATH = "/search/advanced";
@@ -117,6 +117,17 @@ export type CheckoScanResult = {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Всегда в pm2/out — для ночного cron и ручной диагностики на проде. */
+export function logCheckoScan(
+  phase: string,
+  details: Record<string, unknown> = {}
+): void {
+  console.info(
+    `[checko-scan] ${phase}`,
+    JSON.stringify({ at: new Date().toISOString(), ...details })
+  );
 }
 
 /** Подробные логи checko — только локально / с OUTREACH_DEBUG=1. На проде молчим. */
@@ -567,10 +578,9 @@ function resolveChromePath(browsersPath: string): string | undefined {
 }
 
 // Playwright types через dynamic import часто ломают tsc — держим loosely.
+/** Только OUTREACH_CHECKO_PROXY. FSA-прокси сюда не тащим — через него Checko отдаёт пустую выдачу. */
 function resolveCheckoProxy(): string | undefined {
-  const explicit = process.env.OUTREACH_CHECKO_PROXY?.trim();
-  if (explicit) return explicit;
-  return getFsaProxy();
+  return process.env.OUTREACH_CHECKO_PROXY?.trim() || undefined;
 }
 
 async function openCheckoContext(
@@ -649,6 +659,19 @@ async function scanCheckoNewRegistrationsUnlocked(
     [...(options.skipOgrns ?? [])].map((x) => String(x).trim()).filter(Boolean)
   );
   const headed = process.env.OUTREACH_CHECKO_HEADED === "1";
+
+  logCheckoScan("scan_start", {
+    dateFrom,
+    dateTo,
+    startPage,
+    maxItems,
+    maxPages,
+    skipCount: skip.size,
+    sortQuery: sortQuery || "(default)",
+    listOnly,
+    headed,
+    worker: process.env.OUTREACH_CHECKO_WORKER === "1",
+  });
 
   const { context, page } = await openCheckoContext(headed);
   const companies: CheckoCompany[] = [];
@@ -787,7 +810,7 @@ async function scanCheckoNewRegistrationsUnlocked(
     await context.close().catch(() => undefined);
   }
 
-  return {
+  const result = {
     range: { from: isoToRuDate(dateFrom), to: isoToRuDate(dateTo) },
     pagesFetched,
     companies,
@@ -796,6 +819,16 @@ async function scanCheckoNewRegistrationsUnlocked(
     hasMore,
     totalOnSite,
   };
+  logCheckoScan("scan_done", {
+    dateFrom,
+    dateTo,
+    pagesFetched,
+    companies: companies.length,
+    totalOnSite: totalOnSite ?? null,
+    hasMore,
+    nextPage,
+  });
+  return result;
 }
 
 const CHECKO_SCAN_TIMEOUT_MS = Math.max(
@@ -920,10 +953,19 @@ function spawnCheckoScanWorker(
             | CheckoScanResult
             | { ok: false; error?: string };
           if ("ok" in parsed && parsed.ok === false) {
+            logCheckoScan("worker_fail", { error: parsed.error || "checko worker failed" });
             reject(new Error(parsed.error || "checko worker failed"));
             return;
           }
-          resolve(parsed as CheckoScanResult);
+          const scanResult = parsed as CheckoScanResult;
+          logCheckoScan("worker_done", {
+            exitCode: code,
+            pagesFetched: scanResult.pagesFetched,
+            companies: scanResult.companies?.length ?? 0,
+            totalOnSite: scanResult.totalOnSite ?? null,
+            hasMore: scanResult.hasMore,
+          });
+          resolve(scanResult);
           return;
         } catch (error) {
           reject(

@@ -10,6 +10,8 @@ import {
 } from "./checko-guard";
 import { isNewRegistrationsCategory } from "./category";
 import { getCheckoDailyScanRange, getNewRegistrationsRange } from "./checko-range";
+import { logCheckoScan } from "./checko";
+import { getDateKey, writeOutreachSchedule } from "./schedule";
 import type { OutreachCategory } from "./types";
 
 type FsaJobPriority = "high" | "low";
@@ -237,6 +239,24 @@ async function runScanJob(job: Extract<FsaJob, { type: "scan" }>): Promise<strin
       : existing?.range ?? getExpiringMonthRange();
   }
 
+  const dailyChecko =
+    dailyScan && isNewRegistrationsCategory(job.category);
+  if (dailyChecko) {
+    const knownCount =
+      (existing?.items?.length ?? 0) +
+      (existing?.rejected?.length ?? 0) +
+      (existing?.enrichQueue?.length ?? 0);
+    logCheckoScan("cron_job_start", {
+      jobId: job.id,
+      source: job.source,
+      scanRange,
+      queueRange,
+      knownCount,
+      maxItems: job.payload.maxItems,
+    });
+  }
+  const jobStarted = Date.now();
+
   const result = await bulkLoadList({
     mode: job.payload.mode,
     maxItems: job.payload.maxItems,
@@ -269,6 +289,37 @@ async function runScanJob(job: Extract<FsaJob, { type: "scan" }>): Promise<strin
       payload: {
         maxBatches: job.category === "new_registrations" ? 1 : 2,
       },
+    });
+  }
+  if (dailyScan) {
+    const checkoEmpty =
+      dailyChecko &&
+      result.loadedFromApi === 0 &&
+      result.enrichQueue.length === 0;
+    if (!checkoEmpty) {
+      // День закрываем только после реального прогона (checko +0 → можно повторить в окне).
+      writeOutreachSchedule({
+        category: job.category,
+        lastFsaSyncDate: getDateKey(new Date(), "Europe/Moscow"),
+        lastFsaSyncAt: new Date().toISOString(),
+      });
+    } else {
+      logCheckoScan("cron_job_empty_retryable", {
+        jobId: job.id,
+        source: job.source,
+        durationMs: Date.now() - jobStarted,
+      });
+    }
+  }
+  if (dailyChecko) {
+    logCheckoScan("cron_job_done", {
+      jobId: job.id,
+      source: job.source,
+      durationMs: Date.now() - jobStarted,
+      addedNew: result.addedNew,
+      loadedFromApi: result.loadedFromApi,
+      enrichPending: result.enrichQueue.length,
+      cursorLabel: result.cursorLabel,
     });
   }
   return `Добавили ${result.addedNew}, в обработке email ${result.enrichQueue.length}`;

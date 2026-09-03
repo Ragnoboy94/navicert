@@ -7,7 +7,6 @@ import {
   getDateKey,
   getZonedParts,
   readOutreachSchedule,
-  writeOutreachSchedule,
 } from "./schedule";
 import { isFsaOutreachCategory, isNewRegistrationsCategory } from "./category";
 import { isCheckoBlocked } from "./checko-guard";
@@ -27,8 +26,8 @@ export const HOURLY_FSA_APPEND_INTERVAL_MS = 60 * 60 * 1000;
 const DAILY_SCAN_CENTER_MINUTES: Record<OutreachCategory, number> = {
   expiring: 2 * 60,
   expiring_certificates: 3 * 60,
-  /** Временно: ~+1ч от теста 03.09 (~11:20 МСК). Вернуть на 4*60 после проверки. */
-  new_registrations: 11 * 60 + 20,
+  /** Checko: 06:00 МСК (±45 мин → 05:15–06:45). */
+  new_registrations: 6 * 60,
 };
 
 export type CronSyncResult = {
@@ -180,11 +179,7 @@ export async function runDailyScanCron(
       DAILY_SCAN_MAX,
       true
     );
-    writeOutreachSchedule({
-      category,
-      lastFsaSyncDate: dateKey,
-      lastFsaSyncAt: now.toISOString(),
-    });
+    // lastFsaSyncDate пишет runScanJob после реального результата (не при enqueue).
     return {
       ran: true,
       mode: "append",
