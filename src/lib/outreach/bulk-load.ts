@@ -603,7 +603,7 @@ async function bulkLoadWbList(
     loadedFromApi: scan.sellers.length,
     addedNew: scan.sellers.length,
     emailsFromList,
-    cursorLabel: "WB главная",
+    cursorLabel: "WB sellers",
     paginationVersion: 2,
   };
 }

@@ -1,19 +1,25 @@
 /**
  * Карточки продавцов Wildberries для 4-й рассылки.
  *
- * Только Playwright (как checko): обычный fetch/API WB режет антиботом.
- * Скан: главная → sellerId с ленты/товаров → /seller/{id}.
- * Если на карточке есть email — берём имя и почту.
- * Если нет, но есть ИНН — позже ищем почту на checko (см. lookupCheckoCompanyByInn).
- * Уже просмотренных (sellerId / ИНН) больше не открываем.
+ * Почему не Playwright на www.wildberries.ru:
+ * наш OUTREACH_FSA_PROXY пускает FSA/Checko, но CONNECT на wildberries.ru
+ * даёт 502 → ERR_TUNNEL_CONNECTION_FAILED. Catalog/search API — 403.
+ *
+ * Рабочий путь через тот же прокси: CDN static-basket-*.wbbasket.ru
+ * supplier-by-id/{id}.json (ИНН, юр. имя). Почта — через Checko по ИНН.
+ *
+ * Скан: идём по sellerId (курсор = apiCursor.page), тянем JSON через прокси.
  */
 
 import fs from "node:fs";
 import path from "node:path";
+import { Agent, ProxyAgent, fetch as undiciFetch } from "undici";
 import type { FsaApplicant, FsaDeclaration } from "./types";
-import { ensurePlaywrightBrowsersEnv } from "./playwright-env";
-import { withCheckoProfileLock } from "./checko-guard";
-import { getFsaProxy, playwrightProxyOptions } from "./fsa-proxy-shared";
+import {
+  getFsaProxy,
+  isSocksProxy,
+  socksConnect,
+} from "./fsa-proxy-shared";
 
 export const WB_BASE = "https://www.wildberries.ru";
 export const WB_CATEGORY = "wb_sellers" as const;
@@ -27,11 +33,24 @@ const SEEN_FILE = path.join(
   "data",
   "outreach-wb-sellers-seen.json"
 );
-const PROFILE_DIR = path.join(process.cwd(), "data", "wb-pw-profile");
-const PROFILE_LOCK = path.join(process.cwd(), "data", "wb-pw-profile.lock");
 
 const SKIP_EMAIL_HOSTS =
   /wildberries\.ru|wb\.ru|wbbasket\.ru|rwb\.ru|wbstatic\.net|captcha-support/i;
+
+/** Один хост достаточно: vol0 реплицируется; 404 = id нет у всех. */
+const SUPPLIER_HOSTS = [
+  "static-basket-01.wbbasket.ru",
+  "static-basket-02.wbbasket.ru",
+  "static-basket-03.wbbasket.ru",
+];
+
+/** Верхняя граница перебора sellerId (можно поднять env). */
+const WB_SELLER_ID_MAX = Math.max(
+  Number(process.env.OUTREACH_WB_SELLER_ID_MAX || 5_000_000),
+  10_000
+);
+
+let cachedProxyAgent: { key: string; agent: ProxyAgent } | null = null;
 
 export type WbSellerCard = {
   sellerId: string;
@@ -66,6 +85,39 @@ export type WbCatalogPage = {
   hasMore: boolean;
 };
 
+export type WbScanOptions = {
+  /** Курсор: следующий sellerId для проверки (в очереди = apiCursor.page). */
+  startPage?: number;
+  maxPages?: number;
+  maxSellers?: number;
+  skipSellerIds?: Iterable<string>;
+  delayMs?: number;
+  onPage?: (page: WbCatalogPage) => void;
+  onSeller?: (card: WbSellerCard) => void;
+};
+
+export type WbScanResult = {
+  pagesFetched: number;
+  sellers: WbSellerCard[];
+  declarations: FsaDeclaration[];
+  nextPage: number;
+  hasMore: boolean;
+  skippedKnown: number;
+};
+
+type WbSupplierJson = {
+  supplierId?: number | string;
+  supplierName?: string;
+  supplierFullName?: string;
+  inn?: string;
+  ogrn?: string;
+  ogrnip?: string;
+  trademark?: string;
+  taxpayerCode?: string;
+  email?: string;
+  emails?: string[];
+};
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -73,7 +125,7 @@ function sleep(ms: number): Promise<void> {
 export function wbListDelayMs(override?: number): number {
   if (override != null) return Math.max(override, 0);
   return Math.min(
-    Math.max(Number(process.env.OUTREACH_WB_DELAY_MS || 2200), 800),
+    Math.max(Number(process.env.OUTREACH_WB_DELAY_MS || 400), 0),
     12_000
   );
 }
@@ -95,7 +147,10 @@ export function readWbSeenStore(): WbSeenStore {
     if (!fs.existsSync(SEEN_FILE)) return emptyStore();
     const raw = JSON.parse(fs.readFileSync(SEEN_FILE, "utf8")) as WbSeenStore;
     return {
-      bySellerId: raw.bySellerId && typeof raw.bySellerId === "object" ? raw.bySellerId : {},
+      bySellerId:
+        raw.bySellerId && typeof raw.bySellerId === "object"
+          ? raw.bySellerId
+          : {},
       byInn: raw.byInn && typeof raw.byInn === "object" ? raw.byInn : {},
     };
   } catch {
@@ -116,21 +171,17 @@ export function rememberWbSeller(
   const prev = store.bySellerId[patch.sellerId];
   const next: WbSeenRecord = {
     sellerId: patch.sellerId,
-    searchedWbAt: patch.searchedWbAt || prev?.searchedWbAt || todayIso(),
-    inn: patch.inn || prev?.inn,
-    name: patch.name || prev?.name,
-    email: patch.email || prev?.email,
-    emailSource: patch.emailSource || prev?.emailSource,
-    searchedCheckoAt: patch.searchedCheckoAt || prev?.searchedCheckoAt,
+    inn: patch.inn ?? prev?.inn,
+    name: patch.name ?? prev?.name,
+    email: patch.email ?? prev?.email,
+    emailSource: patch.emailSource ?? prev?.emailSource,
+    searchedWbAt: patch.searchedWbAt ?? prev?.searchedWbAt ?? todayIso(),
+    searchedCheckoAt: patch.searchedCheckoAt ?? prev?.searchedCheckoAt,
   };
-  store.bySellerId[next.sellerId] = next;
-  if (next.inn) store.byInn[next.inn] = next.sellerId;
+  store.bySellerId[patch.sellerId] = next;
+  if (next.inn) store.byInn[next.inn] = patch.sellerId;
   writeWbSeenStore(store);
   return next;
-}
-
-export function wasWbSellerSearched(sellerId: string): boolean {
-  return Boolean(readWbSeenStore().bySellerId[String(sellerId)]);
 }
 
 export function wasWbInnSearchedOnChecko(inn: string): boolean {
@@ -140,23 +191,7 @@ export function wasWbInnSearchedOnChecko(inn: string): boolean {
   return Boolean(store.bySellerId[sellerId]?.searchedCheckoAt);
 }
 
-const INN_RE = /(?:ИНН|номер регистрации)[^\d]{0,24}(\d{10}|\d{12})/i;
-const OGRN_RE = /(?:ОГРН(?:ИП)?|ogrn(?:ip)?)[^\d]{0,24}(\d{13}|\d{15})/i;
-const EMAIL_RE = /[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}/gi;
 const BAD_SELLER_NAMES = /^(все товары|каталог|wildberries|wb)$/i;
-
-type WbSupplierJson = {
-  supplierId?: number | string;
-  supplierName?: string;
-  supplierFullName?: string;
-  inn?: string;
-  ogrn?: string;
-  ogrnip?: string;
-  trademark?: string;
-  taxpayerCode?: string;
-  email?: string;
-  emails?: string[];
-};
 
 function pushEmail(list: string[], raw: string | undefined): void {
   const email = String(raw || "").trim().toLowerCase();
@@ -196,7 +231,6 @@ export function applyWbSupplierJson(
       .match(/^(\d{13}|\d{15})$/)?.[1] || card.ogrn;
   return {
     ...card,
-    // Юр. имя для рассылки; бренд (St.Tropez) — не главный заголовок
     name: shortName || fullName || trademark || card.name,
     legalName: fullName || shortName || card.legalName,
     inn,
@@ -206,73 +240,90 @@ export function applyWbSupplierJson(
   };
 }
 
-export function parseWbSellerHtml(
-  html: string,
-  sellerId: string,
-  pageText = ""
-): WbSellerCard {
-  const blob = `${html}\n${pageText}`;
-  const emails: string[] = [];
-  const mailRe = /mailto:([A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,})/gi;
-  let m: RegExpExecArray | null;
-  while ((m = mailRe.exec(html))) pushEmail(emails, m[1]);
-  while ((m = EMAIL_RE.exec(blob))) pushEmail(emails, m[0]);
+/**
+ * Прокси для WB.
+ * OUTREACH_WB_PROXY → иначе getFsaProxy() (прод: FSA-прокси, localhost: direct).
+ */
+export function resolveWbProxy(): string | undefined {
+  const explicit = process.env.OUTREACH_WB_PROXY?.trim();
+  if (explicit) return explicit;
+  return getFsaProxy();
+}
 
-  const inn = blob.match(INN_RE)?.[1];
-  const ogrn = blob.match(OGRN_RE)?.[1];
+function wbProxyDispatcher(proxy: string) {
+  if (isSocksProxy(proxy)) {
+    return new Agent({
+      connect: (options, callback) => {
+        const host = options.hostname ?? options.host;
+        const port = Number(options.port);
+        if (!host || !Number.isFinite(port)) {
+          callback(new Error("WB proxy connect failed"), null);
+          return;
+        }
+        socksConnect(proxy, { host, port })
+          .then((socket) => callback(null, socket))
+          .catch((error) =>
+            callback(
+              error instanceof Error ? error : new Error(String(error)),
+              null
+            )
+          );
+      },
+    });
+  }
+  if (cachedProxyAgent?.key === proxy) return cachedProxyAgent.agent;
+  const agent = new ProxyAgent(proxy);
+  cachedProxyAgent = { key: proxy, agent };
+  return agent;
+}
 
-  const nameFromH1 = cleanName(
-    html
-      .match(/<h1[^>]*>([\s\S]{0,180}?)<\/h1>/i)?.[1]
-      ?.replace(/<[^>]+>/g, " ")
-      .replace(/\s+/g, " ")
-      .trim()
-  );
-  const trademark = cleanName(
-    html.match(/"(?:trademark|tradeMark)"\s*:\s*"((?:\\.|[^"\\]){1,120})"/)?.[1]
-  );
-  const jsonName = cleanName(
-    html.match(
-      /"(?:supplierFullName|supplierName|sellerName)"\s*:\s*"((?:\\.|[^"\\]){2,200})"/
-    )?.[1]
-  );
-  const jsonInn = html.match(/"(?:inn|taxpayerCode)"\s*:\s*"?(\d{10}|\d{12})"?/)?.[1];
-  const jsonOgrn = html.match(
-    /"(?:ogrnip|ogrn|OGRN)"\s*:\s*"?(\d{13}|\d{15})"?/
-  )?.[1];
-
+async function wbHttpFetch(
+  url: string,
+  init: {
+    headers?: Record<string, string>;
+    signal?: AbortSignal;
+  } = {}
+): Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }> {
+  const proxy = resolveWbProxy();
+  if (!proxy) {
+    const res = await fetch(url, {
+      headers: init.headers,
+      signal: init.signal,
+    });
+    return {
+      ok: res.ok,
+      status: res.status,
+      json: () => res.json(),
+    };
+  }
+  const res = await undiciFetch(url, {
+    method: "GET",
+    headers: init.headers,
+    signal: init.signal,
+    dispatcher: wbProxyDispatcher(proxy) as never,
+  } as Parameters<typeof undiciFetch>[1]);
   return {
-    sellerId: String(sellerId),
-    url: `${WB_BASE}/seller/${sellerId}`,
-    name: jsonName || nameFromH1 || trademark,
-    legalName: jsonName || trademark,
-    inn: jsonInn || inn,
-    ogrn: jsonOgrn || ogrn,
-    email: emails[0],
-    emails,
+    ok: res.ok,
+    status: res.status,
+    json: () => res.json(),
   };
 }
 
-async function fetchWbSupplierJson(
+export async function fetchWbSupplierJson(
   sellerId: string
 ): Promise<WbSupplierJson | null> {
-  const hosts = [
-    "static-basket-01.wbbasket.ru",
-    "static-basket-02.wbbasket.ru",
-    "static-basket-03.wbbasket.ru",
-    "static-basket-04.wbbasket.ru",
-    "static-basket-05.wbbasket.ru",
-  ];
-  for (const host of hosts) {
+  for (const host of SUPPLIER_HOSTS) {
     const url = `https://${host}/vol0/data/supplier-by-id/${sellerId}.json`;
     try {
-      const res = await fetch(url, {
+      const res = await wbHttpFetch(url, {
         headers: {
           Accept: "application/json",
           "User-Agent": USER_AGENT,
         },
-        signal: AbortSignal.timeout(12_000),
+        signal: AbortSignal.timeout(8_000),
       });
+      // 404 = id нет в реестре, другие зеркала те же.
+      if (res.status === 404) return null;
       if (!res.ok) continue;
       const json = (await res.json()) as WbSupplierJson;
       if (json?.inn || json?.supplierFullName || json?.trademark) return json;
@@ -322,481 +373,139 @@ export function wbSellerToDeclaration(card: WbSellerCard): FsaDeclaration {
   };
 }
 
-function collectSupplierIds(payload: unknown): { id: string; name?: string }[] {
-  const out: { id: string; name?: string }[] = [];
-  const seen = new Set<string>();
-  const walk = (node: unknown, depth: number) => {
-    if (!node || depth > 8) return;
-    if (Array.isArray(node)) {
-      for (const item of node) walk(item, depth + 1);
-      return;
-    }
-    if (typeof node !== "object") return;
-    const obj = node as Record<string, unknown>;
-    const raw = obj.supplierId ?? obj.supplier_id ?? obj.sellerId;
-    const id =
-      typeof raw === "number"
-        ? String(raw)
-        : typeof raw === "string" && /^\d+$/.test(raw)
-          ? raw
-          : "";
-    if (id && !seen.has(id)) {
-      seen.add(id);
-      const name =
-        (typeof obj.supplier === "string" && obj.supplier) ||
-        (typeof obj.supplierName === "string" && obj.supplierName) ||
-        undefined;
-      out.push({ id, name });
-    }
-    for (const value of Object.values(obj)) walk(value, depth + 1);
-  };
-  walk(payload, 0);
-  return out;
-}
-
-function resolveChromePath(browsersPath: string): string | undefined {
-  const candidates = [
-    path.join(browsersPath, "chromium-1228", "chrome-win64", "chrome.exe"),
-    path.join(browsersPath, "chromium-1228", "chrome-linux64", "chrome"),
-    path.join(
-      browsersPath,
-      "chromium_headless_shell-1228",
-      "chrome-headless-shell-win64",
-      "chrome-headless-shell.exe"
-    ),
-    path.join(
-      browsersPath,
-      "chromium_headless_shell-1228",
-      "chrome-headless-shell-linux64",
-      "chrome-headless-shell"
-    ),
-  ];
-  return candidates.find((p) => fs.existsSync(p));
-}
-
-function isWbBlockedHtml(_html: string, text: string): boolean {
-  return /подозрительная активность|ваш запрос похож на автоматическ|доступ ограничен|новая попытка через/i.test(
-    text
-  );
-}
-
-function looksLikeWbStorefront(text: string): boolean {
-  return (
-    text.length > 80 &&
-    /корзина|войти|доставка|каталог|скидк|найти/i.test(text)
-  );
-}
-
-type SupplierHit = { id: string; name?: string };
-
-function attachCatalogCollector(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  page: any
-): { drain: () => SupplierHit[] } {
-  const hits: SupplierHit[] = [];
-  page.on(
-    "response",
-    (response: { url: () => string; json: () => Promise<unknown> }) => {
-      const url = response.url();
-      if (!/wb\.ru|wildberries\.ru/i.test(url)) return;
-      if (
-        !/search|catalog|card|recommend|seller|supplier|main|v\d+/i.test(url)
-      ) {
-        return;
-      }
-      void response
-        .json()
-        .then((json) => {
-          hits.push(...collectSupplierIds(json));
-        })
-        .catch(() => undefined);
-    }
-  );
-  return {
-    drain: () => {
-      const unique = new Map<string, SupplierHit>();
-      for (const hit of hits) unique.set(hit.id, hit);
-      hits.length = 0;
-      return [...unique.values()];
-    },
-  };
-}
-
-export type WbScanOptions = {
-  startPage?: number;
-  maxPages?: number;
-  maxSellers?: number;
-  skipSellerIds?: Iterable<string>;
-  delayMs?: number;
-  onPage?: (page: WbCatalogPage) => void;
-  onSeller?: (card: WbSellerCard) => void;
-};
-
-export type WbScanResult = {
-  pagesFetched: number;
-  sellers: WbSellerCard[];
-  declarations: FsaDeclaration[];
-  nextPage: number;
-  hasMore: boolean;
-  skippedKnown: number;
-};
-
-function resolveWbProxy(): string | undefined {
-  const explicit = process.env.OUTREACH_WB_PROXY?.trim();
-  if (explicit) return explicit;
-  // Как checko: на проде общий OUTREACH_FSA_PROXY; на localhost getFsaProxy() = undefined.
-  return getFsaProxy();
-}
-
-async function openWbContext(headed: boolean): Promise<{
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  context: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  page: any;
-}> {
-  const browsersPath = ensurePlaywrightBrowsersEnv();
-  const { chromium } = await import("playwright");
-  fs.mkdirSync(PROFILE_DIR, { recursive: true });
-  const executablePath = resolveChromePath(browsersPath);
-  const channel =
-    process.env.OUTREACH_WB_CHANNEL?.trim() ||
-    (process.platform === "win32" ? "chrome" : undefined);
-  if (!executablePath && !channel) {
-    throw new Error("Не найден браузер для загрузки карточек продавцов.");
-  }
-  const proxy = resolveWbProxy();
-  const launch = async (useChannel?: string, exe?: string) => {
-    const context = await chromium.launchPersistentContext(PROFILE_DIR, {
-      headless: !headed,
-      executablePath: useChannel ? undefined : exe,
-      channel: useChannel || undefined,
-      ignoreDefaultArgs: ["--enable-automation"],
-      args: ["--disable-blink-features=AutomationControlled"],
-      userAgent: USER_AGENT,
-      viewport: { width: 1365, height: 900 },
-      locale: "ru-RU",
-      timezoneId: "Europe/Moscow",
-      ...(proxy ? { proxy: playwrightProxyOptions(proxy) } : {}),
-    });
-    await context.addInitScript(() => {
-      Object.defineProperty(navigator, "webdriver", {
-        get: () => undefined,
-      });
-    });
-    const page = context.pages()[0] || (await context.newPage());
-    return { context, page };
-  };
-  try {
-    return await launch(channel, channel ? undefined : executablePath);
-  } catch (error) {
-    if (!channel || !executablePath) throw error;
-    return launch(undefined, executablePath);
-  }
-}
-
-async function waitWbReady(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  page: any,
-  timeoutMs = 90_000
-): Promise<void> {
-  const started = Date.now();
-  let blockedHits = 0;
-  while (Date.now() - started < timeoutMs) {
-    const html = await page.content().catch(() => "");
-    const text = await page.locator("body").innerText().catch(() => "");
-    if (isWbBlockedHtml(html, text)) {
-      blockedHits += 1;
-      if (blockedHits >= 3) {
-        throw new Error(
-          "Сайт не пускает к карточкам продавцов. Подождите и попробуйте снова."
-        );
-      }
-      await sleep(3000);
-      continue;
-    }
-    if (looksLikeWbStorefront(text) || html.length > 8000) {
-      return;
-    }
-    await sleep(1500);
-  }
-  throw new Error(
-    "Сайт не пускает к карточкам продавцов. Подождите и попробуйте снова."
-  );
-}
-
-async function sellerIdsFromDom(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  page: any
-): Promise<SupplierHit[]> {
-  const hrefs: string[] = await page
-    .locator('a[href*="/seller/"]')
-    .evaluateAll((nodes: { getAttribute: (name: string) => string | null }[]) =>
-      nodes
-        .map((node) => node.getAttribute("href") || "")
-        .filter(Boolean)
-    )
-    .catch(() => []);
-  const hits: SupplierHit[] = [];
-  const seen = new Set<string>();
-  for (const href of hrefs) {
-    const id = href.match(/\/seller\/(\d+)/)?.[1];
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
-    hits.push({ id });
-  }
-  return hits;
-}
-
-async function openSellerCard(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  page: any,
+export async function loadWbSellerCard(
   sellerId: string
-): Promise<WbSellerCard> {
-  const url = `${WB_BASE}/seller/${sellerId}`;
-  // Holder so TS does not narrow across the response callback assignment.
-  const captured: { json: WbSupplierJson | null } = { json: null };
-  const onResponse = (response: {
-    url: () => string;
-    json: () => Promise<unknown>;
-  }) => {
-    if (!/supplier-by-id\/\d+\.json/i.test(response.url())) return;
-    void response
-      .json()
-      .then((json) => {
-        captured.json = json as WbSupplierJson;
-      })
-      .catch(() => undefined);
-  };
-  page.on("response", onResponse);
-
-  try {
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 90_000 });
-    await waitWbReady(page, 60_000);
-
-    const infoBtn = page
-      .locator(
-        'button:has-text("Информация"), button:has-text("О продавце"), a:has-text("Информация о продавце"), a:has-text("Данные продавца")'
-      )
-      .first();
-    if (await infoBtn.count()) {
-      await infoBtn.click({ timeout: 4000 }).catch(() => undefined);
-      await sleep(1200);
-    }
-
-    if (!captured.json?.inn) {
-      captured.json =
-        (await page
-          .evaluate(async (id: string) => {
-            const hosts = [
-              "static-basket-01.wbbasket.ru",
-              "static-basket-02.wbbasket.ru",
-              "static-basket-03.wbbasket.ru",
-            ];
-            for (const host of hosts) {
-              try {
-                const res = await fetch(
-                  `https://${host}/vol0/data/supplier-by-id/${id}.json`
-                );
-                if (!res.ok) continue;
-                return await res.json();
-              } catch {
-                /* next */
-              }
-            }
-            return null;
-          }, sellerId)
-          .catch(() => null)) || (await fetchWbSupplierJson(sellerId));
-    }
-
-    const html = await page.content();
-    const text = await page.locator("body").innerText().catch(() => "");
-    return applyWbSupplierJson(
-      parseWbSellerHtml(html, sellerId, text),
-      captured.json
-    );
-  } finally {
-    page.off("response", onResponse);
-  }
-}
-
-async function sellerIdFromFirstProduct(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  page: any
-): Promise<string | null> {
-  const product = page
-    .locator(
-      'a[href*="/catalog/"][href*="/detail.aspx"], a[href*="/catalog/"][href*="detail"]'
-    )
-    .first();
-  if (!(await product.count().catch(() => 0))) return null;
-  await product.click({ timeout: 8000 }).catch(() => undefined);
-  await waitWbReady(page, 45_000);
-  await sleep(1500);
-  const html = await page.content().catch(() => "");
-  const text = await page.locator("body").innerText().catch(() => "");
-  const fromLink = await sellerIdsFromDom(page);
-  if (fromLink[0]?.id) return fromLink[0].id;
-  const fromHtml =
-    html.match(/\/seller\/(\d+)/)?.[1] ||
-    html.match(/"supplierId"\s*:\s*(\d+)/)?.[1] ||
-    text.match(/\/seller\/(\d+)/)?.[1];
-  return fromHtml || null;
-}
-
-/** Главная WB: скролл ленты и сбор sellerId (без поиска). */
-async function collectSellersFromHome(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  page: any,
-  collector: { drain: () => SupplierHit[] },
-  scrollRounds = 4
-): Promise<SupplierHit[]> {
-  await page.goto(WB_BASE, { waitUntil: "domcontentloaded", timeout: 90_000 });
-  await waitWbReady(page, 90_000);
-  await page
-    .locator(
-      '.product-card, [data-nm-id], article.product-card, a[href*="/catalog/"]'
-    )
-    .first()
-    .waitFor({ timeout: 20_000 })
-    .catch(() => undefined);
-  await sleep(1500);
-
-  const merged = new Map<string, SupplierHit>();
-  const rounds = Math.min(Math.max(scrollRounds, 1), 20);
-  for (let i = 0; i < rounds; i++) {
-    await page.mouse.wheel(0, 1800).catch(() => undefined);
-    await sleep(900 + Math.floor(Math.random() * 400));
-    for (const hit of [...collector.drain(), ...(await sellerIdsFromDom(page))]) {
-      merged.set(hit.id, hit);
-    }
-  }
-
-  if (merged.size === 0) {
-    const fromProduct = await sellerIdFromFirstProduct(page);
-    if (fromProduct) merged.set(fromProduct, { id: fromProduct });
-  }
-  return [...merged.values()];
-}
-
-async function scanWbSellersUnlocked(
-  options: WbScanOptions = {}
-): Promise<WbScanResult> {
-  const maxSellers = Math.min(Math.max(options.maxSellers ?? 50, 1), 300);
-  const scrollRounds = Math.min(Math.max(options.maxPages ?? 8, 1), 20);
-  const delayMs = wbListDelayMs(options.delayMs);
-  const pass = Math.max(options.startPage ?? 1, 1);
-  const skip = new Set(
-    [...(options.skipSellerIds ?? [])].map((id) => String(id))
+): Promise<WbSellerCard | null> {
+  const id = String(sellerId).replace(/\D/g, "");
+  if (!id) return null;
+  const json = await fetchWbSupplierJson(id);
+  if (!json) return null;
+  const card = applyWbSupplierJson(
+    {
+      sellerId: id,
+      url: `${WB_BASE}/seller/${id}`,
+      emails: [],
+    },
+    json
   );
-  const seenStore = readWbSeenStore();
-  for (const id of Object.keys(seenStore.bySellerId)) skip.add(id);
-
-  const headed = process.env.OUTREACH_WB_HEADED === "1";
-  const { context, page } = await openWbContext(headed);
-  const sellers: WbSellerCard[] = [];
-  let skippedKnown = 0;
-
-  try {
-    const collector = attachCatalogCollector(page);
-    const hits = await collectSellersFromHome(page, collector, scrollRounds);
-    const names: Record<string, string> = {};
-    for (const hit of hits) {
-      if (hit.name) names[hit.id] = hit.name;
-    }
-    const list: WbCatalogPage = {
-      page: pass,
-      sellerIds: hits.map((h) => h.id),
-      names,
-      hasMore: hits.length > 0,
-    };
-    options.onPage?.(list);
-
-    for (const sellerId of list.sellerIds) {
-      if (sellers.length >= maxSellers) break;
-      if (skip.has(sellerId)) {
-        skippedKnown += 1;
-        continue;
-      }
-      skip.add(sellerId);
-      if (delayMs) await sleep(delayMs + Math.floor(Math.random() * 400));
-      try {
-        const card = await openSellerCard(page, sellerId);
-        if (!card.name && names[sellerId]) card.name = names[sellerId];
-        rememberWbSeller({
-          sellerId: card.sellerId,
-          inn: card.inn,
-          name: card.name || card.legalName,
-          email: card.email,
-          emailSource: card.email ? "wb" : undefined,
-          searchedWbAt: todayIso(),
-        });
-        sellers.push(card);
-        options.onSeller?.(card);
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        if (/не пускает|подозрительн/i.test(msg)) throw error;
-      }
-    }
-  } finally {
-    await context.close().catch(() => undefined);
-  }
-
-  return {
-    pagesFetched: 1,
-    sellers,
-    declarations: sellers.map(wbSellerToDeclaration),
-    nextPage: pass + 1,
-    // Главная ротируется — следующий cron снова пройдёт ленту.
-    hasMore: true,
-    skippedKnown,
-  };
+  // Без ИНН дальше только Checko бесполезен — не тащим в очередь.
+  if (!card.inn) return null;
+  return card;
 }
 
 export async function scanWbSellers(
   options: WbScanOptions = {}
 ): Promise<WbScanResult> {
-  return withCheckoProfileLock(() => scanWbSellersUnlocked(options), {
-    label: "wb-scan",
-    waitMs: 180_000,
-    lockPath: PROFILE_LOCK,
-  });
+  const maxSellers = Math.min(Math.max(options.maxSellers ?? 50, 1), 300);
+  const delayMs = wbListDelayMs(options.delayMs);
+  let id = Math.max(options.startPage ?? 1, 1);
+  const skip = new Set(
+    [...(options.skipSellerIds ?? [])].map((x) => String(x))
+  );
+  const store = readWbSeenStore();
+  for (const known of Object.keys(store.bySellerId)) skip.add(known);
+
+  const sellers: WbSellerCard[] = [];
+  let skippedKnown = 0;
+  let attempts = 0;
+  let storeDirty = false;
+  const maxAttempts = Math.min(
+    Math.max(maxSellers * 8, maxSellers + 20),
+    Number(process.env.OUTREACH_WB_MAX_ATTEMPTS || 2000)
+  );
+  const foundIds: string[] = [];
+  const names: Record<string, string> = {};
+
+  while (
+    sellers.length < maxSellers &&
+    attempts < maxAttempts &&
+    id <= WB_SELLER_ID_MAX
+  ) {
+    const sellerId = String(id);
+    id += 1;
+
+    if (skip.has(sellerId)) {
+      skippedKnown += 1;
+      continue;
+    }
+    skip.add(sellerId);
+    attempts += 1;
+
+    if (delayMs) await sleep(delayMs);
+
+    try {
+      const card = await loadWbSellerCard(sellerId);
+      if (!card?.inn) continue;
+
+      const prev = store.bySellerId[card.sellerId];
+      store.bySellerId[card.sellerId] = {
+        sellerId: card.sellerId,
+        inn: card.inn,
+        name: card.name || card.legalName,
+        email: card.email,
+        emailSource: card.email ? "wb" : undefined,
+        searchedWbAt: todayIso(),
+        searchedCheckoAt: prev?.searchedCheckoAt,
+      };
+      store.byInn[card.inn] = card.sellerId;
+      storeDirty = true;
+
+      sellers.push(card);
+      foundIds.push(card.sellerId);
+      if (card.name || card.legalName) {
+        names[card.sellerId] = card.name || card.legalName || "";
+      }
+      options.onSeller?.(card);
+    } catch {
+      /* следующий id */
+    }
+  }
+
+  if (storeDirty) writeWbSeenStore(store);
+
+  const list: WbCatalogPage = {
+    page: Math.max(options.startPage ?? 1, 1),
+    sellerIds: foundIds,
+    names,
+    hasMore: id <= WB_SELLER_ID_MAX,
+  };
+  options.onPage?.(list);
+
+  return {
+    pagesFetched: attempts,
+    sellers,
+    declarations: sellers.map(wbSellerToDeclaration),
+    nextPage: id,
+    hasMore: id <= WB_SELLER_ID_MAX,
+    skippedKnown,
+  };
 }
 
-/** Одна карточка с главной WB для ручной проверки (в очередь не кладём). */
+/** Одна карточка продавца для ручной проверки. */
 export async function probeOneWbSeller(): Promise<WbSellerCard> {
-  return withCheckoProfileLock(
-    async () => {
-      const headed = process.env.OUTREACH_WB_HEADED === "1";
-      const { context, page } = await openWbContext(headed);
-      try {
-        const collector = attachCatalogCollector(page);
-        const hits = await collectSellersFromHome(page, collector, 3);
-        const sellerId = hits[0]?.id;
-        if (!sellerId) {
-          throw new Error(
-            "На главной не нашли продавца. Подождите и попробуйте снова."
-          );
-        }
-        const card = await openSellerCard(page, sellerId);
-        if (!card.name && hits[0]?.name) card.name = hits[0].name;
-        rememberWbSeller({
-          sellerId: card.sellerId,
-          inn: card.inn,
-          name: card.name || card.legalName,
-          email: card.email,
-          emailSource: card.email ? "wb" : undefined,
-          searchedWbAt: todayIso(),
-        });
-        return card;
-      } finally {
-        await context.close().catch(() => undefined);
-      }
-    },
-    {
-      label: "wb-one",
-      waitMs: 180_000,
-      lockPath: PROFILE_LOCK,
-    }
+  const seen = readWbSeenStore();
+  const skip = new Set(Object.keys(seen.bySellerId));
+  let id =
+    8_000 +
+    Math.floor(Math.random() * 120_000) +
+    Math.floor(Date.now() / 1000) % 10_000;
+  for (let i = 0; i < 80; i++) {
+    const sellerId = String(id + i);
+    if (skip.has(sellerId)) continue;
+    const card = await loadWbSellerCard(sellerId);
+    if (!card?.inn) continue;
+    rememberWbSeller({
+      sellerId: card.sellerId,
+      inn: card.inn,
+      name: card.name || card.legalName,
+      email: card.email,
+      emailSource: card.email ? "wb" : undefined,
+      searchedWbAt: todayIso(),
+    });
+    return card;
+  }
+  throw new Error(
+    "Не удалось загрузить карточку продавца. Проверьте прокси и попробуйте снова."
   );
 }
 
@@ -805,38 +514,33 @@ export type WbAccessProbe = {
   error?: string;
 };
 
-/** Короткая проверка: открываем главную WB тем же Playwright-профилем. */
+/** Проверка доступа к реестру продавцов WB через прокси. */
 export async function probeWbAccess(): Promise<WbAccessProbe> {
   try {
-    return await withCheckoProfileLock(
-      async () => {
-        const headed = process.env.OUTREACH_WB_HEADED === "1";
-        const { context, page } = await openWbContext(headed);
-        try {
-          await page.goto(WB_BASE, {
-            waitUntil: "domcontentloaded",
-            timeout: 60_000,
-          });
-          await waitWbReady(page, 45_000);
-          return { ok: true };
-        } finally {
-          await context.close().catch(() => undefined);
-        }
-      },
-      {
-        label: "wb-probe",
-        waitMs: 90_000,
-        lockPath: PROFILE_LOCK,
-      }
-    );
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    if (/не пускает|подозрительн|access|lock/i.test(msg)) {
+    const proxy = resolveWbProxy();
+    const site = process.env.NEXT_PUBLIC_SITE_URL?.trim() || "";
+    const isLocal = /localhost|127\.0\.0\.1/i.test(site);
+    if (!proxy && !isLocal) {
       return {
         ok: false,
         error:
-          "Сайт сейчас не пускает. Подождите и попробуйте снова.",
+          "Не задан прокси для Wildberries. Проверьте OUTREACH_FSA_PROXY на сервере.",
       };
+    }
+
+    const json = await fetchWbSupplierJson("12345");
+    if (json?.inn || json?.supplierFullName) {
+      return { ok: true };
+    }
+    return {
+      ok: false,
+      error:
+        "Нет связи с Wildberries. Проверьте прокси и попробуйте снова.",
+    };
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    if (process.env.OUTREACH_WB_DEBUG === "1") {
+      return { ok: false, error: msg };
     }
     return {
       ok: false,

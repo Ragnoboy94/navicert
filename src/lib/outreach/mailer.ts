@@ -326,14 +326,19 @@ export async function sendOutreachEmail(
   });
 
   const mail: {
-    from: string;
+    from: string | { name: string; address: string };
     to: string;
     subject: string;
     text: string;
     html: string;
     replyTo?: string;
   } = {
-    from: `"${getOutreachFromName()}" <${smtp.from || smtp.user}>`,
+    // Объект name/address — nodemailer сам кодирует кириллицу в From (RFC 2047).
+    // Сырой `"Андрей Громов" <mail@…>` в заголовке ломается в клиентах.
+    from: {
+      name: getOutreachFromName(),
+      address: smtp.from || smtp.user,
+    },
     to,
     subject,
     text,
