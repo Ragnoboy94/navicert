@@ -553,7 +553,8 @@ async function openSellerCard(
   sellerId: string
 ): Promise<WbSellerCard> {
   const url = `${WB_BASE}/seller/${sellerId}`;
-  let supplierJson: WbSupplierJson | null = null;
+  // Holder so TS does not narrow across the response callback assignment.
+  const captured: { json: WbSupplierJson | null } = { json: null };
   const onResponse = (response: {
     url: () => string;
     json: () => Promise<unknown>;
@@ -562,7 +563,7 @@ async function openSellerCard(
     void response
       .json()
       .then((json) => {
-        supplierJson = json as WbSupplierJson;
+        captured.json = json as WbSupplierJson;
       })
       .catch(() => undefined);
   };
@@ -582,8 +583,8 @@ async function openSellerCard(
       await sleep(1200);
     }
 
-    if (!supplierJson?.inn) {
-      supplierJson =
+    if (!captured.json?.inn) {
+      captured.json =
         (await page
           .evaluate(async (id: string) => {
             const hosts = [
@@ -611,7 +612,7 @@ async function openSellerCard(
     const text = await page.locator("body").innerText().catch(() => "");
     return applyWbSupplierJson(
       parseWbSellerHtml(html, sellerId, text),
-      supplierJson
+      captured.json
     );
   } finally {
     page.off("response", onResponse);
