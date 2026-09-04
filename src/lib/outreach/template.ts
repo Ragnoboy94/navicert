@@ -18,7 +18,7 @@ const MONTHS_RU = [
 ];
 
 type BodyBlock =
-  | { type: "p"; text: string }
+  | { type: "p"; text: string; bold?: boolean; underline?: boolean }
   | { type: "label"; text: string }
   | { type: "ul"; items: string[] };
 
@@ -185,6 +185,8 @@ function wbSellerBodyBlocks(declaration: FsaDeclaration): BodyBlock[] {
     {
       type: "p",
       text: "Просто ответьте на это письмо — эксперт свяжется с вами и поможет во всем разобраться!",
+      bold: true,
+      underline: true,
     },
     { type: "p", text: "С уважением," },
     { type: "p", text: fromName },
@@ -274,7 +276,10 @@ function blocksToHtml(blocks: BodyBlock[]): string {
       if (block.type === "label") {
         return `<p><strong>${escapeHtml(block.text)}</strong></p>`;
       }
-      return `<p>${escapeHtml(block.text)}</p>`;
+      let inner = escapeHtml(block.text);
+      if (block.bold) inner = `<strong>${inner}</strong>`;
+      if (block.underline) inner = `<u>${inner}</u>`;
+      return `<p>${inner}</p>`;
     })
     .join("\n");
 }
