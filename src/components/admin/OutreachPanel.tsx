@@ -21,6 +21,7 @@ type QueueItem = {
   registrationDate: string;
   endDate: string;
   productName: string;
+  productGroup?: string;
   alreadySent: boolean;
   recipientAlreadySent: boolean;
   recipientCooldownUntil?: string | null;
@@ -35,6 +36,7 @@ type QueueItem = {
     shortName?: string;
     fullName?: string;
     email?: string;
+    inn?: string;
   };
 };
 
@@ -288,13 +290,15 @@ function QueueTable({
   manualSend?: boolean;
   onToggleAutoExclude?: (id: number, exclude: boolean) => void;
   togglingId?: number | null;
-  variant?: "fsa" | "checko";
+  variant?: "fsa" | "checko" | "wb";
 }) {
   if (rows.length === 0) {
     return <p className="py-8 text-center text-sm text-muted">Список пуст</p>;
   }
 
   const isChecko = variant === "checko";
+  const isWb = variant === "wb";
+  const hideEndDate = isChecko || isWb;
 
   return (
     <div className="overflow-x-auto">
@@ -303,14 +307,18 @@ function QueueTable({
           <tr className="border-b border-border text-muted">
             <th className="px-3 py-2 font-medium">Компания</th>
             <th className="px-3 py-2 font-medium">
-              {isChecko ? "Дата регистрации" : "Регистрация"}
+              {isWb ? "ИНН" : isChecko ? "Дата регистрации" : "Регистрация"}
             </th>
-            {!isChecko && (
+            {!hideEndDate && (
               <th className="px-3 py-2 font-medium">Окончание</th>
             )}
             <th className="px-3 py-2 font-medium">Email</th>
             <th className="px-3 py-2 font-medium">
-              {isChecko ? "ОКВЭД / деятельность" : "Продукция"}
+              {isWb
+                ? "Откуда почта"
+                : isChecko
+                  ? "ОКВЭД / деятельность"
+                  : "Продукция"}
             </th>
             {showRejectReason && (
               <th className="px-3 py-2 font-medium">Причина</th>
@@ -332,9 +340,11 @@ function QueueTable({
                 {item.applicant?.shortName || item.applicant?.fullName || "—"}
               </td>
               <td className="px-3 py-3 whitespace-nowrap">
-                {item.registrationDate || "—"}
+                {isWb
+                  ? item.applicant?.inn || "—"
+                  : item.registrationDate || "—"}
               </td>
-              {!isChecko && (
+              {!hideEndDate && (
                 <td className="px-3 py-3 whitespace-nowrap">{item.endDate}</td>
               )}
               <td className="px-3 py-3">
@@ -344,7 +354,11 @@ function QueueTable({
                 </span>
               </td>
               <td className="max-w-xs truncate px-3 py-3 text-muted">
-                {item.productName}
+                {isWb
+                  ? item.productGroup === "checko"
+                    ? "по ИНН"
+                    : "карточка продавца"
+                  : item.productName}
               </td>
               {showRejectReason && (
                 <td className="px-3 py-3 text-xs text-muted">
@@ -436,12 +450,17 @@ function FsaLoadConfirmDialog({
   onConfirm: () => void;
   docWordNominative: string;
   docWordGenitive: string;
-  source?: "fsa" | "checko";
+  source?: "fsa" | "checko" | "wb";
 }) {
   if (!open) return null;
 
   const isChecko = source === "checko";
-  const sourceLabel = isChecko ? "checko.ru" : "ФСА";
+  const isWb = source === "wb";
+  const sourceLabel = isWb
+    ? "Wildberries"
+    : isChecko
+      ? "checko.ru"
+      : "ФСА";
 
   return (
     <div
@@ -471,7 +490,17 @@ function FsaLoadConfirmDialog({
                 : `Догрузить ${docWordNominative} с ${sourceLabel}?`}
             </h3>
             <p className="mt-2 text-sm leading-relaxed text-muted">
-              {isChecko ? (
+              {isWb ? (
+                isFirstLoad ? (
+                  <>Загрузим продавцов с главной Wildberries.</>
+                ) : (
+                  <>
+                    Догрузим новых продавцов поверх очереди (
+                    <strong>{queueSize}</strong> в базе). Тех, кого уже искали,
+                    пропускаем.
+                  </>
+                )
+              ) : isChecko ? (
                 isFirstLoad ? (
                   <>
                     Срочно найдём до <strong>{INITIAL_LOAD_MAX}</strong>{" "}
@@ -507,7 +536,9 @@ function FsaLoadConfirmDialog({
               )}
             </p>
             <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
-              {isChecko
+              {isWb
+                ? "Карточки открываются по одной, с паузами. Уже найденных продавцов система запоминает и не ищет снова."
+                : isChecko
                 ? "Важная операция: срочный обход списка checko.ru. Карточки с email — отдельно, медленно. Запускайте, когда готовы."
                 : "Это важная операция: идёт обращение к внешнему API ФСА и фоновое обогащение email. Нажимайте только когда готовы начать загрузку."}
             </p>
@@ -587,28 +618,41 @@ export function OutreachPanel({
       ? "сертификаты"
       : category === "new_registrations"
         ? "организации"
-        : "декларации";
+        : category === "wb_sellers"
+          ? "продавцы"
+          : "декларации";
   const docWordGenitive =
     category === "expiring_certificates"
       ? "сертификатов"
       : category === "new_registrations"
         ? "организаций"
-        : "деклараций";
+        : category === "wb_sellers"
+          ? "продавцов"
+          : "деклараций";
   const docAccusative =
     category === "expiring_certificates"
       ? "сертификат"
       : category === "new_registrations"
         ? "организацию"
-        : "декларацию";
+        : category === "wb_sellers"
+          ? "продавца"
+          : "декларацию";
   const docThisLabel =
     category === "expiring_certificates"
       ? "этому сертификату"
       : category === "new_registrations"
         ? "этой организации"
-        : "этой декларации";
+        : category === "wb_sellers"
+          ? "этому продавцу"
+          : "этой декларации";
   const isChecko = category === "new_registrations";
-  const sourceLabel = isChecko ? "checko.ru" : "ФСА";
-  const tableVariant = isChecko ? "checko" : "fsa";
+  const isWb = category === "wb_sellers";
+  const sourceLabel = isWb
+    ? "Wildberries"
+    : isChecko
+      ? "checko.ru"
+      : "ФСА";
+  const tableVariant = isWb ? "wb" : isChecko ? "checko" : "fsa";
   const [data, setData] = useState<OutreachState | null>(null);
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
@@ -629,6 +673,19 @@ export function OutreachPanel({
   const [showLoadConfirm, setShowLoadConfirm] = useState(false);
   const [checkingFsaAccess, setCheckingFsaAccess] = useState(false);
   const [checkingCheckoAccess, setCheckingCheckoAccess] = useState(false);
+  const [checkingWbAccess, setCheckingWbAccess] = useState(false);
+  const [wbSample, setWbSample] = useState<{
+    sellerId: string;
+    name?: string;
+    legalName?: string;
+    inn?: string;
+    email?: string;
+    emailSource?: "wb" | "checko";
+    url?: string;
+    checkoNoEmail?: boolean;
+  } | null>(null);
+  const [loadingWbSample, setLoadingWbSample] = useState(false);
+  const [loadingWbChecko, setLoadingWbChecko] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const loadedOnce = useRef(false);
   const lastFullRefreshAt = useRef(0);
@@ -1165,7 +1222,9 @@ export function OutreachPanel({
       setError(
         err instanceof Error
           ? err.message
-          : isChecko
+          : isWb
+            ? "Сеть оборвалась во время загрузки с Wildberries"
+            : isChecko
             ? "Сеть оборвалась во время загрузки с checko.ru"
             : "Сеть оборвалась во время загрузки из ФСА"
       );
@@ -1244,6 +1303,109 @@ export function OutreachPanel({
       }
     } finally {
       setCheckingCheckoAccess(false);
+    }
+  }
+
+  async function checkWbAccess() {
+    setCheckingWbAccess(true);
+    setError("");
+    setMessage("");
+    try {
+      const res = await fetch(`/api/admin/outreach/wb/health`, {
+        method: "POST",
+        credentials: "same-origin",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(json.error || "Не удалось проверить доступ");
+        return;
+      }
+      if (json.ok) {
+        setMessage(json.message || "Доступ к Wildberries подтверждён.");
+      } else {
+        setError(json.message || "Нет доступа к Wildberries");
+      }
+    } finally {
+      setCheckingWbAccess(false);
+    }
+  }
+
+  async function loadOneWbCard() {
+    setLoadingWbSample(true);
+    setError("");
+    setMessage("");
+    try {
+      const res = await fetch(`/api/admin/outreach/wb/sample`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "card" }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!json.ok || !json.card) {
+        setWbSample(null);
+        setError(json.error || "Не удалось загрузить карточку");
+        return;
+      }
+      setWbSample({ ...json.card, checkoNoEmail: false });
+      setMessage(json.message || "Карточка загружена.");
+      await refresh(true);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Не удалось загрузить карточку"
+      );
+    } finally {
+      setLoadingWbSample(false);
+    }
+  }
+
+  async function loadWbSampleFromChecko() {
+    if (!wbSample?.inn) {
+      setError("Нет ИНН для поиска на checko.ru");
+      return;
+    }
+    setLoadingWbChecko(true);
+    setError("");
+    setMessage("");
+    try {
+      const res = await fetch(`/api/admin/outreach/wb/sample`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "checko",
+          sellerId: wbSample.sellerId,
+          inn: wbSample.inn,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!json.ok || !json.card?.email) {
+        setWbSample((prev) =>
+          prev ? { ...prev, checkoNoEmail: true } : prev
+        );
+        setError(json.error || "На checko.ru не нашли почту по этому ИНН");
+        return;
+      }
+      setWbSample((prev) =>
+        prev
+          ? {
+              ...prev,
+              name: json.card.name || prev.name,
+              legalName: json.card.legalName || prev.legalName,
+              email: json.card.email,
+              emailSource: "checko",
+              checkoNoEmail: false,
+            }
+          : { ...json.card, checkoNoEmail: false }
+      );
+      setMessage(json.message || "Почту нашли на checko.ru.");
+      await refresh(true);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Не удалось загрузить с checko.ru"
+      );
+    } finally {
+      setLoadingWbChecko(false);
     }
   }
 
@@ -1427,7 +1589,8 @@ export function OutreachPanel({
   const enrichPaused =
     Boolean(data?.enrichStatus?.paused) && !enrichQueued && !enrichRunning;
   const enrichPending = data?.enrichPending ?? 0;
-  const checkoBlocked = Boolean(data?.checkoBlock?.active);
+  const checkoBlocked =
+    !isWb && Boolean(data?.checkoBlock?.active);
   const checkoBlockMins = Math.max(
     1,
     Math.ceil((data?.checkoBlock?.remainingMs ?? 0) / 60_000)
@@ -1479,16 +1642,18 @@ export function OutreachPanel({
         onConfirm={confirmFsaLoad}
         docWordNominative={docWord}
         docWordGenitive={docWordGenitive}
-        source={isChecko ? "checko" : "fsa"}
+        source={isWb ? "wb" : isChecko ? "checko" : "fsa"}
       />
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-muted">
-          {isChecko
-            ? "Срочно — список с checko.ru. Email с карточек — в фоне, по одной, с паузами."
-            : "Срочная загрузка из ФСА идёт раньше фоновой подгрузки email."}
-        </p>
-        <div className="flex flex-wrap gap-2">
+        {!isWb && (
+          <p className="text-sm text-muted">
+            {isChecko
+              ? "Срочно — список с checko.ru. Email с карточек — в фоне, по одной, с паузами."
+              : "Срочная загрузка из ФСА идёт раньше фоновой подгрузки email."}
+          </p>
+        )}
+        <div className={`flex flex-wrap gap-2 ${isWb ? "ml-auto" : ""}`}>
           <button
             type="button"
             onClick={() => void refresh()}
@@ -1498,7 +1663,56 @@ export function OutreachPanel({
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
             Обновить
           </button>
-          {!isChecko ? (
+          {isWb ? (
+            <>
+              <button
+                type="button"
+                onClick={() => void checkWbAccess()}
+                disabled={checkingWbAccess}
+                className="btn-ghost gap-2 px-4 py-2 text-sm"
+              >
+                <AlertCircle
+                  className={`h-4 w-4 ${
+                    checkingWbAccess ? "animate-pulse" : ""
+                  }`}
+                />
+                {checkingWbAccess
+                  ? "Проверка..."
+                  : "Проверить доступ к Wildberries"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void checkCheckoAccess()}
+                disabled={checkingCheckoAccess}
+                className="btn-ghost gap-2 px-4 py-2 text-sm"
+              >
+                <AlertCircle
+                  className={`h-4 w-4 ${
+                    checkingCheckoAccess ? "animate-pulse" : ""
+                  }`}
+                />
+                {checkingCheckoAccess
+                  ? "Проверка..."
+                  : "Проверить доступ к checko.ru"}
+              </button>
+            </>
+          ) : isChecko ? (
+            <button
+              type="button"
+              onClick={() => void checkCheckoAccess()}
+              disabled={checkingCheckoAccess}
+              className="btn-ghost gap-2 px-4 py-2 text-sm"
+            >
+              <AlertCircle
+                className={`h-4 w-4 ${
+                  checkingCheckoAccess ? "animate-pulse" : ""
+                }`}
+              />
+              {checkingCheckoAccess
+                ? "Проверка..."
+                : "Проверить доступ к checko.ru"}
+            </button>
+          ) : (
             <button
               type="button"
               onClick={checkFsaAccess}
@@ -1511,20 +1725,6 @@ export function OutreachPanel({
                 }`}
               />
               {checkingFsaAccess ? "Проверка..." : "Проверить доступ к ФСА"}
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => void checkCheckoAccess()}
-              disabled={checkingCheckoAccess}
-              className="btn-ghost gap-2 px-4 py-2 text-sm"
-            >
-              <AlertCircle
-                className={`h-4 w-4 ${
-                  checkingCheckoAccess ? "animate-pulse" : ""
-                }`}
-              />
-              {checkingCheckoAccess ? "Проверка..." : "Проверить доступ к checko.ru"}
             </button>
           )}
         </div>
@@ -1553,6 +1753,8 @@ export function OutreachPanel({
                   : enrichRunning
                     ? isChecko
                       ? "В фоне берём email с карточек checko.ru (по одной, с паузами)"
+                      : isWb
+                        ? "В фоне ищем почту по ИНН"
                       : "На сервере в фоне подгружаем email из карточек ФСА"
                     : enrichQueued
                       ? "Обработка email в очереди"
@@ -1577,6 +1779,8 @@ export function OutreachPanel({
                       : enrichPending > 0
                         ? isChecko
                           ? ". Если счётчик не растёт без паузы — нажмите «Продолжить в фоне»."
+                          : isWb
+                            ? ". Если счётчик не растёт — нажмите «Продолжить в фоне»."
                           : ". Если счётчик не растёт — проверьте доступ к ФСА."
                         : "."}
               </p>
@@ -1642,17 +1846,103 @@ export function OutreachPanel({
 
       <AdminCard
         title={
-          isChecko
-            ? "Новые организации"
-            : `Заканчивающиеся ${docWord}`
+          isWb
+            ? "Продавцы Wildberries"
+            : isChecko
+              ? "Новые организации"
+              : `Заканчивающиеся ${docWord}`
         }
         description={
-          isChecko
-            ? "Фильтр: дата регистрации на checko.ru (последние 21 день, только ЮЛ)"
-            : "Фильтр: дата окончания действия"
+          isWb
+            ? undefined
+            : isChecko
+              ? "Фильтр: дата регистрации на checko.ru (последние 21 день, только ЮЛ)"
+              : "Фильтр: дата окончания действия"
         }
       >
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          {isWb ? (
+            <div className="rounded-xl bg-background p-4 sm:col-span-2 lg:col-span-1">
+              <p className="text-xs text-muted">Пробная карточка</p>
+              {wbSample ? (
+                <div className="mt-2 space-y-1.5 text-sm">
+                  <p className="font-semibold leading-snug">
+                    {wbSample.legalName ||
+                      wbSample.name ||
+                      `Продавец ${wbSample.sellerId}`}
+                  </p>
+                  <p className="text-xs leading-snug">
+                    <a
+                      href={
+                        wbSample.url ||
+                        `https://www.wildberries.ru/seller/${wbSample.sellerId}`
+                      }
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-accent underline-offset-2 hover:underline"
+                    >
+                      {wbSample.name &&
+                      wbSample.legalName &&
+                      wbSample.name !== wbSample.legalName
+                        ? wbSample.name
+                        : "Карточка на Wildberries"}
+                    </a>
+                  </p>
+                  <p className="text-muted">
+                    ИНН: {wbSample.inn || "—"}
+                  </p>
+                  {wbSample.email ? (
+                    <p className="break-all">
+                      {wbSample.email}
+                      <span className="ml-1 text-xs text-muted">
+                        (
+                        {wbSample.emailSource === "checko"
+                          ? "checko"
+                          : "карточка"}
+                        )
+                      </span>
+                    </p>
+                  ) : wbSample.inn && !wbSample.checkoNoEmail ? (
+                    <button
+                      type="button"
+                      onClick={() => void loadWbSampleFromChecko()}
+                      disabled={loadingWbChecko || loadingWbSample}
+                      className="btn-ghost mt-1 px-2 py-1 text-xs"
+                    >
+                      {loadingWbChecko
+                        ? "Ищем на checko…"
+                        : "Загрузить из checko"}
+                    </button>
+                  ) : wbSample.inn && wbSample.checkoNoEmail ? (
+                    <p className="text-xs text-muted">На checko почты нет</p>
+                  ) : (
+                    <p className="text-xs text-muted">Нет почты и ИНН</p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => void loadOneWbCard()}
+                    disabled={loadingWbSample || loadingWbChecko}
+                    className="btn-ghost mt-2 px-2 py-1 text-xs"
+                  >
+                    {loadingWbSample
+                      ? "Загрузка…"
+                      : "Загрузить ещё одну"}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void loadOneWbCard()}
+                  disabled={loadingWbSample}
+                  className="btn-primary mt-2 inline-flex gap-2 px-3 py-1.5 text-xs"
+                >
+                  {loadingWbSample
+                    ? "Загрузка…"
+                    : "Загрузить одну карточку"}
+                </button>
+              )}
+            </div>
+          ) : (
           <div className="rounded-xl bg-background p-4">
             <p className="text-xs text-muted">
               {isChecko ? "Период регистрации" : "Период окончания"}
@@ -1661,6 +1951,7 @@ export function OutreachPanel({
               {data ? `${data.range.from} — ${data.range.to}` : "—"}
             </p>
           </div>
+          )}
           <StatFilterButton
             label="К отправке"
             count={data?.itemsCount ?? data?.items.length ?? 0}
@@ -1924,7 +2215,12 @@ export function OutreachPanel({
         </div>
 
         <p className="mt-3 text-xs text-muted">
-          {isChecko ? (
+          {isWb ? (
+            <>
+              Лимит применяется сразу. Около 20:00 МСК догружает продавцов с
+              главной Wildberries; почту по ИНН добирает в фоне.
+            </>
+          ) : isChecko ? (
             <>
               Лимит применяется сразу. Cron каждые ~20 мин: при нехватке адресов
               догружает список новых организаций с checko.ru (21 день), email —
@@ -1938,7 +2234,7 @@ export function OutreachPanel({
               автоотправкой.
             </>
           )}
-          {!isChecko && data?.schedule?.lastHourlyFsaAppendAt && (
+          {!isChecko && !isWb && data?.schedule?.lastHourlyFsaAppendAt && (
             <>
               {" "}
               Последняя почасовая догрузка:{" "}
@@ -1948,7 +2244,7 @@ export function OutreachPanel({
               .
             </>
           )}
-          {!isChecko && data?.schedule?.lastFsaSyncAt && (
+          {!isChecko && !isWb && data?.schedule?.lastFsaSyncAt && (
             <>
               {" "}
               Утренняя синхронизация:{" "}

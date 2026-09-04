@@ -16,6 +16,7 @@ import {
 } from "@/lib/outreach/mailer";
 import { getExpiringMonthRange, readOutreachQueue } from "@/lib/outreach/queue";
 import { getNewRegistrationsRange } from "@/lib/outreach/checko-range";
+import { getWbSellersRange } from "@/lib/outreach/wb-sellers";
 import { getEnrichRunnerStatus } from "@/lib/outreach/enrich-runner";
 import { getFsaQueueStatus } from "@/lib/outreach/fsa-orchestrator";
 import { getScheduleStats } from "@/lib/outreach/schedule";
@@ -112,7 +113,9 @@ export async function GET(request: Request) {
     queue?.range ??
     (category === "new_registrations"
       ? getNewRegistrationsRange()
-      : getExpiringMonthRange());
+      : category === "wb_sellers"
+        ? getWbSellersRange()
+        : getExpiringMonthRange());
   const scheduleStats = getScheduleStats(category);
   const fsaQueue = getFsaQueueStatus(category);
   const itemsRaw = queue?.items ?? [];
@@ -125,21 +128,25 @@ export async function GET(request: Request) {
         ? "Заканчивающиеся сертификаты"
         : category === "new_registrations"
           ? "Новые организации"
-          : "Заканчивающиеся декларации",
+          : category === "wb_sellers"
+            ? "Продавцы Wildberries"
+            : "Заканчивающиеся декларации",
     range,
     scannedAt: queue?.scannedAt ?? null,
     nextApiPage: queue?.nextApiPage ?? 0,
     apiCursor: queue?.apiCursor ?? null,
     cursorLabel:
-      queue?.apiCursor && category !== "new_registrations"
-        ? describeFsaCursor(
-            queue.apiCursor,
-            splitRangeIntoSlices(queue.range ?? range)
-          )
+      queue?.apiCursor && category === "wb_sellers"
+        ? "WB главная"
         : queue?.apiCursor && category === "new_registrations"
           ? `checko стр. ${Math.max(queue.apiCursor.page, 1)}${
               queue.hasMore ? "+" : ""
             }`
+        : queue?.apiCursor && category !== "new_registrations"
+          ? describeFsaCursor(
+              queue.apiCursor,
+              splitRangeIntoSlices(queue.range ?? range)
+            )
           : null,
     pageSize: queue?.pageSize ?? 100,
     hasMore: queue?.hasMore ?? false,

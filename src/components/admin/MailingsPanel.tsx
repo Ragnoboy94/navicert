@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Building2, Clock } from "lucide-react";
+import { Building2, Clock, Store } from "lucide-react";
 import { OutreachPanel } from "./OutreachPanel";
 import type { OutreachCategory } from "@/lib/outreach/types";
 
-type MailingTab = "expiring" | "certificates" | "new_registrations";
+type MailingTab = "expiring" | "certificates" | "new_registrations" | "wb_sellers";
 
 type TabDef = {
   id: MailingTab;
@@ -42,6 +42,14 @@ const tabs: TabDef[] = [
     icon: Building2,
     enabled: true,
   },
+  {
+    id: "wb_sellers",
+    category: "wb_sellers",
+    label: "Продавцы Wildberries",
+    description: "Продавцы на Wildberries",
+    icon: Store,
+    enabled: true,
+  },
 ];
 
 export function MailingsPanel() {
@@ -51,6 +59,7 @@ export function MailingsPanel() {
     expiring: true,
     certificates: false,
     new_registrations: false,
+    wb_sellers: false,
   });
   const current = tabs.find((tab) => tab.id === activeTab) ?? tabs[0];
 

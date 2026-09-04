@@ -51,7 +51,17 @@ import {
   isCheckoCursorExhausted,
   rotateCheckoCursor,
 } from "./checko-pagination";
-import { isNewRegistrationsCategory } from "./category";
+import { isNewRegistrationsCategory, isWbSellersCategory } from "./category";
+import { lookupCheckoCompanyByInn } from "./checko";
+import {
+  getWbSellersRange,
+  rememberWbSeller,
+  scanWbSellers,
+  wasWbInnSearchedOnChecko,
+  wbSellerToDeclaration,
+  type WbSellerCard,
+} from "./wb-sellers";
+import { readOutreachQueue, writeOutreachQueue } from "./queue";
 import { isEndDateInRange, isEnrichItemInRange, pruneOutreachQueue } from "./queue-cleanup";
 import type {
   FsaDeclaration,
@@ -184,7 +194,10 @@ function toQueueItem(
   doc: FsaDeclaration,
   category: OutreachCategory
 ): OutreachQueueItem {
-  if (isNewRegistrationsCategory(category)) {
+  if (
+    isNewRegistrationsCategory(category) ||
+    isWbSellersCategory(category)
+  ) {
     const { status, reason } = classifyEmail(doc.applicant?.email);
     return {
       ...doc,
@@ -510,13 +523,194 @@ async function bulkLoadCheckoList(
   };
 }
 
-/** Быстрая загрузка списка — ФСА или checko в зависимости от категории */
+async function bulkLoadWbList(
+  options: BulkLoadListOptions
+): Promise<BulkLoadListResult> {
+  const queueRange = options.queueRange ?? getWbSellersRange();
+  const maxItems = Math.min(
+    Math.max(options.maxItems ?? DEFAULT_MAX_ITEMS, 10),
+    300
+  );
+  const mode = options.mode ?? "reset";
+  const existing = mode === "append" ? (options.existingQueue ?? null) : null;
+  const startPage = Math.max(existing?.apiCursor?.page ?? 1, 1);
+
+  const skipSellerIds = new Set<string>();
+  if (existing) {
+    for (const row of [
+      ...(existing.items ?? []),
+      ...(existing.rejected ?? []),
+      ...(existing.enrichQueue ?? []),
+    ]) {
+      if (row.number) skipSellerIds.add(String(row.number));
+    }
+  }
+
+  const scan = await scanWbSellers({
+    startPage: mode === "reset" ? 1 : startPage,
+    maxSellers: maxItems,
+    maxPages: Math.min(Math.max(Math.ceil(maxItems / 15), 2), 20),
+    skipSellerIds,
+  });
+
+  const items: OutreachQueueItem[] = [];
+  const rejected: OutreachQueueItem[] = [];
+  const enrichQueue: FsaDeclaration[] = [];
+  let emailsFromList = 0;
+
+  for (const card of scan.sellers) {
+    const doc = scan.declarations.find(
+      (d) => String(d.number) === card.sellerId
+    );
+    if (!doc) continue;
+    if (card.email) {
+      emailsFromList += 1;
+      const row = toQueueItem(doc, "wb_sellers");
+      if (row.emailStatus === "eligible") items.push(row);
+      else rejected.push(row);
+      continue;
+    }
+    if (card.inn) {
+      enrichQueue.push(doc);
+      continue;
+    }
+    rejected.push({
+      ...doc,
+      emailStatus: "no_email",
+      emailRejectReason: "email_missing",
+    });
+  }
+
+  const merged = pruneOutreachQueue(
+    mergeUnique(mode === "append" ? (existing?.items ?? []) : [], items),
+    mergeUnique(mode === "append" ? (existing?.rejected ?? []) : [], rejected),
+    queueRange,
+    "wb_sellers"
+  );
+
+  return {
+    range: queueRange,
+    nextApiPage: scan.nextPage,
+    apiCursor: { page: scan.nextPage, sortIndex: 0, sliceIndex: 0 },
+    pageSize: 20,
+    hasMore: scan.hasMore,
+    items: merged.items,
+    rejected: merged.rejected,
+    enrichQueue: mergeUniqueDeclarations(
+      mode === "append" ? (existing?.enrichQueue ?? []) : [],
+      enrichQueue
+    ),
+    loadedFromApi: scan.sellers.length,
+    addedNew: scan.sellers.length,
+    emailsFromList,
+    cursorLabel: "WB главная",
+    paginationVersion: 2,
+  };
+}
+
+/** Пробная / ручная карточка WB → сразу в очередь рассылки. */
+export function upsertWbSellerCardToQueue(
+  card: WbSellerCard,
+  emailSource?: "wb" | "checko"
+): {
+  list: "eligible" | "rejected" | "enrich" | "none";
+  emailStatus?: string;
+} {
+  const range = getWbSellersRange();
+  const existing = readOutreachQueue("wb_sellers");
+  const doc = wbSellerToDeclaration(card);
+  if (emailSource === "checko") {
+    doc.productGroup = "checko";
+  } else if (card.email) {
+    doc.productGroup = "WB";
+  } else if (card.inn) {
+    doc.productGroup = "ИНН";
+  }
+
+  let items = existing?.items ?? [];
+  let rejected = existing?.rejected ?? [];
+  let enrichQueue = existing?.enrichQueue ?? [];
+  const id = doc.id;
+  const number = String(doc.number);
+
+  items = items.filter((row) => row.id !== id && String(row.number) !== number);
+  rejected = rejected.filter(
+    (row) => row.id !== id && String(row.number) !== number
+  );
+  enrichQueue = enrichQueue.filter(
+    (row) => row.id !== id && String(row.number) !== number
+  );
+
+  let list: "eligible" | "rejected" | "enrich" | "none" = "none";
+  let emailStatus: string | undefined;
+
+  if (card.email) {
+    const row = toQueueItem(doc, "wb_sellers");
+    emailStatus = row.emailStatus;
+    if (row.emailStatus === "eligible") {
+      items = mergeUnique(items, [row]);
+      list = "eligible";
+    } else {
+      rejected = mergeUnique(rejected, [row]);
+      list = "rejected";
+    }
+  } else if (card.inn) {
+    enrichQueue = mergeUniqueDeclarations(enrichQueue, [doc]);
+    list = "enrich";
+  } else {
+    rejected = mergeUnique(rejected, [
+      {
+        ...doc,
+        emailStatus: "no_email",
+        emailRejectReason: "email_missing",
+      },
+    ]);
+    list = "rejected";
+  }
+
+  const pruned = pruneOutreachQueue(items, rejected, range, "wb_sellers");
+  writeOutreachQueue({
+    scannedAt: existing?.scannedAt || new Date().toISOString(),
+    range: existing?.range ?? range,
+    category: "wb_sellers",
+    paginationVersion: existing?.paginationVersion ?? 2,
+    nextApiPage: existing?.nextApiPage ?? 1,
+    apiCursor: existing?.apiCursor ?? { page: 1, sortIndex: 0, sliceIndex: 0 },
+    pageSize: existing?.pageSize ?? 20,
+    hasMore: existing?.hasMore ?? true,
+    items: pruned.items,
+    rejected: pruned.rejected,
+    enrichQueue,
+    enrichPaused: existing?.enrichPaused,
+    enrichProcessedTotal: existing?.enrichProcessedTotal,
+    enrichEmailsFoundTotal: existing?.enrichEmailsFoundTotal,
+    enrichSessionInitialPending: existing?.enrichSessionInitialPending,
+  });
+
+  return { list, emailStatus };
+}
+
+function mergeUniqueDeclarations(
+  current: FsaDeclaration[],
+  incoming: FsaDeclaration[]
+): FsaDeclaration[] {
+  const byId = new Map(current.map((item) => [item.id, item]));
+  for (const item of incoming) {
+    byId.set(item.id, item);
+  }
+  return [...byId.values()];
+}
+
+/** Быстрая загрузка списка — ФСА, checko или WB в зависимости от категории */
 export async function bulkLoadList(
   options: BulkLoadListOptions = {}
 ): Promise<BulkLoadListResult> {
   const category = options.category ?? "expiring";
   if (isNewRegistrationsCategory(category)) {
     return bulkLoadCheckoList(options);
+  }
+  if (isWbSellersCategory(category)) {
+    return bulkLoadWbList(options);
   }
 
   const scanRange = options.range ?? getExpiringMonthRange();
@@ -811,6 +1005,121 @@ export async function enrichQueueBatch(
   batchSize = getEnrichBatchSize(),
   options?: { shouldAbort?: () => boolean }
 ): Promise<EnrichBatchResult> {
+  if (isWbSellersCategory(queue.category)) {
+    const batch = queue.enrichQueue.slice(0, Math.min(batchSize, 8));
+    if (batch.length === 0) {
+      return {
+        processed: 0,
+        requeued: 0,
+        emailsFound: 0,
+        enrichedFromCards: 0,
+        enrichPending: 0,
+        items: queue.items,
+        rejected: queue.rejected,
+        enrichQueue: [],
+      };
+    }
+
+    const delayMs = Math.min(
+      Math.max(Number(process.env.OUTREACH_CHECKO_ENRICH_DELAY_MS || 9000), 2000),
+      30_000
+    );
+    const now = new Date().toISOString();
+    const found: OutreachQueueItem[] = [];
+    const rejectedExtra: OutreachQueueItem[] = [];
+    let emailsFound = 0;
+
+    for (const item of batch) {
+      if (options?.shouldAbort?.()) break;
+      const inn = item.applicant?.inn?.replace(/\D/g, "") || "";
+      const sellerId = String(item.number || item.id);
+      if (!inn) {
+        rememberWbSeller({
+          sellerId,
+          name: item.applicant?.shortName,
+          searchedWbAt: now,
+          searchedCheckoAt: now,
+        });
+        rejectedExtra.push({
+          ...item,
+          emailStatus: "no_email",
+          emailRejectReason: "email_missing",
+        });
+        continue;
+      }
+      if (wasWbInnSearchedOnChecko(inn)) {
+        rejectedExtra.push({
+          ...item,
+          emailStatus: "no_email",
+          emailRejectReason: "email_missing",
+        });
+        continue;
+      }
+      await sleep(delayMs);
+      try {
+        const company = await lookupCheckoCompanyByInn(inn);
+        rememberWbSeller({
+          sellerId,
+          inn,
+          name: item.applicant?.shortName || company?.shortName,
+          email: company?.email,
+          emailSource: company?.email ? "checko" : undefined,
+          searchedWbAt: now,
+          searchedCheckoAt: now,
+        });
+        if (company?.email) {
+          emailsFound += 1;
+          const updated = toQueueItem(
+            {
+              ...item,
+              applicant: {
+                ...item.applicant,
+                email: company.email,
+                shortName:
+                  item.applicant?.shortName || company.shortName,
+                fullName: item.applicant?.fullName || company.fullName,
+              },
+              productGroup: "checko",
+            },
+            "wb_sellers"
+          );
+          if (updated.emailStatus === "eligible") found.push(updated);
+          else rejectedExtra.push(updated);
+        } else {
+          rejectedExtra.push({
+            ...item,
+            emailStatus: "no_email",
+            emailRejectReason: "email_missing",
+          });
+        }
+      } catch {
+        rejectedExtra.push({
+          ...item,
+          emailStatus: "no_email",
+          emailRejectReason: "email_missing",
+        });
+      }
+    }
+
+    const rest = queue.enrichQueue.slice(batch.length);
+    const merged = pruneOutreachQueue(
+      mergeUnique(queue.items, found),
+      mergeUnique(queue.rejected, rejectedExtra),
+      queue.range,
+      "wb_sellers"
+    );
+    return {
+      processed: batch.length,
+      requeued: rest.length,
+      emailsFound,
+      enrichedFromCards: emailsFound,
+      enrichPending: rest.length,
+      items: merged.items,
+      rejected: merged.rejected,
+      enrichQueue: rest,
+    };
+  }
+
   // Checko: несколько карточек в ОДНОЙ сессии браузера, паузы между ними.
   // Раньше брали по 1 и рвали job — UI снова показывал «Продолжить».
   if (isNewRegistrationsCategory(queue.category)) {

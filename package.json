@@ -17,6 +17,7 @@
     "outreach:test-checko-offline": "tsx scripts/outreach/test-checko-parse-offline.mts",
     "outreach:test-checko-admin": "tsx scripts/outreach/test-checko-admin-scenarios.mts",
     "outreach:test-checko-ui": "tsx scripts/outreach/test-checko-ui-elements.mts",
+    "outreach:test-wb": "tsx scripts/outreach/test-wb-sellers-parse.mts",
     "ops:compare-prod": "python scripts/ops/compare-prod.py",
     "ops:sync-outreach": "python scripts/ops/sync-outreach-to-prod.py",
     "outreach:test-smtp": "node scripts/outreach/test-smtp-informal.mjs",

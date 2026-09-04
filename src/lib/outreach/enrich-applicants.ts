@@ -51,6 +51,7 @@ function workersRuntime(): WorkersRuntime {
         expiring: emptyWorker(),
         expiring_certificates: emptyWorker(),
         new_registrations: emptyWorker(),
+        wb_sellers: emptyWorker(),
       },
     };
   }

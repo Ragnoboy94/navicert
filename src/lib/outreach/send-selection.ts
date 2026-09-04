@@ -17,7 +17,9 @@ export function sendBlockLabel(
         ? "письмо по этому сертификату уже отправляли"
         : category === "new_registrations"
           ? "письмо этой организации уже отправляли"
-          : "письмо по этой декларации уже отправляли";
+          : category === "wb_sellers"
+            ? "письмо этому продавцу уже отправляли"
+            : "письмо по этой декларации уже отправляли";
     case "recipient_already_sent":
       return "на этот email недавно писали — повтор позже";
     case "unsubscribed":
@@ -135,7 +137,9 @@ export function formatEmptySendMessage(
       ? "сертификаты"
       : category === "new_registrations"
         ? "организации"
-        : "декларации";
+        : category === "wb_sellers"
+          ? "продавцы"
+          : "декларации";
   const parts: string[] = [];
 
   if (summary.counts.recipient_already_sent) {
@@ -150,7 +154,9 @@ export function formatEmptySendMessage(
           ? "сертификат"
           : category === "new_registrations"
             ? "организация"
-            : "декларация"
+            : category === "wb_sellers"
+              ? "продавец"
+              : "декларация"
       } уже в истории`
     );
   }

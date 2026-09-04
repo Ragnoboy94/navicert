@@ -8,7 +8,7 @@ import {
   getZonedParts,
   readOutreachSchedule,
 } from "./schedule";
-import { isFsaOutreachCategory, isNewRegistrationsCategory } from "./category";
+import { isFsaOutreachCategory, isNewRegistrationsCategory, isWbSellersCategory } from "./category";
 import { isCheckoBlocked } from "./checko-guard";
 import type { OutreachCategory, OutreachQueue } from "./types";
 
@@ -28,6 +28,8 @@ const DAILY_SCAN_CENTER_MINUTES: Record<OutreachCategory, number> = {
   expiring_certificates: 3 * 60,
   /** Checko: 06:00 МСК (±45 мин → 05:15–06:45). */
   new_registrations: 6 * 60,
+  /** Продавцы WB: 20:00 МСК (±45 мин → 19:15–20:45), ~10 ч до checko в 06:00. */
+  wb_sellers: 20 * 60,
 };
 
 export type CronSyncResult = {
@@ -268,23 +270,29 @@ export async function runCronMaintenance(
   const checkoOk =
     !isNewRegistrationsCategory(category) || !isCheckoBlocked();
   if (
-    (isFsaOutreachCategory(category) || isNewRegistrationsCategory(category)) &&
+    (isFsaOutreachCategory(category) ||
+      isNewRegistrationsCategory(category) ||
+      isWbSellersCategory(category)) &&
     checkoOk &&
     enrichBudget > 30_000 &&
     (queue?.enrichQueue.length ?? 0) > 0 &&
     !queue?.enrichPaused &&
     !enrichStatus.running
   ) {
-    const batchMs = isNewRegistrationsCategory(category) ? 60_000 : 20_000;
+    const batchMs =
+      isNewRegistrationsCategory(category) || isWbSellersCategory(category)
+        ? 60_000
+        : 20_000;
     enqueueFsaJob({
       type: "enrich",
       category,
       priority: "low",
       source: "cron_maintenance_enrich",
       payload: {
-        maxBatches: isNewRegistrationsCategory(category)
-          ? 1
-          : Math.max(Math.floor(enrichBudget / batchMs), 1),
+        maxBatches:
+          isNewRegistrationsCategory(category) || isWbSellersCategory(category)
+            ? 1
+            : Math.max(Math.floor(enrichBudget / batchMs), 1),
       },
     });
   }

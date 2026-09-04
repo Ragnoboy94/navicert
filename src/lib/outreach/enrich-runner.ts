@@ -53,6 +53,7 @@ function runtime(): EnrichRuntime {
         expiring: emptyCategoryRuntime(),
         expiring_certificates: emptyCategoryRuntime(),
         new_registrations: emptyCategoryRuntime(),
+        wb_sellers: emptyCategoryRuntime(),
       },
     };
   }

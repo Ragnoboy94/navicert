@@ -389,6 +389,77 @@ export function parseCheckoCompanyPage(
   };
 }
 
+function htmlLooksLikeCheckoCaptcha(html: string): boolean {
+  return /подтвердите, что вы человек|большое количество запросов|smart-captcha/i.test(
+    html
+  );
+}
+
+/**
+ * Поиск карточки checko по ИНН (для продавцов WB без email на карточке).
+ * Сначала обычный GET /search?query=ИНН, при капче — тот же Playwright-профиль.
+ */
+export async function lookupCheckoCompanyByInn(
+  inn: string
+): Promise<CheckoCompany | null> {
+  const cleaned = inn.replace(/\D/g, "");
+  if (cleaned.length !== 10 && cleaned.length !== 12) return null;
+  if (isCheckoBlocked()) {
+    throw new Error(getCheckoBlockReason() || "CHECKO_ACCESS_LIMITED");
+  }
+
+  const searchUrl = `${CHECKO_BASE}/search?query=${encodeURIComponent(cleaned)}`;
+  try {
+    const res = await fetch(searchUrl, {
+      headers: {
+        "User-Agent": USER_AGENT,
+        "Accept-Language": "ru-RU,ru;q=0.9",
+        Accept: "text/html,application/xhtml+xml",
+      },
+      redirect: "follow",
+    });
+    const html = await res.text();
+    if (res.status < 400 && !htmlLooksLikeCheckoCaptcha(html)) {
+      let pathname = "";
+      try {
+        pathname = new URL(res.url).pathname;
+      } catch {
+        pathname = "";
+      }
+      if (/\/company\//i.test(pathname)) {
+        return parseCheckoCompanyPage(html, pathname);
+      }
+    }
+  } catch {
+    /* ниже — браузер */
+  }
+
+  return withCheckoProfileLock(
+    async () => {
+      const headed = process.env.OUTREACH_CHECKO_HEADED === "1";
+      const { context, page } = await openCheckoContext(headed);
+      try {
+        await page.goto(searchUrl, {
+          waitUntil: "domcontentloaded",
+          timeout: 60_000,
+        });
+        await sleep(1500);
+        const html = await page.content();
+        if (htmlLooksLikeCheckoCaptcha(html)) {
+          markCheckoBlocked("капча при поиске по ИНН");
+          throw new Error("CHECKO_ACCESS_LIMITED");
+        }
+        const pathname = new URL(page.url()).pathname;
+        if (!/\/company\//i.test(pathname)) return null;
+        return parseCheckoCompanyPage(html, pathname);
+      } finally {
+        await context.close().catch(() => undefined);
+      }
+    },
+    { label: "inn-lookup", waitMs: 180_000 }
+  );
+}
+
 function hashString(value: string): number {
   let h = 0;
   for (let i = 0; i < value.length; i++) {

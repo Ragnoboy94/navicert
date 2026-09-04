@@ -12,7 +12,9 @@ function schedulePath(category: OutreachCategory): string {
       ? "outreach-certificates-schedule.json"
       : category === "new_registrations"
         ? "outreach-new-registrations-schedule.json"
-        : "outreach-schedule.json";
+        : category === "wb_sellers"
+          ? "outreach-wb-sellers-schedule.json"
+          : "outreach-schedule.json";
   return path.join(process.cwd(), "data", file);
 }
 const TIMEZONE = "Europe/Moscow";

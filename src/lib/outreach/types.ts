@@ -1,12 +1,14 @@
 export type OutreachCategory =
   | "expiring"
   | "expiring_certificates"
-  | "new_registrations";
+  | "new_registrations"
+  | "wb_sellers";
 
 export const OUTREACH_CATEGORY_LABELS: Record<OutreachCategory, string> = {
   expiring: "уведомления о заканчивающихся декларациях",
   expiring_certificates: "уведомления о заканчивающихся сертификатах",
   new_registrations: "уведомления новым организациям (checko)",
+  wb_sellers: "уведомления продавцам Wildberries",
 };
 
 export type OutreachUnsubscribeRecord = {

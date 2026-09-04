@@ -66,6 +66,9 @@ export function buildOutreachSubject(
 ): string {
   const category = options?.category ?? "expiring";
   const company = companyName(declaration);
+  if (category === "wb_sellers") {
+    return `Документы для поставок на Wildberries — ${company}`;
+  }
   if (category === "new_registrations") {
     return `Требования к документам ${company} в 2026 году.`;
   }
@@ -144,7 +147,48 @@ function certificateBodyBlocks(declaration: FsaDeclaration): BodyBlock[] {
   ];
 }
 
-/** Шаблон «Недавно зарегистрированным ООО» (актуальный). */
+/** Временный шаблон продавцам Wildberries (финальный текст позже). */
+function wbSellerBodyBlocks(declaration: FsaDeclaration): BodyBlock[] {
+  const recipient = companyName(declaration);
+  const site = getSite();
+  const siteUrl =
+    process.env.OUTREACH_SITE_URL?.trim() || "https://navicert-info.ru";
+  const fromName = getOutreachFromName();
+
+  return [
+    { type: "p", text: "Здравствуйте!" },
+    {
+      type: "p",
+      text: "Это Громов Андрей, руководитель направления в центре сертификации «Нависерт».",
+    },
+    {
+      type: "p",
+      text: `Пишу вам как продавцу на Wildberries — ${recipient}.`,
+    },
+    {
+      type: "p",
+      text: "При поставках на маркетплейс и проверках документов всё чаще смотрят сертификаты, декларации и маркировку. Если чего-то не хватает, карточку могут снять, а поставку задержать.",
+    },
+    {
+      type: "p",
+      text: "Подскажите, по вашему ассортименту уже собраны нужные документы?",
+    },
+    {
+      type: "p",
+      text: "Если нет — напишите, что продаёте, и я пришлю список документов и варианты оформления.",
+    },
+    {
+      type: "p",
+      text: `Желаю ${recipient} стабильных продаж и спокойных проверок!`,
+    },
+    { type: "p", text: "С уважением," },
+    { type: "p", text: fromName },
+    { type: "p", text: "Руководитель направления, ЦС «Нависерт»" },
+    { type: "p", text: `Тел.: ${site.phone}` },
+    { type: "p", text: siteUrl },
+  ];
+}
+
 function newRegistrationBodyBlocks(declaration: FsaDeclaration): BodyBlock[] {
   const recipient = companyName(declaration);
   const site = getSite();
@@ -190,6 +234,9 @@ function bodyBlocks(
   declaration: FsaDeclaration,
   category: OutreachCategory
 ): BodyBlock[] {
+  if (category === "wb_sellers") {
+    return wbSellerBodyBlocks(declaration);
+  }
   if (category === "new_registrations") {
     return newRegistrationBodyBlocks(declaration);
   }
@@ -266,7 +313,7 @@ export function buildOutreachBody(
   const lines = blocksToText(bodyBlocks(declaration, outreachCategory));
   // У новых организаций контакты уже в подписи шаблона — общий футер не дублируем.
   const withFooter =
-    outreachCategory === "new_registrations"
+    outreachCategory === "new_registrations" || outreachCategory === "wb_sellers"
       ? lines
       : `${lines}\n\n${footerLine().text}`;
 
@@ -293,7 +340,7 @@ export function buildOutreachHtml(
 
   const htmlBody = blocksToHtml(bodyBlocks(declaration, outreachCategory));
   const footerHtml =
-    outreachCategory === "new_registrations"
+    outreachCategory === "new_registrations" || outreachCategory === "wb_sellers"
       ? ""
       : `<p>${footerLine().html}</p>`;
 

@@ -46,6 +46,7 @@ export function isEnrichItemInRange(
   range: { from: string; to: string },
   category: OutreachCategory = "expiring"
 ): boolean {
+  if (category === "wb_sellers") return true;
   if (category === "new_registrations") {
     // Уже знаем ОКВЭД и он вне allowlist — не тратим карточку.
     if (hasKnownOkved(declaration) && !isAllowedNewRegOkved(declaration)) {
@@ -72,6 +73,7 @@ function inDateWindow(
   range: { from: string; to: string },
   category: OutreachCategory
 ): boolean {
+  if (category === "wb_sellers") return true;
   if (category === "new_registrations") {
     const hasDate =
       Boolean(parseAnyDate(item.endDate)) ||
@@ -91,6 +93,14 @@ export function pruneOutreachQueue(
   const sentIds = new Set(
     readSentRecordsByCategory(category).map((record) => record.declarationId)
   );
+
+  if (category === "wb_sellers") {
+    const keep = (item: OutreachQueueItem) => !sentIds.has(item.id);
+    return {
+      items: items.filter(keep),
+      rejected: rejected.filter(keep),
+    };
+  }
 
   if (category !== "new_registrations") {
     const keep = (item: OutreachQueueItem) => {

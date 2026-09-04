@@ -4,6 +4,7 @@ import { normalizeCertificate, normalizeDeclaration } from "./fsa";
 import { pruneOutreachQueue, isEnrichItemInRange } from "./queue-cleanup";
 import { healFsaPagination } from "./fsa-pagination";
 import { getNewRegistrationsRange } from "./checko-range";
+import { getWbSellersRange } from "./wb-sellers";
 import type { OutreachQueue } from "./types";
 import type { OutreachCategory } from "./types";
 
@@ -13,7 +14,9 @@ function queuePath(category: OutreachCategory): string {
       ? "outreach-certificates-queue.json"
       : category === "new_registrations"
         ? "outreach-new-registrations-queue.json"
-        : "outreach-queue.json";
+        : category === "wb_sellers"
+          ? "outreach-wb-sellers-queue.json"
+          : "outreach-queue.json";
   return path.join(process.cwd(), "data", file);
 }
 
@@ -63,7 +66,7 @@ export function readOutreachQueue(
   // Категория берётся из пути файла — иначе запись может уйти в чужой контур
   const stamped: OutreachQueue = { ...raw, category };
   const healedResult =
-    category === "new_registrations"
+    category === "new_registrations" || category === "wb_sellers"
       ? { queue: stamped, changed: false }
       : healFsaPagination(stamped);
   const withCategory: OutreachQueue = { ...healedResult.queue, category };
@@ -92,7 +95,9 @@ export function sanitizeOutreachQueue(queue: OutreachQueue): OutreachQueue {
   const current =
     normalized.category === "new_registrations"
       ? getNewRegistrationsRange()
-      : getExpiringMonthRange();
+      : normalized.category === "wb_sellers"
+        ? getWbSellersRange()
+        : getExpiringMonthRange();
   const rangeChanged =
     !normalized.range ||
     normalized.range.from !== current.from ||
@@ -120,11 +125,19 @@ export function sanitizeOutreachQueue(queue: OutreachQueue): OutreachQueue {
       ? {
           // checko — страницы 1-based; ФСА — с 0. Не смешивать.
           apiCursor: {
-            page: normalized.category === "new_registrations" ? 1 : 0,
+            page:
+              normalized.category === "new_registrations" ||
+              normalized.category === "wb_sellers"
+                ? 1
+                : 0,
             sortIndex: 0,
             sliceIndex: 0,
           },
-          nextApiPage: normalized.category === "new_registrations" ? 1 : 0,
+          nextApiPage:
+            normalized.category === "new_registrations" ||
+            normalized.category === "wb_sellers"
+              ? 1
+              : 0,
           hasMore: true,
           paginationVersion: 2,
         }
@@ -190,7 +203,7 @@ function migrateEnrichCounters(queue: OutreachQueue): OutreachQueue {
 
 function normalizeQueue(queue: OutreachQueue): OutreachQueue {
   const migrated = migrateEnrichCounters(queue);
-  if (queue.category === "new_registrations") {
+  if (queue.category === "new_registrations" || queue.category === "wb_sellers") {
     const apiCursor = migrated.apiCursor ?? {
       page: migrated.nextApiPage ?? 0,
       sortIndex: 0,
@@ -198,7 +211,7 @@ function normalizeQueue(queue: OutreachQueue): OutreachQueue {
     };
     return {
       ...migrated,
-      category: "new_registrations",
+      category: queue.category,
       nextApiPage: apiCursor.page,
       apiCursor,
       paginationVersion: Math.max(migrated.paginationVersion ?? 1, 2),

@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { isNewRegistrationsCategory } from "./category";
+import { isNewRegistrationsCategory, isWbSellersCategory } from "./category";
 import { classifyEmail, isCorporateEmail } from "./email-filter";
 import {
   prepareOutreachQueueForSending,
@@ -22,7 +22,7 @@ import { isUnsubscribed } from "./unsubscribe";
 
 const DEFAULT_CATEGORY: OutreachCategory = "expiring";
 
-/** SMTP для категории рассылки. Новые организации — отдельный ящик mail@. */
+/** SMTP для категории рассылки. Новые организации и WB — ящик mail@. */
 export function resolveOutreachSmtpAccount(category: OutreachCategory): {
   host: string;
   user: string | undefined;
@@ -35,7 +35,7 @@ export function resolveOutreachSmtpAccount(category: OutreachCategory): {
     process.env.SMTP_HOST?.trim() ||
     "smtp.yandex.ru";
 
-  if (isNewRegistrationsCategory(category)) {
+  if (isNewRegistrationsCategory(category) || isWbSellersCategory(category)) {
     const user =
       process.env.OUTREACH_NEW_REG_SMTP_USER?.trim() ||
       "mail@navicert-info.ru";
@@ -78,7 +78,9 @@ function sentPath(category: OutreachCategory): string {
       ? "outreach-certificates-sent.json"
       : category === "new_registrations"
         ? "outreach-new-registrations-sent.json"
-        : "outreach-sent.json";
+        : category === "wb_sellers"
+          ? "outreach-wb-sellers-sent.json"
+          : "outreach-sent.json";
   return path.join(process.cwd(), "data", file);
 }
 

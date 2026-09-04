@@ -50,6 +50,10 @@ yarn-error.log*
 /data/outreach-new-registrations-queue.json
 /data/outreach-new-registrations-sent.json
 /data/outreach-new-registrations-schedule.json
+/data/outreach-wb-sellers-queue.json
+/data/outreach-wb-sellers-sent.json
+/data/outreach-wb-sellers-schedule.json
+/data/outreach-wb-sellers-seen.json
 /data/checko-prod-skip.json
 /data/outreach-unsubscribed.json
 /data/outreach-schedule.json
@@ -74,10 +78,17 @@ scripts/outreach/_*
 scripts/vpn/*.json
 scripts/vpn/*.py
 
-# браузеры Playwright для парсера ФСА / checko
+# браузеры Playwright для парсера ФСА / checko / WB
 .playwright-browsers/
 data/checko-pw-profile/
-data/checko-pw-profile-test/
+data/checko-pw-profile-*/
 data/companium-pw-profile/
+data/wb-pw-profile/
+data/wb-pw-profile-*/
 data/checko-access-block.json
 data/checko-pw-profile.lock
+data/checko-gap-report.json
+data/wb-seller-*.html
+data/wb-seller-*.txt
+data/wb-seller-*-net.json
+scripts/ops/_*

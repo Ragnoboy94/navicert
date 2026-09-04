@@ -66,7 +66,8 @@ export async function POST(request: Request) {
     source: "admin_enrich_button",
     // checko: 1–3 сессии; внутри сессии до ~12 карточек с паузами.
     payload: {
-      maxBatches: category === "new_registrations" ? 2 : 3,
+      maxBatches:
+        category === "new_registrations" || category === "wb_sellers" ? 2 : 3,
     },
   });
   if (queued.accepted) {

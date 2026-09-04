@@ -18,6 +18,7 @@ const CRON_CATEGORIES: OutreachCategory[] = [
   "expiring",
   "expiring_certificates",
   "new_registrations",
+  "wb_sellers",
 ];
 
 async function runCategoryCron(category: OutreachCategory, maxMs: number) {

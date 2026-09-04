@@ -8,8 +8,9 @@ import {
   getCheckoBlockReason,
   markCheckoBlocked,
 } from "./checko-guard";
-import { isNewRegistrationsCategory } from "./category";
+import { isNewRegistrationsCategory, isWbSellersCategory } from "./category";
 import { getCheckoDailyScanRange, getNewRegistrationsRange } from "./checko-range";
+import { getWbSellersRange } from "./wb-sellers";
 import { logCheckoScan } from "./checko";
 import { getDateKey, writeOutreachSchedule } from "./schedule";
 import type { OutreachCategory } from "./types";
@@ -231,12 +232,16 @@ async function runScanJob(job: Extract<FsaJob, { type: "scan" }>): Promise<strin
   let queueRange: { from: string; to: string } | undefined;
 
   if (dailyScan) {
-    scanRange = isNewRegistrationsCategory(job.category)
-      ? getCheckoDailyScanRange()
-      : getFsaDailyScanRange();
-    queueRange = isNewRegistrationsCategory(job.category)
-      ? existing?.range ?? getNewRegistrationsRange()
-      : existing?.range ?? getExpiringMonthRange();
+    if (isWbSellersCategory(job.category)) {
+      scanRange = getWbSellersRange();
+      queueRange = existing?.range ?? getWbSellersRange();
+    } else if (isNewRegistrationsCategory(job.category)) {
+      scanRange = getCheckoDailyScanRange();
+      queueRange = existing?.range ?? getNewRegistrationsRange();
+    } else {
+      scanRange = getFsaDailyScanRange();
+      queueRange = existing?.range ?? getExpiringMonthRange();
+    }
   }
 
   const dailyChecko =
@@ -287,7 +292,10 @@ async function runScanJob(job: Extract<FsaJob, { type: "scan" }>): Promise<strin
       source: "scan_followup",
       // checko: 1 сессия (~десяток карточек с паузами), дальше continue.
       payload: {
-        maxBatches: job.category === "new_registrations" ? 1 : 2,
+        maxBatches:
+          job.category === "new_registrations" || job.category === "wb_sellers"
+            ? 1
+            : 2,
       },
     });
   }
