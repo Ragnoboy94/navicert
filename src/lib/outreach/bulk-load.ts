@@ -611,7 +611,11 @@ async function bulkLoadWbList(
 /** Пробная / ручная карточка WB → сразу в очередь рассылки. */
 export function upsertWbSellerCardToQueue(
   card: WbSellerCard,
-  emailSource?: "wb" | "checko"
+  emailSource?: "wb" | "checko",
+  options?: {
+    /** Checko уже искали — без почты не класть снова в enrich. */
+    checkoNoEmail?: boolean;
+  }
 ): {
   list: "eligible" | "rejected" | "enrich" | "none";
   emailStatus?: string;
@@ -654,6 +658,17 @@ export function upsertWbSellerCardToQueue(
       rejected = mergeUnique(rejected, [row]);
       list = "rejected";
     }
+  } else if (options?.checkoNoEmail || emailSource === "checko") {
+    // Checko уже ответил «почты нет» — в enrich не возвращаем.
+    emailStatus = "no_email";
+    rejected = mergeUnique(rejected, [
+      {
+        ...doc,
+        emailStatus: "no_email",
+        emailRejectReason: "email_missing",
+      },
+    ]);
+    list = "rejected";
   } else if (card.inn) {
     enrichQueue = mergeUniqueDeclarations(enrichQueue, [doc]);
     list = "enrich";

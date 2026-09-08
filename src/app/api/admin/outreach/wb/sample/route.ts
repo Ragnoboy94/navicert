@@ -41,16 +41,38 @@ export async function POST(request: Request) {
         );
       }
       const company = await lookupCheckoCompanyByInn(inn);
+      const seen = sellerId
+        ? readWbSeenStore().bySellerId[sellerId]
+        : undefined;
+      const now = new Date().toISOString();
+
       if (!company?.email) {
+        const card: WbSellerCard = {
+          sellerId: sellerId || inn,
+          url:
+            company?.url ||
+            `https://www.wildberries.ru/seller/${sellerId || inn}`,
+          name: seen?.name || company?.shortName || company?.fullName,
+          legalName: company?.fullName || company?.shortName || seen?.name,
+          inn,
+          ogrn: company?.ogrn,
+          emails: [],
+        };
+        rememberWbSeller({
+          sellerId: card.sellerId,
+          inn,
+          name: card.name || card.legalName,
+          searchedCheckoAt: now,
+        });
+        upsertWbSellerCardToQueue(card, "checko", {
+          checkoNoEmail: true,
+        });
         return NextResponse.json({
           ok: false,
           error: "На checko.ru не нашли почту по этому ИНН",
         });
       }
 
-      const seen = sellerId
-        ? readWbSeenStore().bySellerId[sellerId]
-        : undefined;
       const card: WbSellerCard = {
         sellerId: sellerId || inn,
         url: company.url || `https://www.wildberries.ru/seller/${sellerId}`,
@@ -67,7 +89,7 @@ export async function POST(request: Request) {
         name: card.name || card.legalName,
         email: company.email,
         emailSource: "checko",
-        searchedCheckoAt: new Date().toISOString(),
+        searchedCheckoAt: now,
       });
       const queued = upsertWbSellerCardToQueue(card, "checko");
       return NextResponse.json({
