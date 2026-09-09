@@ -20,6 +20,12 @@ export async function POST(request: Request) {
   const url = new URL(request.url);
   const category = parseOutreachCategory(body.category ?? url.searchParams.get("category"));
   const mode = body.mode === "append" ? "append" : "reset";
+  const dailyScan = Boolean(body.dailyScan);
+  const scanDayRaw = typeof body.scanDay === "string" ? body.scanDay.trim() : "";
+  const scanDay =
+    dailyScan && /^\d{4}-\d{2}-\d{2}$/.test(scanDayRaw) ? scanDayRaw : undefined;
+  const todayOnly = Boolean(body.todayOnly) && dailyScan && !scanDay;
+  const dayScan = Boolean(scanDay || todayOnly);
   const defaultMaxItems = mode === "append" ? 100 : 1000;
   const minItems = mode === "append" ? 10 : 50;
   const maxItems = Math.min(
@@ -36,12 +42,26 @@ export async function POST(request: Request) {
     );
   }
 
+  if (dayScan && category !== "new_registrations") {
+    return NextResponse.json(
+      { error: "Загрузка за день доступна только для новых организаций" },
+      { status: 400 }
+    );
+  }
+
   const enqueued = enqueueFsaJob({
     type: "scan",
     category,
     priority: "high",
-    source: "admin_scan_button",
-    payload: { mode, maxItems, pageSize },
+    source: dayScan ? "admin_scan_day" : "admin_scan_button",
+    payload: {
+      mode,
+      maxItems,
+      pageSize,
+      ...(dailyScan ? { dailyScan: true } : {}),
+      ...(todayOnly ? { todayOnly: true } : {}),
+      ...(scanDay ? { scanDay } : {}),
+    },
   });
 
   if (!enqueued.accepted) {
@@ -70,6 +90,13 @@ export async function POST(request: Request) {
   kickFsaDrain(category, 180_000);
   after(() => kickFsaDrain(category, 180_000));
 
+  const dayLabel = scanDay
+    ? (() => {
+        const m = scanDay.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        return m ? `${m[3]}.${m[2]}.${m[1]}` : scanDay;
+      })()
+    : null;
+
   return NextResponse.json({
     ok: true,
     queued: true,
@@ -81,8 +108,12 @@ export async function POST(request: Request) {
       ? mode === "reset"
         ? "Полная загрузка уже стоит в очереди."
         : "Задача уже стоит в очереди. Когда очередь дойдёт, список обновится."
-      : mode === "append"
-        ? `В очередь: +${maxItems} (догрузок: ${pendingAppend}). Обработка уже запускается.`
-        : "Запрос добавлен в очередь — обработка уже запускается.",
+      : dayScan
+        ? dayLabel
+          ? `Принято: загрузка новых организаций за ${dayLabel}.`
+          : "Принято: загрузка новых организаций за сегодня."
+        : mode === "append"
+          ? `В очередь: +${maxItems} (догрузок: ${pendingAppend}). Обработка уже запускается.`
+          : "Запрос добавлен в очередь — обработка уже запускается.",
   });
 }

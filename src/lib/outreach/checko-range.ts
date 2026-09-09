@@ -51,6 +51,31 @@ export function getCheckoDailyScanRange(now = new Date()): {
   return { from: isoToRuDate(fromIso), to: isoToRuDate(toIso) };
 }
 
+/** Только сегодняшний день (МСК) — кнопка «Загрузить за сегодня». */
+export function getCheckoTodayScanRange(now = new Date()): {
+  from: string;
+  to: string;
+} {
+  return getCheckoDayScanRange(todayIsoMoscow(now));
+}
+
+/** Один календарный день (МСК). `dayIso` = YYYY-MM-DD. */
+export function getCheckoDayScanRange(dayIso: string): {
+  from: string;
+  to: string;
+} {
+  const m = dayIso.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) {
+    return getCheckoTodayScanRange();
+  }
+  const day = isoToRuDate(`${m[1]}-${m[2]}-${m[3]}`);
+  return { from: day, to: day };
+}
+
+export function moscowTodayIso(now = new Date()): string {
+  return todayIsoMoscow(now);
+}
+
 export function ruDateToIso(ru: string): string {
   const m = ru.trim().match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
   if (!m) return ru;

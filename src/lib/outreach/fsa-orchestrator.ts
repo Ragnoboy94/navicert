@@ -9,7 +9,7 @@ import {
   markCheckoBlocked,
 } from "./checko-guard";
 import { isNewRegistrationsCategory, isWbSellersCategory } from "./category";
-import { getCheckoDailyScanRange, getNewRegistrationsRange } from "./checko-range";
+import { getCheckoDailyScanRange, getCheckoDayScanRange, getCheckoTodayScanRange, getNewRegistrationsRange } from "./checko-range";
 import { getWbSellersRange } from "./wb-sellers";
 import { logCheckoScan } from "./checko";
 import { getDateKey, writeOutreachSchedule } from "./schedule";
@@ -37,8 +37,12 @@ type FsaScanPayload = {
   mode: "reset" | "append";
   maxItems: number;
   pageSize: number;
-  /** Ночной cron: узкий фильтр (FSA to / checko сегодня−2…сегодня) */
+  /** Ночной cron / ручная узкая выгрузка: узкий фильтр дат */
   dailyScan?: boolean;
+  /** Только сегодня (МСК); вместе с dailyScan. Не трогает lastFsaSyncDate. */
+  todayOnly?: boolean;
+  /** Один день YYYY-MM-DD (МСК). Вместе с dailyScan; не трогает lastFsaSyncDate. */
+  scanDay?: string;
 };
 
 type FsaJob =
@@ -236,7 +240,12 @@ async function runScanJob(job: Extract<FsaJob, { type: "scan" }>): Promise<strin
       scanRange = getWbSellersRange();
       queueRange = existing?.range ?? getWbSellersRange();
     } else if (isNewRegistrationsCategory(job.category)) {
-      scanRange = getCheckoDailyScanRange();
+      const day = job.payload.scanDay?.trim();
+      scanRange = day
+        ? getCheckoDayScanRange(day)
+        : job.payload.todayOnly
+          ? getCheckoTodayScanRange()
+          : getCheckoDailyScanRange();
       queueRange = existing?.range ?? getNewRegistrationsRange();
     } else {
       scanRange = getFsaDailyScanRange();
@@ -304,18 +313,28 @@ async function runScanJob(job: Extract<FsaJob, { type: "scan" }>): Promise<strin
       dailyChecko &&
       result.loadedFromApi === 0 &&
       result.enrichQueue.length === 0;
-    if (!checkoEmpty) {
+    // Ручная выгрузка за день не закрывает день для ночного cron.
+    if (!checkoEmpty && !job.payload.todayOnly && !job.payload.scanDay) {
       // День закрываем только после реального прогона (checko +0 → можно повторить в окне).
       writeOutreachSchedule({
         category: job.category,
         lastFsaSyncDate: getDateKey(new Date(), "Europe/Moscow"),
         lastFsaSyncAt: new Date().toISOString(),
       });
-    } else {
+    } else if (checkoEmpty) {
       logCheckoScan("cron_job_empty_retryable", {
         jobId: job.id,
         source: job.source,
         durationMs: Date.now() - jobStarted,
+      });
+    } else if (job.payload.todayOnly || job.payload.scanDay) {
+      logCheckoScan("admin_day_scan_done", {
+        jobId: job.id,
+        source: job.source,
+        durationMs: Date.now() - jobStarted,
+        loadedFromApi: result.loadedFromApi,
+        scanDay: job.payload.scanDay || null,
+        todayOnly: Boolean(job.payload.todayOnly),
       });
     }
   }
@@ -672,7 +691,14 @@ function sanitizeJobError(msg: string): string {
   if (/HTTP 429|HTTP 503|перегружен/i.test(msg)) {
     return "Сайт временно перегружен (слишком много запросов). Записи в очередь не попали. Подождите несколько минут.";
   }
-  if (/Timeout|timeout|не ответил/i.test(msg)) {
+  if (
+    /ERR_TIMED_OUT|ERR_PROXY|ERR_TUNNEL|ERR_CONNECTION|ERR_NETWORK|net::ERR_|page\.goto:/i.test(
+      msg
+    )
+  ) {
+    return "Не удалось открыть checko.ru (сеть или прокси не ответили вовремя). Записи в очередь не попали — попробуйте ещё раз через минуту.";
+  }
+  if (/Timeout|timeout|не ответил|TIMED_OUT/i.test(msg)) {
     return "Сайт не ответил вовремя. Записи в очередь не попали.";
   }
   return msg.length > 280 ? `${msg.slice(0, 277)}…` : msg;

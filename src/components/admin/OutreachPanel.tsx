@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   AlertCircle,
+  Calendar,
   ChevronDown,
   Mail,
   Power,
@@ -13,7 +14,14 @@ import {
 } from "lucide-react";
 import { AdminCard } from "./ui";
 import { MAX_BATCH_SEND, MAX_DAILY_SEND } from "@/lib/outreach/limits";
+import { moscowTodayIso } from "@/lib/outreach/checko-range";
 import type { OutreachCategory } from "@/lib/outreach/types";
+
+function isoToRuShort(iso: string): string {
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return iso;
+  return `${m[3]}.${m[2]}.${m[1]}`;
+}
 
 type QueueItem = {
   id: number;
@@ -671,6 +679,8 @@ export function OutreachPanel({
   const [enrichStarting, setEnrichStarting] = useState(false);
   const [listFilter, setListFilter] = useState<ListFilter>("pending");
   const [showLoadConfirm, setShowLoadConfirm] = useState(false);
+  const [checkoScanDay, setCheckoScanDay] = useState(() => moscowTodayIso());
+  const checkoDayInputRef = useRef<HTMLInputElement>(null);
   const [checkingFsaAccess, setCheckingFsaAccess] = useState(false);
   const [checkingCheckoAccess, setCheckingCheckoAccess] = useState(false);
   const [checkingWbAccess, setCheckingWbAccess] = useState(false);
@@ -1127,7 +1137,8 @@ export function OutreachPanel({
 
   async function runScan(
     mode: "reset" | "append",
-    maxItemsOverride?: number
+    maxItemsOverride?: number,
+    options?: { dailyScan?: boolean; todayOnly?: boolean; scanDay?: string }
   ) {
     if (mode === "reset") setScanning(true);
     else setAppending(true);
@@ -1144,7 +1155,15 @@ export function OutreachPanel({
           method: "POST",
           credentials: "same-origin",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ mode, maxItems, pageSize: 100, category }),
+          body: JSON.stringify({
+            mode,
+            maxItems,
+            pageSize: 100,
+            category,
+            ...(options?.dailyScan ? { dailyScan: true } : {}),
+            ...(options?.todayOnly ? { todayOnly: true } : {}),
+            ...(options?.scanDay ? { scanDay: options.scanDay } : {}),
+          }),
         }
       );
       const json = await res.json().catch(() => ({}));
@@ -1169,12 +1188,17 @@ export function OutreachPanel({
             ? json.pendingAppendScans
             : null;
         // Не обещаем «данные обновятся» — только что задача принята.
+        const dayScan = Boolean(
+          options?.dailyScan && (options.todayOnly || options.scanDay)
+        );
         setMessage(
           json.duplicate
             ? String(json.message || "Задача уже выполняется.")
-            : mode === "append" && pending != null
-              ? `Принято: +${amount} (в очереди догрузок: ${pending}).`
-              : `Принято: загрузка до ${amount} записей.`
+            : dayScan && json.message
+              ? String(json.message)
+              : mode === "append" && pending != null
+                ? `Принято: +${amount} (в очереди догрузок: ${pending}).`
+                : `Принято: загрузка до ${amount} записей.`
         );
         const fsaQueue = json.fsaQueue as FsaQueueStatus | undefined;
         // Только серверный статус — без фейка «running + срочных 0».
@@ -1253,6 +1277,27 @@ export function OutreachPanel({
     setShowLoadConfirm(false);
     const mode = data?.scannedAt ? "append" : "reset";
     void runScan(mode, INITIAL_LOAD_MAX);
+  }
+
+  function requestTodayLoad() {
+    if (!isChecko || scanning || appending) return;
+    const mode = data?.scannedAt ? "append" : "reset";
+    const today = moscowTodayIso();
+    const day = checkoScanDay || today;
+    void runScan(mode, INITIAL_LOAD_MAX, {
+      dailyScan: true,
+      ...(day === today ? { todayOnly: true } : { scanDay: day }),
+    });
+  }
+
+  function openCheckoDayPicker() {
+    const input = checkoDayInputRef.current;
+    if (!input) return;
+    try {
+      input.showPicker();
+    } catch {
+      input.click();
+    }
   }
 
   async function checkFsaAccess() {
@@ -2006,6 +2051,56 @@ export function OutreachPanel({
                 ? `Догрузить ещё ${APPEND_LOAD_MAX} (в очереди ${data?.fsaQueue?.pendingScanAppend})`
                 : `Догрузить следующие ${APPEND_LOAD_MAX}`}
           </button>
+
+          {isChecko ? (
+            <div className="inline-flex items-stretch overflow-hidden rounded-md border border-border">
+              <button
+                type="button"
+                onClick={requestTodayLoad}
+                disabled={scanning || appending}
+                className="btn-ghost inline-flex gap-2 rounded-none border-0 px-4 py-2.5 text-sm"
+                title={
+                  checkoScanDay === moscowTodayIso()
+                    ? "Организации, зарегистрированные сегодня (МСК)"
+                    : `Организации за ${isoToRuShort(checkoScanDay)} (МСК)`
+                }
+              >
+                <Search
+                  className={`h-4 w-4 ${scanning || appending ? "animate-pulse" : ""}`}
+                />
+                {scanning || appending
+                  ? "Загрузка…"
+                  : checkoScanDay === moscowTodayIso()
+                    ? "Загрузить за сегодня"
+                    : `Загрузить за ${isoToRuShort(checkoScanDay)}`}
+              </button>
+              <button
+                type="button"
+                onClick={openCheckoDayPicker}
+                disabled={scanning || appending}
+                className="btn-ghost inline-flex items-center justify-center rounded-none border-0 border-l border-border px-3 py-2.5 text-sm"
+                title="Выбрать дату"
+                aria-label="Выбрать дату загрузки"
+              >
+                <Calendar className="h-4 w-4" />
+              </button>
+              <input
+                ref={checkoDayInputRef}
+                type="date"
+                value={checkoScanDay}
+                max={moscowTodayIso()}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  if (/^\d{4}-\d{2}-\d{2}$/.test(next)) {
+                    setCheckoScanDay(next);
+                  }
+                }}
+                className="sr-only"
+                tabIndex={-1}
+                aria-hidden
+              />
+            </div>
+          ) : null}
 
           <label className="text-sm">
             <span className="mb-1 block text-muted">Отправить первым</span>

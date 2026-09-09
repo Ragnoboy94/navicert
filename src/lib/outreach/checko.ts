@@ -160,6 +160,43 @@ function humanPauseMs(baseMs: number): number {
   return Math.round(baseMs * jitter);
 }
 
+/** Устойчивый переход на checko: commit → retry, иначе сырой ERR_TIMED_OUT. */
+async function gotoCheckoPage(
+  page: {
+    goto: (
+      url: string,
+      options?: { waitUntil?: "commit" | "domcontentloaded"; timeout?: number }
+    ) => Promise<unknown>;
+  },
+  url: string,
+  timeoutMs = 120_000
+): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const waitUntil = attempt === 1 ? "commit" : "domcontentloaded";
+    try {
+      await page.goto(url, { waitUntil, timeout: timeoutMs });
+      return;
+    } catch (error) {
+      lastError = error;
+      const msg = error instanceof Error ? error.message : String(error);
+      const retryable =
+        /ERR_TIMED_OUT|Timeout|timed?\s*out|ERR_PROXY|ERR_TUNNEL|ERR_CONNECTION|ERR_NETWORK|NS_ERROR/i.test(
+          msg
+        );
+      if (!retryable || attempt === 3) break;
+      checkoDebugWarn(
+        `[checko] goto retry ${attempt}/3 (${waitUntil}):`,
+        msg.slice(0, 160)
+      );
+      await sleep(1500 * attempt);
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error(String(lastError ?? "checko goto failed"));
+}
+
 function checkoProfileDir(slot = 0): string {
   return slot <= 0
     ? path.join(process.cwd(), "data", "checko-pw-profile")
@@ -439,10 +476,7 @@ export async function lookupCheckoCompanyByInn(
       const headed = process.env.OUTREACH_CHECKO_HEADED === "1";
       const { context, page } = await openCheckoContext(headed);
       try {
-        await page.goto(searchUrl, {
-          waitUntil: "domcontentloaded",
-          timeout: 60_000,
-        });
+        await gotoCheckoPage(page, searchUrl, 90_000);
         await sleep(1500);
         const html = await page.content();
         if (htmlLooksLikeCheckoCaptcha(html)) {
@@ -754,10 +788,7 @@ async function scanCheckoNewRegistrationsUnlocked(
   let nextPage = startPage;
 
   try {
-    await page.goto(`${CHECKO_BASE}${CHECKO_ADVANCED_PATH}`, {
-      waitUntil: "domcontentloaded",
-      timeout: 90_000,
-    });
+    await gotoCheckoPage(page, `${CHECKO_BASE}${CHECKO_ADVANCED_PATH}`);
     await passCheckoChallengeIfNeeded(page, headed);
 
     const payload = buildFilterPayload(dateFrom, dateTo);
@@ -785,10 +816,7 @@ async function scanCheckoNewRegistrationsUnlocked(
       throw new Error(`Не удалось применить фильтр на checko (код ${filterStatus}).`);
     }
 
-    await page.goto(`${CHECKO_BASE}${CHECKO_ADVANCED_PATH}`, {
-      waitUntil: "domcontentloaded",
-      timeout: 90_000,
-    });
+    await gotoCheckoPage(page, `${CHECKO_BASE}${CHECKO_ADVANCED_PATH}`);
     await passCheckoChallengeIfNeeded(page, headed);
 
     const emptyPagesStop = Math.min(
@@ -803,7 +831,7 @@ async function scanCheckoNewRegistrationsUnlocked(
     while (companies.length < maxItems && pagesFetched < maxPages && hasMore) {
       if (pagesFetched > 0 && delayMs) await sleep(humanPauseMs(delayMs));
       const url = `${CHECKO_BASE}${buildCheckoAdvancedListUrl(pageNum, sortQuery)}`;
-      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 90_000 });
+      await gotoCheckoPage(page, url);
       await passCheckoChallengeIfNeeded(page, headed);
       pagesFetched += 1;
 
