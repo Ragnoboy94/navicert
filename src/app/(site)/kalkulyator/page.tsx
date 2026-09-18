@@ -25,6 +25,7 @@ export default function CalculatorPage() {
       phone={site.phone}
       phoneRaw={site.phoneRaw}
       email={site.email}
+      social={site.social}
     />
   );
 }

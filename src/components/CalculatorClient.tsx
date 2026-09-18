@@ -4,7 +4,8 @@ import { useState } from "react";
 import Image from "next/image";
 import { DocumentQuiz } from "@/components/DocumentQuiz";
 import { ContactForm } from "@/components/ContactForm";
-import type { QuizConfig, QuizResult } from "@/lib/types";
+import { SocialLinks } from "@/components/SocialLinks";
+import type { QuizConfig, QuizResult, SiteConfig } from "@/lib/types";
 import { Phone, Mail } from "lucide-react";
 
 type Props = {
@@ -12,9 +13,16 @@ type Props = {
   phone: string;
   phoneRaw: string;
   email: string;
+  social: SiteConfig["social"];
 };
 
-export function CalculatorClient({ quiz, phone, phoneRaw, email }: Props) {
+export function CalculatorClient({
+  quiz,
+  phone,
+  phoneRaw,
+  email,
+  social,
+}: Props) {
   const [picked, setPicked] = useState<QuizResult | null>(null);
 
   return (
@@ -28,10 +36,7 @@ export function CalculatorClient({ quiz, phone, phoneRaw, email }: Props) {
           }}
         />
         <div className="container-page relative py-12 sm:py-16 lg:py-20">
-          <p className="text-sm font-semibold tracking-wide text-accent">
-            Нависерт
-          </p>
-          <h1 className="mt-3 max-w-3xl text-3xl font-bold leading-tight sm:text-4xl lg:text-5xl">
+          <h1 className="max-w-3xl text-3xl font-bold leading-tight sm:text-4xl lg:text-5xl">
             Калькулятор документов для сертификации
           </h1>
           <p className="mt-4 max-w-2xl text-base text-blue-100 sm:text-lg">
@@ -77,6 +82,7 @@ export function CalculatorClient({ quiz, phone, phoneRaw, email }: Props) {
                   <p className="truncate font-semibold">{email}</p>
                 </div>
               </a>
+              <SocialLinks social={social} variant="hero" />
             </aside>
           </div>
         </div>
