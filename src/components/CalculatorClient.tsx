@@ -82,7 +82,11 @@ export function CalculatorClient({
                   <p className="truncate font-semibold">{email}</p>
                 </div>
               </a>
-              <SocialLinks social={social} variant="hero" />
+              <SocialLinks
+                social={social}
+                variant="hero"
+                className="w-full flex-nowrap [&>a]:min-w-0 [&>a]:flex-1 [&>a]:justify-center"
+              />
             </aside>
           </div>
         </div>

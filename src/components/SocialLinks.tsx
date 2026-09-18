@@ -23,7 +23,7 @@ export function SocialLinks({
 
   if (variant === "hero") {
     return (
-      <div className={`flex flex-wrap gap-2 ${className}`}>
+      <div className={`flex gap-2 ${className}`}>
         {links.map((item) => (
           <a
             key={item.key}
