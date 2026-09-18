@@ -19,6 +19,7 @@ import {
   Package,
   Send,
   Newspaper,
+  ListChecks,
 } from "lucide-react";
 import { SiteSettingsForm } from "@/components/admin/SiteSettingsForm";
 import { ReviewsEditor } from "@/components/admin/ReviewsEditor";
@@ -27,6 +28,7 @@ import { CasesEditor } from "@/components/admin/CasesEditor";
 import { ServicesEditor } from "@/components/admin/ServicesEditor";
 import { CategoriesEditor } from "@/components/admin/CategoriesEditor";
 import { ArticlesEditor } from "@/components/admin/ArticlesEditor";
+import { QuizEditor } from "@/components/admin/QuizEditor";
 import { LeadsPanel } from "@/components/admin/LeadsPanel";
 import { MailingsPanel } from "@/components/admin/MailingsPanel";
 import { DevJsonEditor } from "@/components/admin/DevJsonEditor";
@@ -38,6 +40,7 @@ type AdminSection =
   | "site"
   | "reviews"
   | "faq"
+  | "quiz"
   | "cases"
   | "services"
   | "categories"
@@ -75,6 +78,12 @@ const nav: {
     label: "Вопросы и ответы",
     icon: HelpCircle,
     description: "Блок FAQ на сайте",
+  },
+  {
+    id: "quiz",
+    label: "Квиз подбора",
+    icon: ListChecks,
+    description: "Вопросы и ответы калькулятора",
   },
   {
     id: "cases",
@@ -384,6 +393,7 @@ export default function AdminPage() {
           {section === "site" && <SiteSettingsForm />}
           {section === "reviews" && <ReviewsEditor />}
           {section === "faq" && <FaqEditor />}
+          {section === "quiz" && <QuizEditor />}
           {section === "cases" && <CasesEditor />}
           {section === "services" && <ServicesEditor />}
           {section === "categories" && <CategoriesEditor />}

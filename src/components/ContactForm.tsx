@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Send, Loader2, CheckCircle } from "lucide-react";
 import { PhoneInput } from "./PhoneInput";
@@ -10,12 +10,18 @@ import {
   validateLeadEmail,
   validateLeadName,
 } from "@/lib/phone";
+import type { QuizResult } from "@/lib/types";
 
 interface ContactFormProps {
   source?: string;
   service?: string;
   compact?: boolean;
   darkLabels?: boolean;
+  /** Скрыть поле e-mail и подставить значение по умолчанию (быстрый заказ) */
+  hideEmail?: boolean;
+  defaultEmail?: string;
+  /** Результат квиза — показывается в форме расчёта */
+  quizResult?: QuizResult | null;
 }
 
 export function ContactForm({
@@ -23,6 +29,9 @@ export function ContactForm({
   service,
   compact = false,
   darkLabels = false,
+  hideEmail = false,
+  defaultEmail = "",
+  quizResult = null,
 }: ContactFormProps) {
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">(
     "idle"
@@ -31,6 +40,24 @@ export function ContactForm({
   const [nameError, setNameError] = useState("");
   const [phoneKey, setPhoneKey] = useState(0);
   const [formOpenedAt] = useState(() => Date.now());
+  const [message, setMessage] = useState("");
+
+  const resolvedService = service || quizResult?.title || "";
+
+  useEffect(() => {
+    if (!quizResult) {
+      setMessage("");
+      return;
+    }
+    const lines = [quizResult.title, quizResult.description]
+      .filter(Boolean)
+      .join("\n");
+    setMessage((prev) => {
+      if (!prev.trim()) return lines;
+      if (prev.startsWith(quizResult.title)) return lines;
+      return prev;
+    });
+  }, [quizResult]);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -43,7 +70,7 @@ export function ContactForm({
     const name = String(data.get("name") || "").trim();
     const phoneRaw = String(data.get("phone") || "");
     const email = String(data.get("email") || "").trim();
-    const message = String(data.get("message") || "").trim();
+    const messageValue = String(data.get("message") || message || "").trim();
     const consent = data.get("consent");
 
     if (consent !== "on") {
@@ -79,8 +106,8 @@ export function ContactForm({
           name,
           phone,
           email: email || undefined,
-          message: message || undefined,
-          service: service || data.get("service") || undefined,
+          message: messageValue || undefined,
+          service: resolvedService || data.get("service") || undefined,
           source,
           consent: true,
           clientTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -96,6 +123,7 @@ export function ContactForm({
 
       setStatus("success");
       form.reset();
+      setMessage("");
       setPhoneKey((k) => k + 1);
     } catch (err) {
       setStatus("error");
@@ -142,6 +170,10 @@ export function ContactForm({
         />
       </div>
 
+      {resolvedService ? (
+        <input type="hidden" name="service" value={resolvedService} />
+      ) : null}
+
       <div className={compact ? "space-y-3" : "grid gap-4 sm:grid-cols-2"}>
         <div>
           <label htmlFor="name" className={labelClass}>
@@ -169,7 +201,9 @@ export function ContactForm({
         </div>
       </div>
 
-      {!compact && (
+      {hideEmail ? (
+        <input type="hidden" name="email" value={defaultEmail} />
+      ) : !compact ? (
         <div>
           <label htmlFor="email" className={labelClass}>
             E-mail
@@ -182,19 +216,25 @@ export function ContactForm({
             className="input-field"
           />
         </div>
-      )}
+      ) : null}
 
       {!compact && !service && (
         <div>
           <label htmlFor="message" className={labelClass}>
-            Сообщение
+            {quizResult ? "Комментарий к расчёту" : "Сообщение"}
           </label>
           <textarea
             id="message"
             name="message"
             rows={3}
             maxLength={2000}
-            placeholder="Опишите продукцию или задайте вопрос"
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            placeholder={
+              quizResult
+                ? "Можно уточнить продукцию или сроки"
+                : "Опишите продукцию или задайте вопрос"
+            }
             className="input-field resize-none"
           />
         </div>

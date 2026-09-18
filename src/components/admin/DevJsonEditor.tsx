@@ -14,7 +14,7 @@ const contentLabels: Record<string, string> = {
   "reviews.json": "Отзывы",
   "faq.json": "Вопросы и ответы",
   "cases.json": "Кейсы",
-  "quiz.json": "Квиз подбора",
+  "quiz.json": "Квиз подбора (лучше через меню)",
   "cities.json": "Города",
   "partners.json": "Партнёры",
   "clients.json": "Логотипы клиентов",
