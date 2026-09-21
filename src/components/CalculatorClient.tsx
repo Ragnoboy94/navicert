@@ -6,7 +6,7 @@ import { DocumentQuiz } from "@/components/DocumentQuiz";
 import { ContactForm } from "@/components/ContactForm";
 import { SocialLinks } from "@/components/SocialLinks";
 import { ArticleBodyContent } from "@/components/ArticleBodyContent";
-import type { QuizConfig, QuizResult, SiteConfig } from "@/lib/types";
+import type { QuizConfig, QuizOutcome, SiteConfig } from "@/lib/types";
 import { Phone, Mail } from "lucide-react";
 
 type Props = {
@@ -24,7 +24,7 @@ export function CalculatorClient({
   email,
   social,
 }: Props) {
-  const [picked, setPicked] = useState<QuizResult | null>(null);
+  const [picked, setPicked] = useState<QuizOutcome | null>(null);
 
   const howTitle = quiz.howItWorks?.title?.trim() || "Как это работает";
   const howBody =
@@ -115,7 +115,7 @@ export function CalculatorClient({
                   source="kalkulyator"
                   hideEmail
                   defaultEmail={email}
-                  quizResult={picked}
+                  quizOutcome={picked}
                 />
               </div>
 

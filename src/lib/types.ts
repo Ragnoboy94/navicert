@@ -75,6 +75,15 @@ export interface QuizResult {
   serviceSlug?: string;
 }
 
+/** Итог прохождения квиза: результат + путь ответов */
+export interface QuizOutcome {
+  result: QuizResult;
+  /** Человекочитаемый путь: «Пищевая → Обязательная сертификация» */
+  path: string;
+  /** true — нашлась конкретная пара в results; false — сработал default */
+  matched: boolean;
+}
+
 export interface QuizHowItWorks {
   title: string;
   /** HTML из редактора (списки, ссылки и т.д.) */

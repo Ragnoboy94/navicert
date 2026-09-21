@@ -10,7 +10,7 @@ import {
   validateLeadEmail,
   validateLeadName,
 } from "@/lib/phone";
-import type { QuizResult } from "@/lib/types";
+import type { QuizOutcome, QuizResult } from "@/lib/types";
 
 interface ContactFormProps {
   source?: string;
@@ -20,8 +20,26 @@ interface ContactFormProps {
   /** Скрыть поле e-mail и подставить значение по умолчанию (быстрый заказ) */
   hideEmail?: boolean;
   defaultEmail?: string;
-  /** Результат квиза — показывается в форме расчёта */
+  /** @deprecated используйте quizOutcome */
   quizResult?: QuizResult | null;
+  /** Итог квиза: при отсутствии пары в заявку пишется путь ответов */
+  quizOutcome?: QuizOutcome | null;
+}
+
+function messageFromQuiz(
+  outcome: QuizOutcome | null | undefined,
+  legacy: QuizResult | null | undefined
+): string {
+  if (outcome) {
+    if (!outcome.matched && outcome.path) {
+      return `Путь: ${outcome.path}`;
+    }
+    return [outcome.result.title, outcome.result.description]
+      .filter(Boolean)
+      .join("\n");
+  }
+  if (!legacy) return "";
+  return [legacy.title, legacy.description].filter(Boolean).join("\n");
 }
 
 export function ContactForm({
@@ -32,6 +50,7 @@ export function ContactForm({
   hideEmail = false,
   defaultEmail = "",
   quizResult = null,
+  quizOutcome = null,
 }: ContactFormProps) {
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">(
     "idle"
@@ -42,22 +61,32 @@ export function ContactForm({
   const [formOpenedAt] = useState(() => Date.now());
   const [message, setMessage] = useState("");
 
-  const resolvedService = service || quizResult?.title || "";
+  const activeOutcome = quizOutcome;
+  const activeResult = activeOutcome?.result ?? quizResult;
+  const resolvedService =
+    service ||
+    (activeOutcome && !activeOutcome.matched && activeOutcome.path
+      ? activeOutcome.path
+      : activeResult?.title) ||
+    "";
 
   useEffect(() => {
-    if (!quizResult) {
+    const next = messageFromQuiz(activeOutcome, quizResult);
+    if (!next) {
       setMessage("");
       return;
     }
-    const lines = [quizResult.title, quizResult.description]
-      .filter(Boolean)
-      .join("\n");
     setMessage((prev) => {
-      if (!prev.trim()) return lines;
-      if (prev.startsWith(quizResult.title)) return lines;
+      if (!prev.trim()) return next;
+      if (activeOutcome) {
+        if (!activeOutcome.matched && prev.startsWith("Путь:")) return next;
+        if (activeOutcome.matched && prev.startsWith(activeOutcome.result.title))
+          return next;
+      }
+      if (quizResult && prev.startsWith(quizResult.title)) return next;
       return prev;
     });
-  }, [quizResult]);
+  }, [activeOutcome, quizResult]);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -221,7 +250,9 @@ export function ContactForm({
       {!compact && !service && (
         <div>
           <label htmlFor="message" className={labelClass}>
-            {quizResult ? "Комментарий к расчёту" : "Сообщение"}
+            {activeResult || activeOutcome
+              ? "Комментарий к расчёту"
+              : "Сообщение"}
           </label>
           <textarea
             id="message"
@@ -231,7 +262,7 @@ export function ContactForm({
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             placeholder={
-              quizResult
+              activeResult || activeOutcome
                 ? "Можно уточнить продукцию или сроки"
                 : "Опишите продукцию или задайте вопрос"
             }

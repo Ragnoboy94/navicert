@@ -3,26 +3,47 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, RotateCcw } from "lucide-react";
-import type { QuizConfig, QuizResult } from "@/lib/types";
+import type { QuizConfig, QuizOutcome, QuizResult } from "@/lib/types";
 
-function resolveResult(
+function formatQuizPath(
   config: QuizConfig,
   answers: Record<string, string>
-): QuizResult {
+): string {
+  return config.steps
+    .map((s) => {
+      const value = answers[s.id] || "";
+      const label = s.options.find((o) => o.value === value)?.label || value;
+      return label.trim();
+    })
+    .filter(Boolean)
+    .join(" → ");
+}
+
+function resolveOutcome(
+  config: QuizConfig,
+  answers: Record<string, string>
+): QuizOutcome {
+  const path = formatQuizPath(config, answers);
   const values = config.steps.map((s) => answers[s.id] || "");
+  const fallback: QuizResult = config.results.default;
+
   if (values.includes("unknown")) {
-    return config.results.default;
+    return { result: fallback, path, matched: false };
   }
 
   const pipeKey = values.join("|");
-  if (config.results[pipeKey]) return config.results[pipeKey];
+  if (config.results[pipeKey]) {
+    return { result: config.results[pipeKey], path, matched: true };
+  }
 
   if (config.steps.length === 2) {
     const legacyKey = `${values[0]}-${values[1]}`;
-    if (config.results[legacyKey]) return config.results[legacyKey];
+    if (config.results[legacyKey]) {
+      return { result: config.results[legacyKey], path, matched: true };
+    }
   }
 
-  return config.results.default;
+  return { result: fallback, path, matched: false };
 }
 
 function clearHash() {
@@ -52,7 +73,7 @@ type DocumentQuizProps = {
   /** teaser — компактный блок на главной; page — полноценный калькулятор */
   variant?: "teaser" | "page";
   consultHref?: string;
-  onResult?: (result: QuizResult | null) => void;
+  onResult?: (outcome: QuizOutcome | null) => void;
   onReset?: () => void;
 };
 
@@ -70,7 +91,8 @@ export function DocumentQuiz({
   const [done, setDone] = useState(false);
 
   const current = config.steps[step];
-  const result = done ? resolveResult(config, answers) : null;
+  const outcome = done ? resolveOutcome(config, answers) : null;
+  const result = outcome?.result ?? null;
   const progress = useMemo(() => {
     if (done) return 100;
     if (!config.steps.length) return 0;
@@ -85,7 +107,7 @@ export function DocumentQuiz({
       setStep(step + 1);
     } else {
       setDone(true);
-      onResult?.(resolveResult(config, next));
+      onResult?.(resolveOutcome(config, next));
     }
   }
 
