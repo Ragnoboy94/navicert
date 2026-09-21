@@ -5,6 +5,7 @@ import Image from "next/image";
 import { DocumentQuiz } from "@/components/DocumentQuiz";
 import { ContactForm } from "@/components/ContactForm";
 import { SocialLinks } from "@/components/SocialLinks";
+import { ArticleBodyContent } from "@/components/ArticleBodyContent";
 import type { QuizConfig, QuizResult, SiteConfig } from "@/lib/types";
 import { Phone, Mail } from "lucide-react";
 
@@ -24,6 +25,11 @@ export function CalculatorClient({
   social,
 }: Props) {
   const [picked, setPicked] = useState<QuizResult | null>(null);
+
+  const howTitle = quiz.howItWorks?.title?.trim() || "Как это работает";
+  const howBody =
+    quiz.howItWorks?.body?.trim() ||
+    "<ol><li><p>Выберите тип продукции и задачу</p></li><li><p>Получите рекомендуемый документ</p></li><li><p>Оставьте контакты — перезвоним с расчётом</p></li></ol>";
 
   return (
     <>
@@ -54,14 +60,15 @@ export function CalculatorClient({
               />
             </div>
             <aside className="space-y-4 lg:col-span-2">
-              <div className="rounded-[1.5rem] border border-white/20 bg-white/10 p-5 backdrop-blur">
-                <p className="text-sm font-semibold">Как это работает</p>
-                <ol className="mt-3 space-y-2 text-sm text-blue-100">
-                  <li>1. Выберите тип продукции и задачу</li>
-                  <li>2. Получите рекомендуемый документ</li>
-                  <li>3. Оставьте контакты — перезвоним с расчётом</li>
-                </ol>
-              </div>
+              {howBody ? (
+                <div className="rounded-[1.5rem] border border-white/20 bg-white/10 p-5 backdrop-blur">
+                  <p className="text-sm font-semibold text-white">{howTitle}</p>
+                  <ArticleBodyContent
+                    text={howBody}
+                    className="calc-how-body mt-3 text-sm text-blue-100"
+                  />
+                </div>
+              ) : null}
               <a
                 href={`tel:${phoneRaw}`}
                 className="flex items-center gap-3 rounded-[1.5rem] border border-white/20 bg-white/10 p-4 backdrop-blur transition hover:bg-white/15"

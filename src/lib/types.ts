@@ -75,9 +75,17 @@ export interface QuizResult {
   serviceSlug?: string;
 }
 
+export interface QuizHowItWorks {
+  title: string;
+  /** HTML из редактора (списки, ссылки и т.д.) */
+  body: string;
+}
+
 export interface QuizConfig {
   title: string;
   subtitle: string;
+  /** Блок «Как это работает» на /kalkulyator */
+  howItWorks?: QuizHowItWorks;
   steps: QuizStep[];
   results: Record<string, QuizResult>;
 }

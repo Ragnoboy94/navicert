@@ -147,7 +147,11 @@ export function ArticleRichEditor({
   const slugRef = useRef(slug);
   const skipExternalSync = useRef(false);
   const toolbarFrame = useRef(0);
+  const onChangeRef = useRef(onChange);
+  /** Не слать onChange до синхронизации — иначе TipTap затирает дефолтный HTML пустым <p>. */
+  const acceptUpdates = useRef(false);
   slugRef.current = slug;
+  onChangeRef.current = onChange;
 
   const legacyMarkdown = useMemo(() => isLegacyArticleMarkdown(value), [value]);
   const editorHtml = useMemo(() => articleBodyToEditorHtml(value), [value]);
@@ -162,9 +166,12 @@ export function ArticleRichEditor({
       },
     },
     onUpdate: ({ editor: ed }) => {
+      if (!acceptUpdates.current) return;
       skipExternalSync.current = true;
       const html = normalizeArticleHtml(ed.getHTML());
-      onChange(html === "<p></p>" || html === "<p><br></p>" ? "" : html);
+      onChangeRef.current(
+        html === "<p></p>" || html === "<p><br></p>" ? "" : html
+      );
     },
     onSelectionUpdate: ({ editor: ed }) => {
       clearStoredMarks(ed);
@@ -182,14 +189,20 @@ export function ArticleRichEditor({
 
   useEffect(() => {
     if (!editor) return;
+    acceptUpdates.current = false;
     if (skipExternalSync.current) {
       skipExternalSync.current = false;
+      acceptUpdates.current = true;
       return;
     }
     const current = editor.getHTML();
     if (current !== editorHtml) {
       editor.commands.setContent(editorHtml, { emitUpdate: false });
     }
+    const t = requestAnimationFrame(() => {
+      acceptUpdates.current = true;
+    });
+    return () => cancelAnimationFrame(t);
   }, [editor, editorHtml]);
 
   useEffect(() => {
@@ -379,11 +392,22 @@ export function ArticleRichEditor({
 
       {preview ? (
         <div className="article-editor-shell min-h-[14rem] bg-white px-4 py-3">
-          {value?.trim() ? (
-            <ArticleBodyContent text={value} />
-          ) : (
-            <p className="text-sm text-muted">Текст появится здесь — как на странице /blog/…</p>
-          )}
+          {(() => {
+            const fromValue = value?.trim() || "";
+            const fromEditor = normalizeArticleHtml(editor.getHTML());
+            const previewHtml =
+              fromValue ||
+              (fromEditor === "<p></p>" || fromEditor === "<p><br></p>"
+                ? ""
+                : fromEditor);
+            return previewHtml ? (
+              <ArticleBodyContent text={previewHtml} />
+            ) : (
+              <p className="text-sm text-muted">
+                Текст появится здесь — как на странице /blog/…
+              </p>
+            );
+          })()}
         </div>
       ) : (
         <div className="article-editor-shell min-h-[14rem] bg-white">

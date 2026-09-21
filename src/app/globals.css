@@ -285,6 +285,12 @@ p {
   margin-bottom: 1rem;
 }
 
+.prose-content ol {
+  list-style: decimal;
+  padding-left: 1.5rem;
+  margin-bottom: 1rem;
+}
+
 .prose-content li {
   text-indent: 0;
 }
@@ -369,6 +375,54 @@ p {
   font-size: 0.875rem;
   color: var(--muted);
   text-indent: 0;
+}
+
+/* Блок «Как это работает» на /kalkulyator — как старая вёрстка: text-sm + светлый текст */
+.calc-how-body,
+.calc-how-body p,
+.calc-how-body li,
+.calc-how-body strong,
+.calc-how-body em,
+.calc-how-body s {
+  color: #dbeafe; /* blue-100 */
+  font-size: 0.875rem;
+  line-height: 1.5;
+  margin: 0;
+  white-space: normal;
+}
+
+.calc-how-body a {
+  color: var(--accent);
+}
+
+.calc-how-body ol,
+.calc-how-body ul {
+  margin: 0;
+  padding-left: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem; /* space-y-2 */
+}
+
+.calc-how-body ol {
+  list-style: decimal;
+}
+
+.calc-how-body ul {
+  list-style: disc;
+}
+
+.calc-how-body li > p {
+  display: inline;
+  margin: 0;
+}
+
+.calc-how-body h2,
+.calc-how-body h3 {
+  color: #fff;
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin: 0.5rem 0 0.25rem;
 }
 
 details > summary {

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronUp, Plus, Trash2 } from "lucide-react";
 import type { QuizConfig, QuizOption, QuizResult, QuizStep, Service } from "@/lib/types";
 import { loadContent, saveContent } from "./api";
+import { ArticleRichEditor } from "./ArticleRichEditor";
 import {
   AdminCard,
   Field,
@@ -23,10 +24,38 @@ type MatchRow = {
 
 const KEY_SEP = "|";
 
+const DEFAULT_HOW_IT_WORKS = {
+  title: "Как это работает",
+  body: "<ol><li><p>Выберите тип продукции и задачу</p></li><li><p>Получите рекомендуемый документ</p></li><li><p>Оставьте контакты — перезвоним с расчётом</p></li></ol>",
+};
+
+/** Старый формат howItWorks.steps → HTML для редактора. */
+function normalizeHowItWorks(
+  raw: QuizConfig["howItWorks"] | undefined
+): { title: string; body: string } {
+  if (!raw) {
+    return { ...DEFAULT_HOW_IT_WORKS };
+  }
+  const title = raw.title?.trim() || DEFAULT_HOW_IT_WORKS.title;
+  const body = (raw as { body?: string }).body?.trim() || "";
+  if (body) return { title, body };
+  const legacySteps = (raw as { steps?: string[] }).steps;
+  if (Array.isArray(legacySteps) && legacySteps.some((s) => s?.trim())) {
+    const items = legacySteps
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((s) => `<li><p>${s}</p></li>`)
+      .join("");
+    return { title, body: `<ol>${items}</ol>` };
+  }
+  return { title, body: DEFAULT_HOW_IT_WORKS.body };
+}
+
 function emptyConfig(): QuizConfig {
   return {
     title: "Какой документ вам нужен?",
     subtitle: "Ответьте на вопросы — подскажем оптимальный вариант",
+    howItWorks: { ...DEFAULT_HOW_IT_WORKS },
     steps: [
       {
         id: "category",
@@ -194,7 +223,10 @@ export function QuizEditor() {
       loadContent<Service[]>("services.json"),
     ]).then(([quiz, serviceList]) => {
       const next = quiz?.steps?.length ? quiz : emptyConfig();
-      setConfig(next);
+      setConfig({
+        ...next,
+        howItWorks: normalizeHowItWorks(next.howItWorks),
+      });
       setRows(resultsToRows(next.results || {}, next.steps));
       setFallback(
         next.results?.default || {
@@ -416,9 +448,14 @@ export function QuizEditor() {
       alert("Заполните текст у всех вопросов");
       return;
     }
+    const how = normalizeHowItWorks(config.howItWorks);
     const payload: QuizConfig = {
       title: config.title,
       subtitle: config.subtitle,
+      howItWorks: {
+        title: how.title,
+        body: how.body,
+      },
       steps,
       results: rowsToResults(rows, fallback, steps),
     };
@@ -466,6 +503,57 @@ export function QuizEditor() {
               placeholder="Ответьте на вопросы — подскажем вариант"
             />
           </Field>
+        </div>
+      </AdminCard>
+
+      <AdminCard
+        title="Блок «Как это работает»"
+        description="Карточка справа на /kalkulyator — тот же редактор, что у статей."
+      >
+        <div className="space-y-3">
+          <Field label="Заголовок блока">
+            <TextInput
+              value={config.howItWorks?.title || ""}
+              onChange={(e) =>
+                setConfig((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        howItWorks: {
+                          title: e.target.value,
+                          body: prev.howItWorks?.body || "",
+                        },
+                      }
+                    : prev
+                )
+              }
+              placeholder="Как это работает"
+            />
+          </Field>
+          <div>
+            <span className="mb-1.5 block text-sm font-medium text-foreground">
+              Текст
+            </span>
+            <ArticleRichEditor
+              key="quiz-how-it-works"
+              value={config.howItWorks?.body || ""}
+              onChange={(body) =>
+                setConfig((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        howItWorks: {
+                          title:
+                            prev.howItWorks?.title || DEFAULT_HOW_IT_WORKS.title,
+                          body,
+                        },
+                      }
+                    : prev
+                )
+              }
+              slug="kalkulyator-how-it-works"
+            />
+          </div>
         </div>
       </AdminCard>
 
