@@ -249,7 +249,15 @@ for fname in {{p.name for p in app.glob('*.md')}}:
         fi
 
         test -f data/leads.json && cp -a data/leads.json "$BK/" || true
-        test -d data && cp -a data "$BK/data-snapshot" || true
+        # Не тащить Playwright/Chromium-профили в бэкап — забивают диск
+        if [ -d data ]; then
+          mkdir -p "$BK/data-snapshot"
+          rsync -a \
+            --exclude='checko-pw-profile' \
+            --exclude='checko-pw-profile-*' \
+            --exclude='.playwright*' \
+            data/ "$BK/data-snapshot/"
+        fi
         if [ -e public/images/uploads ]; then
           mkdir -p "$BK/uploads"
           rsync -a "$(readlink -f public/images/uploads)/" "$BK/uploads/"

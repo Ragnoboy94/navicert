@@ -22,24 +22,31 @@ interface ContactFormProps {
   defaultEmail?: string;
   /** @deprecated используйте quizOutcome */
   quizResult?: QuizResult | null;
-  /** Итог квиза: при отсутствии пары в заявку пишется путь ответов */
+  /** Итог квиза: путь всегда уходит в заявку скрыто, в поле — default/свой текст */
   quizOutcome?: QuizOutcome | null;
 }
 
-function messageFromQuiz(
+/** Текст в поле для пользователя: результат квиза (в т.ч. default), без служебного пути */
+function visibleMessageFromQuiz(
   outcome: QuizOutcome | null | undefined,
   legacy: QuizResult | null | undefined
 ): string {
-  if (outcome) {
-    if (!outcome.matched && outcome.path) {
-      return `Путь: ${outcome.path}`;
-    }
-    return [outcome.result.title, outcome.result.description]
-      .filter(Boolean)
-      .join("\n");
+  const result = outcome?.result ?? legacy;
+  if (!result) return "";
+  return [result.title, result.description].filter(Boolean).join("\n");
+}
+
+/** В заявку: комментарий пользователя + путь квиза (для админки) */
+function messageForLead(
+  visible: string,
+  outcome: QuizOutcome | null | undefined
+): string {
+  const text = visible.trim();
+  if (outcome?.path) {
+    const pathLine = `Путь: ${outcome.path}`;
+    return text ? `${text}\n\n${pathLine}` : pathLine;
   }
-  if (!legacy) return "";
-  return [legacy.title, legacy.description].filter(Boolean).join("\n");
+  return text;
 }
 
 export function ContactForm({
@@ -63,30 +70,20 @@ export function ContactForm({
 
   const activeOutcome = quizOutcome;
   const activeResult = activeOutcome?.result ?? quizResult;
-  const resolvedService =
-    service ||
-    (activeOutcome && !activeOutcome.matched && activeOutcome.path
-      ? activeOutcome.path
-      : activeResult?.title) ||
-    "";
+  const resolvedService = service || activeResult?.title || "";
 
   useEffect(() => {
-    const next = messageFromQuiz(activeOutcome, quizResult);
+    const next = visibleMessageFromQuiz(activeOutcome, quizResult);
     if (!next) {
       setMessage("");
       return;
     }
     setMessage((prev) => {
       if (!prev.trim()) return next;
-      if (activeOutcome) {
-        if (!activeOutcome.matched && prev.startsWith("Путь:")) return next;
-        if (activeOutcome.matched && prev.startsWith(activeOutcome.result.title))
-          return next;
-      }
-      if (quizResult && prev.startsWith(quizResult.title)) return next;
+      if (activeResult && prev.startsWith(activeResult.title)) return next;
       return prev;
     });
-  }, [activeOutcome, quizResult]);
+  }, [activeOutcome, activeResult, quizResult]);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -99,7 +96,10 @@ export function ContactForm({
     const name = String(data.get("name") || "").trim();
     const phoneRaw = String(data.get("phone") || "");
     const email = String(data.get("email") || "").trim();
-    const messageValue = String(data.get("message") || message || "").trim();
+    const messageValue = messageForLead(
+      String(data.get("message") || message || ""),
+      activeOutcome
+    );
     const consent = data.get("consent");
 
     if (consent !== "on") {
