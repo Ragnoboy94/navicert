@@ -19,6 +19,8 @@ function revalidateSiteContent(file: string, data: unknown) {
   revalidatePath("/privacy");
   revalidatePath("/feed.xml");
   revalidatePath("/sitemap.xml");
+  revalidatePath("/llms.txt");
+  revalidatePath("/llms-full.txt");
 
   if (file === "services.json" && Array.isArray(data)) {
     for (const item of data) {
