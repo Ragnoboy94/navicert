@@ -8,6 +8,8 @@ export interface SiteConfig {
   owner: string;
   inn: string;
   ogrn: string;
+  /** Разработчик сайта (не юрлицо-владелец). */
+  developer?: string;
   copyright: string;
   year: number;
   logoMark?: string;

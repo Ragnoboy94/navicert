@@ -94,9 +94,14 @@ export function Footer({
         </div>
 
         <div className="mt-8 flex flex-col items-center justify-between gap-3 border-t border-white/10 pt-6 text-xs text-blue-400 sm:mt-10 sm:flex-row sm:pt-8 sm:text-sm">
-          <p>
-            © {site.copyright} {year}
-          </p>
+          <div className="flex flex-col items-center gap-1 sm:items-start">
+            <p>
+              © {site.copyright} {year}
+            </p>
+            {site.developer ? (
+              <p className="text-blue-500">Разработка: {site.developer}</p>
+            ) : null}
+          </div>
           <Link href="/privacy" className="hover:text-white">
             Политика конфиденциальности
           </Link>
