@@ -229,7 +229,7 @@ export function LeadsPanel() {
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {pageItems.map((lead) => (
               <AdminCard key={lead.id} className="!p-4">
-                <div className="mb-2 flex items-start justify-between gap-2">
+                <div className="mb-2 space-y-2">
                   <div className="min-w-0">
                     <p className="truncate text-base font-bold text-primary-dark">
                       {lead.name}
@@ -245,7 +245,7 @@ export function LeadsPanel() {
                     </p>
                   </div>
                   {lead.service ? (
-                    <span className="line-clamp-2 max-w-[40%] shrink-0 rounded-lg bg-accent-soft px-2 py-1 text-[11px] font-medium leading-snug text-primary">
+                    <span className="block w-full break-words rounded-lg bg-accent-soft px-2 py-1 text-[11px] font-medium leading-snug text-primary">
                       {lead.service}
                     </span>
                   ) : null}
