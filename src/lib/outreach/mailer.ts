@@ -285,6 +285,8 @@ export async function sendOutreachEmail(
     category?: OutreachCategory;
     /** Внутренний флаг: очередь уже проверена в sendOutreachBatch */
     skipQueueRefresh?: boolean;
+    /** Фиксированный вариант шаблона ДС/СС (тесты); иначе случайный */
+    templateIndex?: number;
   } = {}
 ): Promise<{ ok: true; record: OutreachSendRecord } | { ok: false; reason: string }> {
   if (!options.skipQueueRefresh && !options.manual) {
@@ -323,6 +325,7 @@ export async function sendOutreachEmail(
   const { subject, text, html } = buildOutreachEmail(declaration, {
     recipientEmail: originalRecipient,
     category,
+    templateIndex: options.templateIndex,
   });
 
   const mail: {
