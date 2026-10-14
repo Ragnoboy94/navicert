@@ -334,7 +334,6 @@ export function AdminPushSetup() {
             type="button"
             onClick={() => void disable()}
             className="btn-ghost shrink-0 gap-1.5 px-3 py-1.5 text-xs"
-            disabled={state === "busy"}
           >
             <BellOff className="h-3.5 w-3.5" />
             Выключить пуши
