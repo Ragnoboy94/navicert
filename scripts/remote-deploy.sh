@@ -49,7 +49,7 @@ export NODE_OPTIONS=--max-old-space-size=1536
 npm ci
 npm run build
 
-echo "==> pm2"
+echo "==> pm2 (tsx server.ts + WebSocket чата)"
 pm2 delete navicert 2>/dev/null || true
 pm2 start npm --name navicert -- start
 pm2 save

@@ -26,6 +26,7 @@ function sourceLabel(source: string) {
   if (source === "kalkulyator" || source === "yandex-direct") {
     return "Калькулятор";
   }
+  if (source === "chat") return "Чат";
   if (source === "local-seed") return "Тест";
   if (source === "uslugi") return "Услуги";
   return source || "Сайт";

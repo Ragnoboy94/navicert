@@ -3,48 +3,8 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, RotateCcw } from "lucide-react";
-import type { QuizConfig, QuizOutcome, QuizResult } from "@/lib/types";
-
-function formatQuizPath(
-  config: QuizConfig,
-  answers: Record<string, string>
-): string {
-  return config.steps
-    .map((s) => {
-      const value = answers[s.id] || "";
-      const label = s.options.find((o) => o.value === value)?.label || value;
-      return label.trim();
-    })
-    .filter(Boolean)
-    .join(" → ");
-}
-
-function resolveOutcome(
-  config: QuizConfig,
-  answers: Record<string, string>
-): QuizOutcome {
-  const path = formatQuizPath(config, answers);
-  const values = config.steps.map((s) => answers[s.id] || "");
-  const fallback: QuizResult = config.results.default;
-
-  if (values.includes("unknown")) {
-    return { result: fallback, path, matched: false };
-  }
-
-  const pipeKey = values.join("|");
-  if (config.results[pipeKey]) {
-    return { result: config.results[pipeKey], path, matched: true };
-  }
-
-  if (config.steps.length === 2) {
-    const legacyKey = `${values[0]}-${values[1]}`;
-    if (config.results[legacyKey]) {
-      return { result: config.results[legacyKey], path, matched: true };
-    }
-  }
-
-  return { result: fallback, path, matched: false };
-}
+import type { QuizConfig, QuizOutcome } from "@/lib/types";
+import { resolveQuizOutcome } from "@/lib/quiz-resolve";
 
 function clearHash() {
   if (typeof window === "undefined") return;
@@ -91,7 +51,7 @@ export function DocumentQuiz({
   const [done, setDone] = useState(false);
 
   const current = config.steps[step];
-  const outcome = done ? resolveOutcome(config, answers) : null;
+  const outcome = done ? resolveQuizOutcome(config, answers) : null;
   const result = outcome?.result ?? null;
   const progress = useMemo(() => {
     if (done) return 100;
@@ -107,7 +67,7 @@ export function DocumentQuiz({
       setStep(step + 1);
     } else {
       setDone(true);
-      onResult?.(resolveOutcome(config, next));
+      onResult?.(resolveQuizOutcome(config, next));
     }
   }
 

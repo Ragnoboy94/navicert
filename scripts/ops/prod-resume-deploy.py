@@ -49,7 +49,8 @@ export NODE_OPTIONS=--max-old-space-size=1536
 npm ci
 npm run outreach:setup
 npm run build
-pm2 restart navicert --update-env
+pm2 delete navicert 2>/dev/null || true
+pm2 start npm --name navicert -- start
 pm2 save
 
 echo "RESUME_OK $(git log -1 --oneline)"

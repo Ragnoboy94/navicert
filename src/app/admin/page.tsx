@@ -20,6 +20,7 @@ import {
   Send,
   Newspaper,
   ListChecks,
+  MessageCircle,
 } from "lucide-react";
 import { SiteSettingsForm } from "@/components/admin/SiteSettingsForm";
 import { ReviewsEditor } from "@/components/admin/ReviewsEditor";
@@ -31,6 +32,11 @@ import { ArticlesEditor } from "@/components/admin/ArticlesEditor";
 import { QuizEditor } from "@/components/admin/QuizEditor";
 import { LeadsPanel } from "@/components/admin/LeadsPanel";
 import { MailingsPanel } from "@/components/admin/MailingsPanel";
+import { ChatPanel } from "@/components/admin/ChatPanel";
+import {
+  AdminChatBridge,
+  useAdminChatBridge,
+} from "@/components/admin/AdminChatBridge";
 import { DevJsonEditor } from "@/components/admin/DevJsonEditor";
 import { loadLeads } from "@/components/admin/api";
 import { AdminCard } from "@/components/admin/ui";
@@ -46,6 +52,7 @@ type AdminSection =
   | "categories"
   | "articles"
   | "leads"
+  | "chat"
   | "mailings"
   | "dev";
 
@@ -114,6 +121,12 @@ const nav: {
     label: "Заявки",
     icon: Inbox,
     description: "Обращения с формы",
+  },
+  {
+    id: "chat",
+    label: "Чат",
+    icon: MessageCircle,
+    description: "Онлайн-диалоги с сайта",
   },
   {
     id: "mailings",
@@ -210,14 +223,31 @@ export default function AdminPage() {
     checkAuth();
   }, []);
 
+  useEffect(() => {
+    try {
+      const q = new URLSearchParams(window.location.search).get("section");
+      if (q && nav.some((n) => n.id === q)) {
+        setSection(q as AdminSection);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   async function checkAuth() {
-    const res = await fetch("/api/admin/content", { credentials: "same-origin" });
-    setAuthed(res.ok);
-    if (res.ok) {
-      const data = await res.json();
-      setFiles(data.files || []);
-      const leads = await loadLeads();
-      setLeadsCount(leads.length);
+    try {
+      const res = await fetch("/api/admin/content", {
+        credentials: "same-origin",
+      });
+      setAuthed(res.ok);
+      if (res.ok) {
+        const data = await res.json();
+        setFiles(data.files || []);
+        const leads = await loadLeads();
+        setLeadsCount(leads.length);
+      }
+    } catch {
+      setAuthed(false);
     }
   }
 
@@ -245,6 +275,14 @@ export default function AdminPage() {
   function goTo(id: AdminSection) {
     setSection(id);
     setMobileNav(false);
+    try {
+      const url = new URL(window.location.href);
+      if (id === "dashboard") url.searchParams.delete("section");
+      else url.searchParams.set("section", id);
+      window.history.replaceState({}, "", url.pathname + url.search);
+    } catch {
+      /* ignore */
+    }
   }
 
   const current = nav.find((n) => n.id === section)!;
@@ -296,6 +334,47 @@ export default function AdminPage() {
   }
 
   return (
+    <AdminChatBridge
+      enabled
+      muteToasts={section === "chat"}
+      onNavigateToChat={() => goTo("chat")}
+    >
+      <AdminShell
+        section={section}
+        current={current}
+        leadsCount={leadsCount}
+        mobileNav={mobileNav}
+        setMobileNav={setMobileNav}
+        goTo={goTo}
+        logout={logout}
+        files={files}
+      />
+    </AdminChatBridge>
+  );
+}
+
+function AdminShell({
+  section,
+  current,
+  leadsCount,
+  mobileNav,
+  setMobileNav,
+  goTo,
+  logout,
+  files,
+}: {
+  section: AdminSection;
+  current: (typeof nav)[number];
+  leadsCount: number;
+  mobileNav: boolean;
+  setMobileNav: (v: boolean) => void;
+  goTo: (id: AdminSection) => void;
+  logout: () => void;
+  files: string[];
+}) {
+  const { unreadTotal } = useAdminChatBridge();
+
+  return (
     <div className="flex min-h-screen">
       {mobileNav && (
         <button
@@ -344,6 +423,11 @@ export default function AdminPage() {
                   {leadsCount}
                 </span>
               )}
+              {item.id === "chat" && unreadTotal > 0 && (
+                <span className="rounded-full bg-accent px-2 py-0.5 text-xs font-bold text-white">
+                  {unreadTotal > 99 ? "99+" : unreadTotal}
+                </span>
+              )}
             </button>
           ))}
         </nav>
@@ -386,7 +470,13 @@ export default function AdminPage() {
           </div>
         </header>
 
-        <div className="flex-1 p-4 sm:p-6 lg:p-8">
+        <div
+          className={`flex-1 ${
+            section === "chat"
+              ? "p-3 sm:p-4 lg:p-8"
+              : "p-4 sm:p-6 lg:p-8"
+          }`}
+        >
           {section === "dashboard" && (
             <Dashboard leadsCount={leadsCount} onNavigate={goTo} />
           )}
@@ -399,6 +489,7 @@ export default function AdminPage() {
           {section === "categories" && <CategoriesEditor />}
           {section === "articles" && <ArticlesEditor />}
           {section === "leads" && <LeadsPanel />}
+          {section === "chat" && <ChatPanel />}
           {section === "mailings" && <MailingsPanel />}
           {section === "dev" && <DevJsonEditor files={files} />}
         </div>

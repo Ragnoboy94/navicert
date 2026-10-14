@@ -378,7 +378,9 @@ if counts_path.exists():
         npm ci
         npm run outreach:setup
         npm run build
-        pm2 restart navicert --update-env
+        # npm start = NODE_ENV=production tsx server.ts (WebSocket чата)
+        pm2 delete navicert 2>/dev/null || true
+        pm2 start npm --name navicert -- start
         pm2 save
         echo "DEPLOY_OK $(git log -1 --oneline)"
         """

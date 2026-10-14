@@ -36,6 +36,9 @@ yarn-error.log*
 
 # заявки с форм (персональные данные)
 /data/leads.json
+/data/chat-threads.json
+/data/vapid-keys.json
+/data/push-subscriptions.json
 
 # статьи и загруженные фото — только на сервере / у редактора, не в git
 /content/articles.json

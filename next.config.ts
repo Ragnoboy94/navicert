@@ -5,7 +5,12 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: process.env.NODE_ENV === "production",
   },
-  allowedDevOrigins: ["l4xkq4-92-101-127-10.ru.tuna.am"],
+  allowedDevOrigins: [
+    "127.0.0.1",
+    "localhost",
+    "*.ru.tuna.am",
+    "*.tuna.am",
+  ],
   async redirects() {
     return [
       { source: "/stati", destination: "/blog", permanent: true },

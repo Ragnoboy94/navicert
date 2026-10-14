@@ -25,7 +25,8 @@ rsync -a "$PERSIST/" content/
 python3 -c "import json, pathlib; p=pathlib.Path('$PERSIST/articles.json'); d=json.loads(p.read_text()); print('articles', len(d))"
 export NODE_OPTIONS=--max-old-space-size=1536
 npm run build
-pm2 restart navicert --update-env
+pm2 delete navicert 2>/dev/null || true
+pm2 start npm --name navicert -- start
 echo FINISH_OK
 """
 
