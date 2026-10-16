@@ -6,6 +6,14 @@ import { getChatSettings } from "@/lib/chat/settings";
 /** Chaport или свой чат — по переключателю в настройках (без кэша). */
 export function SiteChat() {
   noStore();
-  const { customChatEnabled } = getChatSettings();
-  return customChatEnabled ? <ChatWidget /> : <Chaport />;
+  const settings = getChatSettings();
+  if (!settings.customChatEnabled) return <Chaport />;
+  return (
+    <ChatWidget
+      initialLauncherColor={settings.launcherColor}
+      initialGreetingDelaySec={settings.greetingDelaySec}
+      initialOfflineAfterVisitorSec={settings.offlineAfterVisitorSec}
+      initialWaitingReplyText={settings.waitingReplyText}
+    />
+  );
 }

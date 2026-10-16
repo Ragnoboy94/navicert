@@ -41,7 +41,20 @@ function wsUrl(visitorId: string): string {
   return `${proto}//${window.location.host}${CHAT_WS_PATH}?role=visitor&visitorId=${encodeURIComponent(visitorId)}`;
 }
 
-export function ChatWidget() {
+type ChatWidgetProps = {
+  /** С сервера — чтобы иконка сразу нужного цвета, без мигания дефолта. */
+  initialLauncherColor?: string;
+  initialGreetingDelaySec?: number;
+  initialOfflineAfterVisitorSec?: number;
+  initialWaitingReplyText?: string;
+};
+
+export function ChatWidget({
+  initialLauncherColor,
+  initialGreetingDelaySec,
+  initialOfflineAfterVisitorSec,
+  initialWaitingReplyText,
+}: ChatWidgetProps) {
   const [open, setOpen] = useState(false);
   const [peek, setPeek] = useState(false);
   const [visitorId, setVisitorId] = useState("");
@@ -56,16 +69,24 @@ export function ChatWidget() {
   /** Тик, чтобы через минуту после сообщения посетителя статус стал «не в сети». */
   const [statusTick, setStatusTick] = useState(0);
   const [greetDelayMs, setGreetDelayMs] = useState(
-    DEFAULT_CHAT_SETTINGS.greetingDelaySec * 1000
+    (typeof initialGreetingDelaySec === "number" &&
+    Number.isFinite(initialGreetingDelaySec)
+      ? initialGreetingDelaySec
+      : DEFAULT_CHAT_SETTINGS.greetingDelaySec) * 1000
   );
   const [offlineAfterMs, setOfflineAfterMs] = useState(
-    DEFAULT_CHAT_SETTINGS.offlineAfterVisitorSec * 1000
+    (typeof initialOfflineAfterVisitorSec === "number" &&
+    Number.isFinite(initialOfflineAfterVisitorSec)
+      ? initialOfflineAfterVisitorSec
+      : DEFAULT_CHAT_SETTINGS.offlineAfterVisitorSec) * 1000
   );
   const [waitingReplyText, setWaitingReplyText] = useState(
-    DEFAULT_CHAT_SETTINGS.waitingReplyText
+    initialWaitingReplyText?.trim() || DEFAULT_CHAT_SETTINGS.waitingReplyText
   );
   const [launcherColor, setLauncherColor] = useState(
-    DEFAULT_CHAT_SETTINGS.launcherColor
+    initialLauncherColor && /^#[0-9a-fA-F]{6}$/.test(initialLauncherColor)
+      ? initialLauncherColor.toLowerCase()
+      : DEFAULT_CHAT_SETTINGS.launcherColor
   );
   const [lastReadByAdmin, setLastReadByAdmin] = useState<string | null>(null);
   const [offlineOffer, setOfflineOffer] = useState<OfflineOfferPhase | null>(
