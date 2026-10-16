@@ -524,6 +524,55 @@ export function ChatPanel() {
                     disabled={!settings.customChatEnabled}
                   />
                 </Field>
+                <Field
+                  label="Цвет иконки чата"
+                  hint="кнопка в углу сайта"
+                >
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="color"
+                      className="h-10 w-14 cursor-pointer rounded-lg border border-border bg-white p-1 disabled:opacity-40"
+                      value={
+                        /^#[0-9a-fA-F]{6}$/.test(settings.launcherColor)
+                          ? settings.launcherColor
+                          : "#00b8f0"
+                      }
+                      onChange={(e) =>
+                        setSettings((s) => ({
+                          ...s,
+                          launcherColor: e.target.value,
+                        }))
+                      }
+                      disabled={!settings.customChatEnabled}
+                      aria-label="Выбрать цвет иконки"
+                    />
+                    <TextInput
+                      value={settings.launcherColor}
+                      onChange={(e) =>
+                        setSettings((s) => ({
+                          ...s,
+                          launcherColor: e.target.value,
+                        }))
+                      }
+                      placeholder="#00b8f0"
+                      disabled={!settings.customChatEnabled}
+                      className="max-w-[140px] font-mono text-sm"
+                    />
+                    <span
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white shadow"
+                      style={{
+                        backgroundColor: /^#[0-9a-fA-F]{6}$/.test(
+                          settings.launcherColor
+                        )
+                          ? settings.launcherColor
+                          : "#00b8f0",
+                      }}
+                      aria-hidden
+                    >
+                      <MessageCircle className="h-5 w-5" />
+                    </span>
+                  </div>
+                </Field>
               </div>
               <div className="mt-5">
                 <SaveButton

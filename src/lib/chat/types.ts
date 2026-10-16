@@ -97,6 +97,8 @@ export type ChatSettings = {
   offlineAfterVisitorSec: number;
   /** Текст после выбора «Дождаться ответа». */
   waitingReplyText: string;
+  /** Цвет кнопки-иконки чата на сайте (#RRGGBB). */
+  launcherColor: string;
 };
 
 export const DEFAULT_CHAT_SETTINGS: ChatSettings = {
@@ -105,6 +107,7 @@ export const DEFAULT_CHAT_SETTINGS: ChatSettings = {
   greetingDelaySec: 15,
   offlineAfterVisitorSec: 60,
   waitingReplyText: "Хорошо, ответим в скором времени.",
+  launcherColor: "#00b8f0",
 };
 
 /** Сообщение прочитано собеседником, если lastRead стоит на нём или позже. */

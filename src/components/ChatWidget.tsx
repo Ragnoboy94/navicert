@@ -64,6 +64,9 @@ export function ChatWidget() {
   const [waitingReplyText, setWaitingReplyText] = useState(
     DEFAULT_CHAT_SETTINGS.waitingReplyText
   );
+  const [launcherColor, setLauncherColor] = useState(
+    DEFAULT_CHAT_SETTINGS.launcherColor
+  );
   const [lastReadByAdmin, setLastReadByAdmin] = useState<string | null>(null);
   const [offlineOffer, setOfflineOffer] = useState<OfflineOfferPhase | null>(
     null
@@ -220,6 +223,7 @@ export function ChatWidget() {
             greetingDelaySec?: number;
             offlineAfterVisitorSec?: number;
             waitingReplyText?: string;
+            launcherColor?: string;
           };
         }) => {
           const greetSec = data.settings?.greetingDelaySec;
@@ -232,6 +236,10 @@ export function ChatWidget() {
           }
           const waitText = data.settings?.waitingReplyText?.trim();
           if (waitText) setWaitingReplyText(waitText);
+          const color = data.settings?.launcherColor?.trim();
+          if (color && /^#[0-9a-fA-F]{6}$/.test(color)) {
+            setLauncherColor(color.toLowerCase());
+          }
         }
       )
       .catch(() => {
@@ -650,7 +658,8 @@ export function ChatWidget() {
       <button
         type="button"
         onClick={() => (open ? closeChat() : openChat())}
-        className="pointer-events-auto relative flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-accent to-primary text-white shadow-lg transition hover:scale-105"
+        className="pointer-events-auto relative flex h-14 w-14 items-center justify-center rounded-full text-white shadow-lg transition hover:scale-105 hover:brightness-110"
+        style={{ backgroundColor: launcherColor }}
         aria-label={
           open
             ? "Закрыть чат"
@@ -668,7 +677,10 @@ export function ChatWidget() {
               strokeWidth={2}
               aria-hidden
             />
-            <span className="relative z-10 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-white px-0.5 text-[11px] font-bold leading-none text-primary">
+            <span
+              className="relative z-10 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-white px-0.5 text-[11px] font-bold leading-none"
+              style={{ color: launcherColor }}
+            >
               {unread > 9 ? "9+" : unread}
             </span>
           </span>

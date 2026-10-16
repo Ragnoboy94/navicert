@@ -10,6 +10,7 @@ export async function GET() {
       greetingDelaySec: settings.greetingDelaySec,
       offlineAfterVisitorSec: settings.offlineAfterVisitorSec,
       waitingReplyText: settings.waitingReplyText,
+      launcherColor: settings.launcherColor,
     },
   });
 }

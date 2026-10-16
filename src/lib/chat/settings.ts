@@ -19,6 +19,20 @@ function clampOfflineAfterSec(value: unknown): number {
   return Math.min(600, Math.max(15, Math.round(n)));
 }
 
+/** #RGB / #RRGGBB → #rrggbb; иначе дефолт. */
+export function normalizeLauncherColor(value: unknown): string {
+  if (typeof value !== "string") return DEFAULT_CHAT_SETTINGS.launcherColor;
+  const raw = value.trim();
+  const short = raw.match(/^#([0-9a-fA-F]{3})$/);
+  if (short) {
+    const [r, g, b] = short[1].split("");
+    return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
+  }
+  const full = raw.match(/^#([0-9a-fA-F]{6})$/);
+  if (full) return `#${full[1]}`.toLowerCase();
+  return DEFAULT_CHAT_SETTINGS.launcherColor;
+}
+
 function normalize(raw: Partial<ChatSettings> | null | undefined): ChatSettings {
   const text =
     typeof raw?.greetingText === "string" && raw.greetingText.trim()
@@ -34,6 +48,7 @@ function normalize(raw: Partial<ChatSettings> | null | undefined): ChatSettings 
     greetingDelaySec: clampGreetingDelaySec(raw?.greetingDelaySec),
     offlineAfterVisitorSec: clampOfflineAfterSec(raw?.offlineAfterVisitorSec),
     waitingReplyText: waiting,
+    launcherColor: normalizeLauncherColor(raw?.launcherColor),
   };
 }
 
