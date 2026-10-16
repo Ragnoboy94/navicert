@@ -40,10 +40,32 @@ if [ -d "$BK/data-snapshot" ]; then
     test -f "$BK/data-snapshot/$f" && cp -a "$BK/data-snapshot/$f" "data/$f" || true
   done
 fi
+PERSIST=/var/www/navicert-persist
 if [ -d "$BK/uploads" ]; then
-  mkdir -p public/images/uploads
-  cp -a "$BK/uploads/." public/images/uploads/
+  mkdir -p "$PERSIST/images/uploads"
+  cp -a "$BK/uploads/." "$PERSIST/images/uploads/"
 fi
+if [ -d "$BK/article-images" ]; then
+  mkdir -p "$PERSIST/images/articles"
+  cp -a "$BK/article-images/." "$PERSIST/images/articles/"
+fi
+mkdir -p public/images "$PERSIST/images/uploads" "$PERSIST/images/articles"
+for sub in uploads articles; do
+  target="$PERSIST/images/$sub"
+  link="public/images/$sub"
+  mkdir -p "$target"
+  if [ -L "$link" ]; then
+    cur="$(readlink -f "$link" || true)"
+    want="$(readlink -f "$target")"
+    if [ "$cur" != "$want" ]; then rm -f "$link"; fi
+  elif [ -d "$link" ]; then
+    rsync -a "$link/" "$target/" 2>/dev/null || true
+    rm -rf "$link"
+  elif [ -e "$link" ]; then
+    rm -f "$link"
+  fi
+  if [ ! -L "$link" ]; then ln -sfn "$target" "$link"; fi
+done
 
 export NODE_OPTIONS=--max-old-space-size=1536
 npm ci

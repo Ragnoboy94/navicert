@@ -7,6 +7,7 @@ import {
 } from "@/lib/outreach/fsa-pagination";
 import {
   buildSentLookup,
+  getLastSendToRecipient,
   getOutreachTestEmail,
   getRecipientCooldownUntil,
   getSendBlockReason,
@@ -62,6 +63,7 @@ function decorateItem(
   const blockReason = getSendBlockReason(item, { category });
   const excludedFromAuto = Boolean(item.excludeFromAutoSend);
   const manualSendable = blockReason === null;
+  const lastToRecipient = email ? getLastSendToRecipient(email, sent) : null;
   return {
     ...item,
     alreadySent: sentLookup.byDeclarationId.has(item.id),
@@ -69,6 +71,8 @@ function decorateItem(
     recipientCooldownUntil: email
       ? getRecipientCooldownUntil(email, sent)
       : null,
+    /** Дата последней отправки на этот email (любая декларация), даже вне паузы. */
+    recipientLastSentAt: lastToRecipient?.sentAt ?? null,
     unsubscribed: email ? isUnsubscribed(email, category) : false,
     excludeFromAutoSend: excludedFromAuto,
     sendable: manualSendable,

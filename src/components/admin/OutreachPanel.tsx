@@ -33,6 +33,8 @@ type QueueItem = {
   alreadySent: boolean;
   recipientAlreadySent: boolean;
   recipientCooldownUntil?: string | null;
+  /** Когда последний раз писали на этот email (любая декларация). */
+  recipientLastSentAt?: string | null;
   unsubscribed: boolean;
   sendable: boolean;
   autoSendable?: boolean;
@@ -186,16 +188,45 @@ function isAutoSendableRow(item: QueueItem) {
   return item.autoSendable ?? (item.sendable && !item.excludeFromAutoSend);
 }
 
+function formatSentAtShort(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString("ru-RU", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
 function statusBadge(item: QueueItem) {
+  const wroteAt = formatSentAtShort(item.recipientLastSentAt);
+
   if (item.excludeFromAutoSend) {
     return (
       <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
         только вручную
+        {wroteAt ? ` · писали ${wroteAt}` : ""}
       </span>
     );
   }
-  // Rejected / no MX и т.п. — не «в очереди на отправку».
+  // Личные / rejected: причина уже в колонке «Причина» — в статусе важнее история писем.
   if (item.emailStatus === "rejected" || item.emailStatus === "no_email") {
+    if (item.alreadySent) {
+      return (
+        <span className="rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700">
+          отправлено
+          {wroteAt ? ` · ${wroteAt}` : ""}
+        </span>
+      );
+    }
+    if (wroteAt) {
+      return (
+        <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">
+          писали на email {wroteAt}
+        </span>
+      );
+    }
     return (
       <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">
         {item.rejectLabel ?? "не для автоотправки"}
@@ -206,6 +237,7 @@ function statusBadge(item: QueueItem) {
     return (
       <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">
         {item.rejectLabel}
+        {wroteAt ? ` · писали ${wroteAt}` : ""}
       </span>
     );
   }
@@ -213,6 +245,7 @@ function statusBadge(item: QueueItem) {
     return (
       <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">
         {item.blockLabel}
+        {wroteAt ? ` · писали ${wroteAt}` : ""}
       </span>
     );
   }
@@ -227,6 +260,7 @@ function statusBadge(item: QueueItem) {
     return (
       <span className="rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700">
         отправлено
+        {wroteAt ? ` · ${wroteAt}` : ""}
       </span>
     );
   }
@@ -239,13 +273,15 @@ function statusBadge(item: QueueItem) {
       : null;
     return (
       <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">
-        {until ? `повтор с ${until}` : "пауза на этот email"}
+        {wroteAt ? `писали ${wroteAt}` : "пауза на этот email"}
+        {until ? ` · повтор с ${until}` : ""}
       </span>
     );
   }
   return (
     <span className="rounded-full bg-background px-2 py-0.5 text-xs text-muted">
       готов к отправке
+      {wroteAt ? ` · писали ${wroteAt}` : ""}
     </span>
   );
 }

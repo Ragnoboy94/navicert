@@ -335,14 +335,28 @@ for name in ('services.json', 'categories.json', 'site.json', 'articles.json'):
             rsync -a "$src/" "$dst/"
           fi
         fi
-        mkdir -p public/images
+        # ВАЖНО: после git reset --hard tracked-файлы в public/images/uploads
+        # подменяют symlink на тонкий каталог из git — сайт «теряет» картинки.
+        # Persist при этом цел; всегда принудительно возвращаем symlink.
+        mkdir -p public/images "$PERSIST/images/uploads" "$PERSIST/images/articles"
         for sub in uploads articles; do
-          if [ -d "public/images/$sub" ] && [ ! -L "public/images/$sub" ]; then
-            rsync -a "public/images/$sub/" "$PERSIST/images/$sub/" 2>/dev/null || true
-            rm -rf "public/images/$sub"
+          target="$PERSIST/images/$sub"
+          link="public/images/$sub"
+          mkdir -p "$target"
+          if [ -L "$link" ]; then
+            cur="$(readlink -f "$link" || true)"
+            want="$(readlink -f "$target")"
+            if [ "$cur" != "$want" ]; then
+              rm -f "$link"
+            fi
+          elif [ -d "$link" ]; then
+            rsync -a "$link/" "$target/" 2>/dev/null || true
+            rm -rf "$link"
+          elif [ -e "$link" ]; then
+            rm -f "$link"
           fi
-          if [ ! -e "public/images/$sub" ]; then
-            ln -sfn "$PERSIST/images/$sub" "public/images/$sub"
+          if [ ! -L "$link" ]; then
+            ln -sfn "$target" "$link"
           fi
         done
         chmod -R u+rwX "$PERSIST/images"
