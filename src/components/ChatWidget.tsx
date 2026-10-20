@@ -268,15 +268,58 @@ export function ChatWidget({
       });
   }, [loadThread]);
 
+  /**
+   * Всплывашка с приветствием:
+   * — первый раз: создаём сообщение (ensureGreeting);
+   * — повторный заход в новой сессии браузера: то же сообщение, без дубля,
+   *   просто снова показываем peek (sessionStorage сбрасывается с закрытием браузера).
+   */
   useEffect(() => {
-    if (!visitorId || greeted) return;
+    if (!visitorId || !historyReady || open) return;
+
+    const sessionKey = `navicert_chat_peek_${visitorId}`;
+    try {
+      if (sessionStorage.getItem(sessionKey) === "1") return;
+    } catch {
+      /* private mode — всё равно покажем */
+    }
+
     greetTimerRef.current = setTimeout(() => {
-      void triggerGreeting(visitorId);
+      if (openRef.current) return;
+
+      const markSessionPeek = () => {
+        try {
+          sessionStorage.setItem(sessionKey, "1");
+        } catch {
+          /* ignore */
+        }
+      };
+
+      if (greeted) {
+        const hasAgent = messagesRef.current.some(
+          (m) => m.role === "agent" && !m.adminOnly
+        );
+        if (hasAgent) {
+          setPeek(true);
+          markSessionPeek();
+        }
+        return;
+      }
+
+      void triggerGreeting(visitorId).finally(markSessionPeek);
     }, greetDelayMs);
+
     return () => {
       if (greetTimerRef.current) clearTimeout(greetTimerRef.current);
     };
-  }, [visitorId, greeted, greetDelayMs, triggerGreeting]);
+  }, [
+    visitorId,
+    historyReady,
+    greeted,
+    greetDelayMs,
+    open,
+    triggerGreeting,
+  ]);
 
   // Две галки — только после реального действия при открытом чате.
   useActiveRead(open && Boolean(visitorId), () => {

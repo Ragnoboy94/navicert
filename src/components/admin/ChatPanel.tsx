@@ -4,7 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   MessageCircle,
+  Pencil,
   RefreshCw,
+  Search,
   Send,
   Settings,
   Star,
@@ -65,12 +67,18 @@ export function ChatPanel() {
     ...DEFAULT_CHAT_SETTINGS,
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [renaming, setRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
+  const [renameSaving, setRenameSaving] = useState(false);
   const { status: settingsStatus, run: runSettingsSave } = useSaveStatus();
   const { pendingVisitorId, clearPendingVisitorId } = useAdminChatBridge();
   const listRef = useRef<HTMLDivElement>(null);
   const knownIdsRef = useRef<Set<string>>(new Set());
   const activeIdRef = useRef<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const renameInputRef = useRef<HTMLInputElement>(null);
+  const renameSkipBlurRef = useRef(false);
 
   useEffect(() => {
     activeIdRef.current = activeId;
@@ -175,6 +183,62 @@ export function ChatPanel() {
     );
   }
 
+  function startRename() {
+    if (!thread) return;
+    setRenameValue(thread.visitorName?.trim() || "");
+    setRenaming(true);
+    requestAnimationFrame(() => renameInputRef.current?.focus());
+  }
+
+  async function saveRename() {
+    if (!thread || renameSaving) return;
+    const visitorId = thread.visitorId;
+    setRenameSaving(true);
+    try {
+      const res = await fetch("/api/admin/chat", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "rename",
+          visitorId,
+          name: renameValue,
+        }),
+      });
+      if (!res.ok) return;
+      const data = (await res.json()) as { thread?: ChatThread };
+      if (!data.thread) return;
+      const name = data.thread.visitorName ?? null;
+      setThread((prev) =>
+        prev && prev.visitorId === visitorId
+          ? { ...prev, visitorName: name }
+          : prev
+      );
+      setThreads((prev) =>
+        prev.map((t) =>
+          t.visitorId === visitorId
+            ? {
+                ...t,
+                visitorName: name,
+                searchText: [
+                  name,
+                  t.visitorPhone,
+                  t.visitorId,
+                  t.preview,
+                ]
+                  .filter(Boolean)
+                  .join("\n")
+                  .toLowerCase(),
+              }
+            : t
+        )
+      );
+      setRenaming(false);
+    } finally {
+      setRenameSaving(false);
+    }
+  }
+
   useEffect(() => {
     void loadThreads();
   }, [loadThreads]);
@@ -230,6 +294,10 @@ export function ChatPanel() {
             data.thread
           ) {
             setThreads((prev) => {
+              // Без сообщений посетителя в списке не держим.
+              if (!data.thread!.hasVisitorMessage) {
+                return prev.filter((t) => t.id !== data.thread!.id);
+              }
               const next = prev.filter((t) => t.id !== data.thread!.id);
               next.unshift({
                 ...data.thread!,
@@ -280,33 +348,54 @@ export function ChatPanel() {
                 leadId: data.thread?.leadId ?? prev.leadId,
               };
             });
-            setThreads((prev) =>
-              prev.map((t) =>
+            setThreads((prev) => {
+              const summary = data.thread;
+              const visitorWrote =
+                msg.role === "visitor" && !msg.adminOnly;
+              const exists = prev.some((t) => t.visitorId === data.visitorId);
+              // Первое сообщение посетителя — тред появляется в списке.
+              if (!exists && summary?.hasVisitorMessage && visitorWrote) {
+                return [
+                  {
+                    ...summary,
+                    favorited: Boolean(summary.favorited),
+                    preview: msg.text.slice(0, 120),
+                    lastMessageAt: msg.createdAt,
+                  },
+                  ...prev,
+                ].sort((a, b) => {
+                  if (a.favorited !== b.favorited) return a.favorited ? -1 : 1;
+                  return b.lastMessageAt.localeCompare(a.lastMessageAt);
+                });
+              }
+              return prev.map((t) =>
                 t.visitorId === data.visitorId
                   ? {
                       ...t,
+                      hasVisitorMessage:
+                        summary?.hasVisitorMessage ??
+                        (t.hasVisitorMessage || visitorWrote),
                       unreadByAdmin:
                         data.visitorId !== activeIdRef.current &&
                         isNew &&
-                        msg.role === "visitor"
-                          ? (data.thread?.unreadByAdmin ??
+                        visitorWrote
+                          ? (summary?.unreadByAdmin ??
                             (t.unreadByAdmin || 0) + 1)
-                          : (data.thread?.unreadByAdmin ?? t.unreadByAdmin),
+                          : (summary?.unreadByAdmin ?? t.unreadByAdmin),
                       preview: msg.text.slice(0, 120),
                       lastMessageAt: msg.createdAt,
                       lastReadByVisitor:
-                        data.thread?.lastReadByVisitor ?? t.lastReadByVisitor,
+                        summary?.lastReadByVisitor ?? t.lastReadByVisitor,
                       lastReadByAdmin:
-                        data.thread?.lastReadByAdmin ?? t.lastReadByAdmin,
-                      visitorName:
-                        data.thread?.visitorName ?? t.visitorName,
-                      visitorPhone:
-                        data.thread?.visitorPhone ?? t.visitorPhone,
-                      leadId: data.thread?.leadId ?? t.leadId,
+                        summary?.lastReadByAdmin ?? t.lastReadByAdmin,
+                      visitorName: summary?.visitorName ?? t.visitorName,
+                      visitorPhone: summary?.visitorPhone ?? t.visitorPhone,
+                      leadId: summary?.leadId ?? t.leadId,
+                      searchText: summary?.searchText ?? t.searchText,
                     }
                   : t
-              )
-            );
+              );
+            });
           }
         } catch {
           /* ignore */
@@ -332,6 +421,24 @@ export function ChatPanel() {
     () => threads.reduce((sum, t) => sum + (t.unreadByAdmin || 0), 0),
     [threads]
   );
+
+  const filteredThreads = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return threads;
+    return threads.filter((t) => {
+      const hay =
+        t.searchText ||
+        [t.visitorName, t.visitorPhone, t.visitorId, t.preview]
+          .filter(Boolean)
+          .join("\n")
+          .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [threads, searchQuery]);
+
+  useEffect(() => {
+    setRenaming(false);
+  }, [activeId]);
 
   async function sendReply(e: React.FormEvent) {
     e.preventDefault();
@@ -594,8 +701,24 @@ export function ChatPanel() {
               mobileChatOpen ? "hidden lg:flex" : "flex"
             }`}
           >
-            <div className="shrink-0 border-b border-border px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted">
-              Диалоги ({threads.length})
+            <div className="shrink-0 space-y-2 border-b border-border px-3 py-2">
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted">
+                Диалоги ({filteredThreads.length}
+                {searchQuery.trim() && filteredThreads.length !== threads.length
+                  ? ` из ${threads.length}`
+                  : ""}
+                )
+              </div>
+              <label className="relative block">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted" />
+                <input
+                  type="search"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Поиск по имени и тексту…"
+                  className="w-full rounded-lg border border-border bg-white py-1.5 pl-8 pr-2 text-sm outline-none focus:border-accent"
+                />
+              </label>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
               {loading && (
@@ -603,11 +726,15 @@ export function ChatPanel() {
               )}
               {!loading && threads.length === 0 && (
                 <p className="p-4 text-sm text-muted">
-                  Пока пусто. Откройте сайт и подождите ~
-                  {settings.greetingDelaySec} сек.
+                  Пока нет диалогов, где посетитель написал.
                 </p>
               )}
-              {threads.map((item) => (
+              {!loading &&
+                threads.length > 0 &&
+                filteredThreads.length === 0 && (
+                  <p className="p-4 text-sm text-muted">Ничего не найдено</p>
+                )}
+              {filteredThreads.map((item) => (
                 <div
                   key={item.id}
                   className={`flex w-full items-start gap-1 border-b border-border transition ${
@@ -711,9 +838,54 @@ export function ChatPanel() {
                     <ArrowLeft className="h-5 w-5" />
                   </button>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-primary-dark">
-                      {chatVisitorLabel(thread, { shortId: false })}
-                    </p>
+                    {renaming ? (
+                      <form
+                        className="flex items-center gap-1.5"
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          void saveRename();
+                        }}
+                      >
+                        <input
+                          ref={renameInputRef}
+                          value={renameValue}
+                          onChange={(e) => setRenameValue(e.target.value)}
+                          onBlur={() => {
+                            if (renameSkipBlurRef.current) {
+                              renameSkipBlurRef.current = false;
+                              return;
+                            }
+                            void saveRename();
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Escape") {
+                              e.preventDefault();
+                              renameSkipBlurRef.current = true;
+                              setRenaming(false);
+                            }
+                          }}
+                          disabled={renameSaving}
+                          placeholder="Имя посетителя"
+                          className="min-w-0 flex-1 rounded-lg border border-border px-2 py-1 text-sm font-semibold outline-none focus:border-accent"
+                          maxLength={120}
+                        />
+                      </form>
+                    ) : (
+                      <div className="flex min-w-0 items-center gap-1">
+                        <p className="truncate text-sm font-semibold text-primary-dark">
+                          {chatVisitorLabel(thread, { shortId: false })}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={startRename}
+                          className="shrink-0 rounded-md p-1 text-muted hover:bg-slate-100 hover:text-foreground"
+                          aria-label="Задать имя"
+                          title="Задать имя"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    )}
                     <p className="truncate text-xs text-muted">
                       {[
                         thread.visitorPhone,

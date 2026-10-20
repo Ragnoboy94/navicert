@@ -6,6 +6,7 @@ import {
   getChatThread,
   listChatThreads,
   markReadByAdmin,
+  renameChatThread,
   toggleThreadFavorite,
 } from "@/lib/chat/store";
 import type { ChatSettings } from "@/lib/chat/types";
@@ -46,6 +47,7 @@ export async function POST(request: Request) {
     action?: string;
     visitorId?: string;
     text?: string;
+    name?: string;
     settings?: Partial<ChatSettings>;
   } | null;
 
@@ -71,6 +73,14 @@ export async function POST(request: Request) {
 
   if (body.action === "favorite") {
     const thread = toggleThreadFavorite(visitorId);
+    if (!thread) {
+      return NextResponse.json({ error: "not_found" }, { status: 404 });
+    }
+    return NextResponse.json({ ok: true, thread });
+  }
+
+  if (body.action === "rename") {
+    const thread = renameChatThread(visitorId, body.name ?? "");
     if (!thread) {
       return NextResponse.json({ error: "not_found" }, { status: 404 });
     }

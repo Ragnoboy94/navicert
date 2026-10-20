@@ -19,7 +19,10 @@ export type ChatThread = {
   unreadByAdmin: number;
   /** Закреплён в избранном у админа. */
   favorited: boolean;
-  /** Имя из заявки в чате (если оформил). */
+  /**
+   * Отображаемое имя: задаёт админ вручную и/или подставляется из заявки.
+   * Если имя уже было и пришла заявка — в скобках дописывается имя из заявки.
+   */
   visitorName: string | null;
   /** Телефон из заявки в чате. */
   visitorPhone: string | null;
@@ -48,6 +51,10 @@ export type ChatThreadSummary = {
   lastReadByAdmin: string | null;
   preview: string;
   messageCount: number;
+  /** Есть ли хотя бы одно обычное сообщение посетителя (не автоприветствие/не adminOnly). */
+  hasVisitorMessage: boolean;
+  /** Нижний регистр: имя, телефон, id, тексты — для быстрого поиска в админке. */
+  searchText: string;
 };
 
 export function chatVisitorLabel(

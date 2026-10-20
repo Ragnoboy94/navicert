@@ -56,6 +56,24 @@ function writeStore(store: ChatStoreFile): void {
   fs.renameSync(tmp, STORE_PATH);
 }
 
+/** Обычное сообщение посетителя (не служебное adminOnly). */
+export function threadHasVisitorMessage(thread: ChatThread): boolean {
+  return thread.messages.some((m) => m.role === "visitor" && !m.adminOnly);
+}
+
+function buildSearchText(thread: ChatThread): string {
+  const parts = [
+    thread.visitorName,
+    thread.visitorPhone,
+    thread.visitorId,
+    ...thread.messages.map((m) => m.text),
+  ];
+  return parts
+    .filter((p): p is string => Boolean(p && String(p).trim()))
+    .join("\n")
+    .toLowerCase();
+}
+
 function summarize(thread: ChatThread): ChatThreadSummary {
   const last = thread.messages[thread.messages.length - 1];
   return {
@@ -74,6 +92,8 @@ function summarize(thread: ChatThread): ChatThreadSummary {
     lastReadByAdmin: thread.lastReadByAdmin,
     preview: last?.text?.slice(0, 120) || "",
     messageCount: thread.messages.length,
+    hasVisitorMessage: threadHasVisitorMessage(thread),
+    searchText: buildSearchText(thread),
   };
 }
 
@@ -107,11 +127,31 @@ function recomputeUnreadByAdmin(thread: ChatThread): void {
 
 export function listChatThreads(): ChatThreadSummary[] {
   return readStore()
-    .threads.map(summarize)
+    .threads.filter(threadHasVisitorMessage)
+    .map(summarize)
     .sort((a, b) => {
       if (a.favorited !== b.favorited) return a.favorited ? -1 : 1;
       return b.lastMessageAt.localeCompare(a.lastMessageAt);
     });
+}
+
+/** Задать / сбросить отображаемое имя (пустая строка → снова код посетителя). */
+export function renameChatThread(
+  visitorId: string,
+  name: string
+): ChatThread | null {
+  const store = readStore();
+  const thread = store.threads.find((t) => t.visitorId === visitorId.trim());
+  if (!thread) return null;
+  const trimmed = name.trim().slice(0, 120);
+  thread.visitorName = trimmed || null;
+  thread.updatedAt = new Date().toISOString();
+  writeStore(store);
+  chatHub.emit("thread", {
+    type: "thread_upsert",
+    thread: summarize(thread),
+  });
+  return thread;
 }
 
 /** Переключить избранное. */
@@ -198,8 +238,8 @@ function appendMessage(
   });
   chatHub.emit("thread", { type: "thread_upsert", thread: summarize(thread) });
 
-  // Push админам (PWA), параллельно сайту — не блокируем ответ WS.
-  if (role === "visitor") {
+  // Push админам (PWA); служебные adminOnly (заявка) не пушим.
+  if (role === "visitor" && !opts?.adminOnly) {
     void notifyAdminsChatPush({
       title: "Нависерт — чат",
       body: trimmed,
@@ -242,16 +282,22 @@ export function attachLeadToChatThread(input: {
   const thread = store.threads.find((t) => t.visitorId === visitorId);
   if (!thread) throw new Error("thread_missing");
 
-  thread.visitorName = name;
+  const existingName = thread.visitorName?.trim() || "";
+  thread.visitorName = existingName ? `${existingName} (${name})` : name;
   thread.visitorPhone = phone;
   thread.leadId = leadId;
   thread.updatedAt = new Date().toISOString();
   writeStore(store);
   chatHub.emit("thread", { type: "thread_upsert", thread: summarize(thread) });
 
-  const body = ["📋 Заявка оформлена", "", name, phone, "", summary].join(
-    "\n"
-  );
+  const body = [
+    "📋 Заявка оформлена",
+    "",
+    thread.visitorName,
+    phone,
+    "",
+    summary,
+  ].join("\n");
 
   return appendMessage(visitorId, "visitor", body, { adminOnly: true });
 }
