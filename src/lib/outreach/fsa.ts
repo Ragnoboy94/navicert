@@ -65,6 +65,63 @@ function pickEmailFromContacts(contacts: unknown): string | undefined {
   return undefined;
 }
 
+function pickPhoneFromContacts(contacts: unknown): string | undefined {
+  if (!Array.isArray(contacts)) return undefined;
+  for (const entry of contacts) {
+    const record = entry as JsonRecord;
+    const phone = pickString(record, [
+      "phone",
+      "phoneNumber",
+      "contactPhone",
+      "tel",
+      "value",
+    ]);
+    if (phone && /\d{10,}/.test(phone.replace(/\D/g, "")) && !phone.includes("@")) {
+      return phone;
+    }
+  }
+  return undefined;
+}
+
+function findPhoneDeep(value: unknown, depth = 0): string | undefined {
+  if (depth > 8 || value == null) return undefined;
+
+  if (typeof value === "string") {
+    if (value.includes("@")) return undefined;
+    const digits = value.replace(/\D/g, "");
+    if (digits.length >= 10 && digits.length <= 15) return value.trim();
+    return undefined;
+  }
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const found = findPhoneDeep(entry, depth + 1);
+      if (found) return found;
+    }
+    return undefined;
+  }
+
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    for (const [key, nested] of Object.entries(record)) {
+      if (
+        /phone|tel/i.test(key) &&
+        typeof nested === "string" &&
+        !nested.includes("@")
+      ) {
+        const digits = nested.replace(/\D/g, "");
+        if (digits.length >= 10) return nested.trim();
+      }
+    }
+    for (const nested of Object.values(record)) {
+      const found = findPhoneDeep(nested, depth + 1);
+      if (found) return found;
+    }
+  }
+
+  return undefined;
+}
+
 function findEmailDeep(value: unknown, depth = 0): string | undefined {
   if (depth > 8 || value == null) return undefined;
 
@@ -111,6 +168,10 @@ function applicantFromRecord(record: JsonRecord): FsaApplicant {
     pickEmailFromContacts(nested.responsibleContacts) ||
     pickEmailFromContacts(nested.contacts) ||
     pickEmailFromContacts(record.responsibleContacts);
+  const phoneFromContacts =
+    pickPhoneFromContacts(nested.responsibleContacts) ||
+    pickPhoneFromContacts(nested.contacts) ||
+    pickPhoneFromContacts(record.responsibleContacts);
 
   return {
     type: pickString(nested, ["applicantType", "type", "declarantType"]),
@@ -140,7 +201,10 @@ function applicantFromRecord(record: JsonRecord): FsaApplicant {
     address: pickString(nested, ["address", "locationAddress", "legalAddress"]),
     phone:
       pickString(nested, ["phone", "phoneNumber", "contactPhone"]) ||
-      pickString(record, ["phone", "phoneNumber", "contactPhone"]),
+      pickString(record, ["phone", "phoneNumber", "contactPhone"]) ||
+      phoneFromContacts ||
+      findPhoneDeep(nested) ||
+      findPhoneDeep(record),
     email:
       pickString(nested, [
         "email",

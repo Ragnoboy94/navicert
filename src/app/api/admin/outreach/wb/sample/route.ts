@@ -57,6 +57,12 @@ export async function POST(request: Request) {
           inn,
           ogrn: company?.ogrn,
           emails: [],
+          phones: company?.phones?.length
+            ? company.phones
+            : company?.phone
+              ? [company.phone]
+              : [],
+          phone: company?.phone,
         };
         rememberWbSeller({
           sellerId: card.sellerId,
@@ -82,6 +88,12 @@ export async function POST(request: Request) {
         ogrn: company.ogrn,
         email: company.email,
         emails: company.emails?.length ? company.emails : [company.email],
+        phone: company.phone,
+        phones: company.phones?.length
+          ? company.phones
+          : company.phone
+            ? [company.phone]
+            : [],
       };
       rememberWbSeller({
         sellerId: card.sellerId,
@@ -102,6 +114,7 @@ export async function POST(request: Request) {
           legalName: card.legalName,
           inn,
           email: company.email,
+          phone: company.phone,
           emailSource: "checko" as const,
           url: company.url,
         },
@@ -128,6 +141,7 @@ export async function POST(request: Request) {
         legalName: card.legalName,
         inn: card.inn,
         email: card.email,
+        phone: card.phone,
         emailSource: card.email ? ("wb" as const) : undefined,
         url: card.url,
       },

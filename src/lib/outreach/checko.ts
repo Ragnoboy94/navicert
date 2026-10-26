@@ -2,12 +2,13 @@
  * Парсер checko.ru для рассылки по новым организациям.
  *
  * Фаза 1 (срочная): только список /search/advanced — без карточек.
- * Фаза 2 (фон): карточки /company/... по одной, с «человеческими» паузами → email.
+ * Фаза 2 (фон): карточки /company/... по одной, с «человеческими» паузами → email + телефон.
  */
 
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { formatRuPhone, normalizeRuPhone } from "@/lib/phone";
 import type { FsaApplicant, FsaDeclaration } from "./types";
 import { ensurePlaywrightBrowsersEnv } from "./playwright-env";
 export {
@@ -67,6 +68,8 @@ export type CheckoCompany = {
   registrationDateRu?: string;
   email?: string;
   emails: string[];
+  phone?: string;
+  phones: string[];
   okved?: string;
 };
 
@@ -378,8 +381,11 @@ export function parseCheckoCompanyPage(
     (registrationDateIso ? isoToRuDate(registrationDateIso) : undefined);
 
   const contactSection =
+    html.match(
+      /(?:Телефон|Электронная почта)[\s\S]*?(?:Cоциальные сети|Социальные сети|Предложить исправление)/i
+    )?.[0] ||
     html.match(/Электронная почта[\s\S]*?(?:Веб-сайт|Предложить исправление)/i)?.[0] ||
-    html.match(/Электронная почта[\s\S]{0,1200}/i)?.[0] ||
+    html.match(/(?:Телефон|Электронная почта)[\s\S]{0,1600}/i)?.[0] ||
     "";
 
   const emails: string[] = [];
@@ -387,6 +393,15 @@ export function parseCheckoCompanyPage(
     const email = raw.trim().toLowerCase();
     if (!email || /checko\.ru/i.test(email)) return;
     if (!emails.includes(email)) emails.push(email);
+  };
+
+  const phones: string[] = [];
+  const pushPhone = (raw: string) => {
+    const normalized = normalizeRuPhone(raw);
+    if (!normalized) return;
+    const display = formatRuPhone(normalized);
+    if (!display || phones.includes(display)) return;
+    phones.push(display);
   };
 
   const mailRe = /mailto:([A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,})/gi;
@@ -411,6 +426,15 @@ export function parseCheckoCompanyPage(
     }
   }
 
+  const telRe = /tel:(\+?[\d\-\s()]+)/gi;
+  while ((em = telRe.exec(contactSection || html))) pushPhone(em[1]);
+  const textPhoneRe =
+    /(?:Телефон|Номер телефона|Phone)[^0-9+]{0,40}(\+?[78][\d\-\s()]{9,18})/gi;
+  while ((em = textPhoneRe.exec(contactSection || html))) pushPhone(em[1]);
+  if (phones.length === 0) {
+    while ((em = telRe.exec(html))) pushPhone(em[1]);
+  }
+
   return {
     path,
     url: `${CHECKO_BASE}${path}`,
@@ -422,6 +446,8 @@ export function parseCheckoCompanyPage(
     registrationDateRu,
     email: emails[0],
     emails,
+    phone: phones[0],
+    phones,
     okved: parseCheckoOkved(html),
   };
 }
@@ -522,6 +548,7 @@ export function checkoCompanyToDeclaration(
     shortName: company.shortName,
     fullName: company.fullName || company.shortName,
     email: company.email,
+    phone: company.phone,
   };
 
   return {
@@ -545,6 +572,7 @@ function listItemToCompany(item: CheckoListItem): CheckoCompany {
     shortName: item.name,
     fullName: item.name,
     emails: [],
+    phones: [],
   };
 }
 
@@ -1133,7 +1161,7 @@ async function enrichCheckoUrlOnPage(
     if (postLoadPause > 0) await sleep(humanPauseMs(postLoadPause));
     const company = parseCheckoCompanyPage(await page.content(), companyPath);
     checkoDebug(
-      `[checko-enrich] ${company.ogrn || companyPath} | ${company.shortName || "—"} | email=${company.email || "нет"} | all=${company.emails.join(",") || "—"}`
+      `[checko-enrich] ${company.ogrn || companyPath} | ${company.shortName || "—"} | email=${company.email || "нет"} | phone=${company.phone || "нет"} | all=${company.emails.join(",") || "—"}`
     );
     return { url, company };
   } catch (error) {

@@ -1090,6 +1090,7 @@ export async function enrichQueueBatch(
               applicant: {
                 ...item.applicant,
                 email: company.email,
+                phone: company.phone || item.applicant?.phone,
                 shortName:
                   item.applicant?.shortName || company.shortName,
                 fullName: item.applicant?.fullName || company.fullName,

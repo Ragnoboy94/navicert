@@ -14,6 +14,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { Agent, ProxyAgent, fetch as undiciFetch } from "undici";
+import { formatRuPhone, normalizeRuPhone } from "@/lib/phone";
 import type { FsaApplicant, FsaDeclaration } from "./types";
 import {
   getFsaProxy,
@@ -61,6 +62,8 @@ export type WbSellerCard = {
   ogrn?: string;
   email?: string;
   emails: string[];
+  phone?: string;
+  phones: string[];
 };
 
 export type WbSeenRecord = {
@@ -116,6 +119,9 @@ type WbSupplierJson = {
   taxpayerCode?: string;
   email?: string;
   emails?: string[];
+  phone?: string;
+  telephone?: string;
+  phones?: string[];
 };
 
 function sleep(ms: number): Promise<void> {
@@ -199,6 +205,14 @@ function pushEmail(list: string[], raw: string | undefined): void {
   if (!list.includes(email)) list.push(email);
 }
 
+function pushPhone(list: string[], raw: string | undefined): void {
+  const normalized = normalizeRuPhone(String(raw || ""));
+  if (!normalized) return;
+  const display = formatRuPhone(normalized);
+  if (!display || list.includes(display)) return;
+  list.push(display);
+}
+
 function cleanName(raw: string | undefined): string | undefined {
   const name = String(raw || "")
     .replace(/\\u([0-9a-f]{4})/gi, (_, hex) =>
@@ -218,6 +232,10 @@ export function applyWbSupplierJson(
   const emails = [...card.emails];
   pushEmail(emails, json.email);
   for (const item of json.emails || []) pushEmail(emails, item);
+  const phones = [...(card.phones || [])];
+  pushPhone(phones, json.phone);
+  pushPhone(phones, json.telephone);
+  for (const item of json.phones || []) pushPhone(phones, item);
   const trademark = cleanName(json.trademark);
   const shortName = cleanName(json.supplierName);
   const fullName = cleanName(json.supplierFullName);
@@ -237,6 +255,8 @@ export function applyWbSupplierJson(
     ogrn,
     email: emails[0] || card.email,
     emails,
+    phone: phones[0] || card.phone,
+    phones,
   };
 }
 
@@ -353,6 +373,7 @@ export function wbSellerToDeclaration(card: WbSellerCard): FsaDeclaration {
     shortName: card.name || name,
     fullName: name,
     email: card.email,
+    phone: card.phone,
   };
   const today = new Intl.DateTimeFormat("ru-RU", {
     timeZone: "Europe/Moscow",
@@ -385,6 +406,7 @@ export async function loadWbSellerCard(
       sellerId: id,
       url: `${WB_BASE}/seller/${id}`,
       emails: [],
+      phones: [],
     },
     json
   );

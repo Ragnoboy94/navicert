@@ -6,6 +6,7 @@ import {
   Calendar,
   ChevronDown,
   Mail,
+  Phone,
   Power,
   RefreshCw,
   Search,
@@ -46,6 +47,7 @@ type QueueItem = {
     shortName?: string;
     fullName?: string;
     email?: string;
+    phone?: string;
     inn?: string;
   };
 };
@@ -356,7 +358,7 @@ function QueueTable({
             {!hideEndDate && (
               <th className="px-3 py-2 font-medium">Окончание</th>
             )}
-            <th className="px-3 py-2 font-medium">Email</th>
+            <th className="px-3 py-2 font-medium">Контакты</th>
             <th className="px-3 py-2 font-medium">
               {isWb
                 ? "Откуда почта"
@@ -392,10 +394,16 @@ function QueueTable({
                 <td className="px-3 py-3 whitespace-nowrap">{item.endDate}</td>
               )}
               <td className="px-3 py-3">
-                <span className="inline-flex items-center gap-1">
-                  <Mail className="h-3.5 w-3.5 text-muted" />
-                  {item.applicant?.email || "—"}
-                </span>
+                <div className="flex flex-col gap-1">
+                  <span className="inline-flex items-center gap-1">
+                    <Mail className="h-3.5 w-3.5 shrink-0 text-muted" />
+                    {item.applicant?.email || "—"}
+                  </span>
+                  <span className="inline-flex items-center gap-1 text-muted">
+                    <Phone className="h-3.5 w-3.5 shrink-0" />
+                    {item.applicant?.phone || "—"}
+                  </span>
+                </div>
               </td>
               <td className="max-w-xs truncate px-3 py-3 text-muted">
                 {isWb
@@ -726,6 +734,7 @@ export function OutreachPanel({
     legalName?: string;
     inn?: string;
     email?: string;
+    phone?: string;
     emailSource?: "wb" | "checko";
     url?: string;
     checkoNoEmail?: boolean;
@@ -1474,6 +1483,7 @@ export function OutreachPanel({
               name: json.card.name || prev.name,
               legalName: json.card.legalName || prev.legalName,
               email: json.card.email,
+              phone: json.card.phone || prev.phone,
               emailSource: "checko",
               checkoNoEmail: false,
             }
@@ -1972,6 +1982,9 @@ export function OutreachPanel({
                   <p className="text-muted">
                     ИНН: {wbSample.inn || "—"}
                   </p>
+                  {wbSample.phone ? (
+                    <p className="text-muted">{wbSample.phone}</p>
+                  ) : null}
                   {wbSample.email ? (
                     <p className="break-all">
                       {wbSample.email}
