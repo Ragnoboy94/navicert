@@ -3,8 +3,13 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { checkoProfileLockPath } from "./checko-profile-path";
 
-const BLOCK_FILE = path.join(process.cwd(), "data", "checko-access-block.json");
+const BLOCK_FILE = path.join(
+  /* turbopackIgnore: true */ process.cwd(),
+  "data",
+  "checko-access-block.json"
+);
 
 /** По умолчанию 25 мин — после SmartCaptcha повтор раньше почти бесполезен. */
 export function getCheckoCooldownMs(): number {
@@ -72,15 +77,13 @@ export function clearCheckoBlock(): void {
 }
 
 /** Простая файловая блокировка профиля — scan и enrich не должны открывать Chrome одновременно. */
-const PROFILE_LOCK = path.join(process.cwd(), "data", "checko-pw-profile.lock");
-
 export async function withCheckoProfileLock<T>(
   fn: () => Promise<T>,
   options?: { waitMs?: number; label?: string; lockPath?: string }
 ): Promise<T> {
   const waitMs = options?.waitMs ?? 120_000;
   const label = options?.label || "checko";
-  const lockFile = options?.lockPath ?? PROFILE_LOCK;
+  const lockFile = options?.lockPath ?? checkoProfileLockPath(0);
   const started = Date.now();
   const dir = path.dirname(lockFile);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });

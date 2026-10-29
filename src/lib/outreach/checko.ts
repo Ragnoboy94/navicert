@@ -27,6 +27,10 @@ import {
 import { NEW_REG_CHECKO_ACTIVITY_IDS } from "./new-reg-okved-data";
 import { buildCheckoAdvancedListUrl } from "./checko-pagination";
 import { getFsaProxy, playwrightProxyOptions } from "./fsa-proxy-shared";
+import {
+  checkoProfileDir,
+  checkoProfileLockPath,
+} from "./checko-profile-path";
 
 export const CHECKO_BASE = "https://checko.ru";
 export const CHECKO_ADVANCED_PATH = "/search/advanced";
@@ -198,18 +202,6 @@ async function gotoCheckoPage(
   throw lastError instanceof Error
     ? lastError
     : new Error(String(lastError ?? "checko goto failed"));
-}
-
-function checkoProfileDir(slot = 0): string {
-  return slot <= 0
-    ? path.join(process.cwd(), "data", "checko-pw-profile")
-    : path.join(process.cwd(), "data", `checko-pw-profile-${slot}`);
-}
-
-function checkoProfileLockPath(slot = 0): string {
-  return slot <= 0
-    ? path.join(process.cwd(), "data", "checko-pw-profile.lock")
-    : path.join(process.cwd(), "data", `checko-pw-profile-${slot}.lock`);
 }
 
 function checkoListDelayMs(optionsDelay?: number): number {
