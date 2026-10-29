@@ -1,6 +1,7 @@
 "use client";
 
 import { useDeferredValue, useMemo, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, Package } from "lucide-react";
 import type { Category } from "@/lib/types";
@@ -58,19 +59,36 @@ export function CategoriesSearchList({ categories }: Props) {
           <Link
             key={category.slug}
             href={`/produkciya/${category.slug}`}
-            className="group rounded-xl border border-border bg-card p-6 transition hover:border-primary/30 hover:shadow-md"
+            className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition hover:border-primary/30 hover:shadow-md"
           >
-            <Package className="h-6 w-6 text-primary" />
-            <h2 className="mt-3 font-semibold group-hover:text-primary">
-              {category.title}
-            </h2>
-            <p className="mt-2 line-clamp-2 text-sm text-muted">
-              {category.description}
-            </p>
-            <span className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-primary">
-              Подробнее
-              <ArrowRight className="h-3.5 w-3.5" />
-            </span>
+            {category.image ? (
+              <div className="relative aspect-[16/10] bg-accent-soft">
+                <Image
+                  src={category.image}
+                  alt=""
+                  fill
+                  className="object-cover transition group-hover:scale-[1.02]"
+                  sizes="(max-width: 768px) 100vw, 360px"
+                  unoptimized
+                />
+              </div>
+            ) : (
+              <div className="flex aspect-[16/10] items-center justify-center bg-accent-soft text-primary">
+                <Package className="h-8 w-8 opacity-60" />
+              </div>
+            )}
+            <div className="flex flex-1 flex-col p-6">
+              <h2 className="font-semibold group-hover:text-primary">
+                {category.title}
+              </h2>
+              <p className="mt-2 line-clamp-2 text-sm text-muted">
+                {category.description}
+              </p>
+              <span className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-primary">
+                Подробнее
+                <ArrowRight className="h-3.5 w-3.5" />
+              </span>
+            </div>
           </Link>
         ))}
       </div>

@@ -7,6 +7,7 @@ import type { Category } from "@/lib/types";
 import { MarkdownContent } from "@/lib/markdown";
 import { buildCategorySeo, uniqueSlug } from "@/lib/seo-content";
 import { loadContent, saveContent } from "./api";
+import { ImageUpload } from "./ImageUpload";
 import { AdminCard, Field, TextInput, TextArea, SaveButton, useSaveStatus } from "./ui";
 
 const FORMAT_HELP = `Пример оформления:
@@ -293,6 +294,17 @@ export function CategoriesEditor() {
                   value={cat.description}
                   onChange={(e) => updateDescription(openIndex, e.target.value)}
                   className="min-h-[80px]"
+                />
+              </Field>
+              <Field
+                label="Фото в списке продукции"
+                hint="Показывается только на /produkciya в карточке категории, не на самой странице категории."
+              >
+                <ImageUpload
+                  value={cat.image}
+                  onChange={(url) => update(openIndex, { image: url })}
+                  name={`category-${cat.slug}`}
+                  folder="uploads"
                 />
               </Field>
               <Field

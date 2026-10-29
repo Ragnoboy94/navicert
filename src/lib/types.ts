@@ -145,6 +145,8 @@ export interface Category {
   description: string;
   /** Основной текст страницы (Markdown): заголовки, списки, жирный. */
   body?: string;
+  /** Превью на /produkciya (не на странице категории). */
+  image?: string;
   documents: string[];
   seo: {
     title: string;
